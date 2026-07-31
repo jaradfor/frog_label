@@ -1,0 +1,4 @@
+# Notes
+
+- Spectrogram must not rescale at slower speeds — traced into `node_modules/wavesurfer.js/dist/plugins/spectrogram.js`, which has zero references to playback rate. It renders once from the decoded buffer via FFT; playback speed can't touch it. This part of the concern is unfounded as currently built.
+- Playback position indicator must move at the selected speed and stay synchronized with the audio at every speed, including after seeking/pausing/restarting — verified live in the browser at 0.25x speed by capturing wavesurfer's actual `<audio>` element and its shadow-DOM cursor node, then comparing `audio.currentTime` against the cursor's implied position. Diffs stayed in the single-digit-to-low-double-digit millisecond range (rAF frame jitter, not a real bug) across mid-playback, paused-after-seek, resumed-after-seek, and restart-after-natural-end scenarios. Confirmed met as currently implemented.
