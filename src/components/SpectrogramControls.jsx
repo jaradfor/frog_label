@@ -179,7 +179,7 @@ function SpectrogramControls({ zoomX, setZoomX, duration, setVisibleTime, theme,
     <div className='flex items-center justify-center gap-2 flex-wrap'>
       <div style={{ backgroundColor: theme.group }} className='p-1.5 rounded-xl flex items-center gap-1'>
       <button onClick={handlePlayAudio}
-        style={{ backgroundColor: isVPressed ? theme.audioButtonPressed : theme.audioButton, color: theme.buttonsText }}
+        style={{ backgroundColor: isVPressed ? theme.audioButtonPressed : theme.audioButton, color: theme.audioButtonText }}
         onMouseEnter={(e) => !isVPressed && (e.currentTarget.style.backgroundColor = theme.audioButtonHover)}
         onMouseLeave={(e) => !isVPressed && (e.currentTarget.style.backgroundColor = theme.audioButton)}
         className='px-2 py-1.5 text-xs rounded-md font-display whitespace-nowrap cursor-pointer flex items-center gap-1'>

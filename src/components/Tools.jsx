@@ -15,7 +15,10 @@ const TOOL_SPECTRO = 3;
 const PANEL_BOX_FILE = 2;
 const PANEL_SPECTROGRAM = 3;
 
-function Tools({ theme, frogTheme }) {
+// Icon contrast depends on how bright the button surface is, not which skin
+// is active — frog-dark and default-dark both need white icons, so this
+// keys off `lightMode` rather than the (now brightness-independent) frog skin.
+function Tools({ theme, lightMode }) {
     const [isTPressed, setIsTPressed] = useState(false);
     const { setShowLeftPanel, setRightPanel, setShowDataset, currTool, setCurrTool, rightPanel, showLeftPanel } = usePanels();
     const currToolRef = useRef(currTool);
@@ -116,21 +119,21 @@ function Tools({ theme, frogTheme }) {
                     onMouseEnter={(e) => currTool !== TOOL_DEFAULT && (e.currentTarget.style.backgroundColor = theme.buttonsHover)}
                     onMouseLeave={(e) => currTool !== TOOL_DEFAULT && (e.currentTarget.style.backgroundColor = theme.buttons)}
                     className='px-2 py-1.5 text-xs rounded-md font-display whitespace-nowrap cursor-pointer flex items-center gap-1'>
-                    <img src={frogTheme ? defaultBlack : defaultWhite} className='w-4 h-4' />
+                    <img src={lightMode ? defaultBlack : defaultWhite} className='w-4 h-4' />
                 </button>
                 <button onClick={() => applyTool(TOOL_CROSSHAIR)}
                     style={{ backgroundColor: currTool === TOOL_CROSSHAIR ? theme.buttonsPressed : theme.buttons, color: theme.buttonsText }}
                     onMouseEnter={(e) => currTool !== TOOL_CROSSHAIR && (e.currentTarget.style.backgroundColor = theme.buttonsHover)}
                     onMouseLeave={(e) => currTool !== TOOL_CROSSHAIR && (e.currentTarget.style.backgroundColor = theme.buttons)}
                     className='px-2 py-1.5 text-xs rounded-md font-display whitespace-nowrap cursor-pointer flex items-center gap-1'>
-                    <img src={frogTheme ? crosshairBlack : crosshairWhite} className='w-4 h-4' />
+                    <img src={lightMode ? crosshairBlack : crosshairWhite} className='w-4 h-4' />
                 </button>
                 <button onClick={() => applyTool(TOOL_SPECTRO)}
                     style={{ backgroundColor: currTool === TOOL_SPECTRO ? theme.buttonsPressed : theme.buttons, color: theme.buttonsText }}
                     onMouseEnter={(e) => currTool !== TOOL_SPECTRO && (e.currentTarget.style.backgroundColor = theme.buttonsHover)}
                     onMouseLeave={(e) => currTool !== TOOL_SPECTRO && (e.currentTarget.style.backgroundColor = theme.buttons)}
                     className='px-2 py-1.5 text-xs rounded-md font-display whitespace-nowrap cursor-pointer flex items-center gap-1'>
-                    <img src={frogTheme ? moonBlack : moonWhite} className='w-4 h-4' />
+                    <img src={lightMode ? moonBlack : moonWhite} className='w-4 h-4' />
                 </button>
             </div>
         </div>
