@@ -26,7 +26,7 @@ function App() {
 }
 
 function AppContent({ config, onLogout }) {
-  const { theme, frogTheme, setFrogTheme } = useTheme();
+  const { theme, setFrogTheme, lightMode, setLightMode } = useTheme();
 
   const { currentTask, selectedAudio, boxes, setBoxes, submitAnnotation } = useAnnotationSession(config);
   const audioFilename = selectedAudio ? selectedAudio.split('/').pop()?.split('?')[0] : null;
@@ -129,6 +129,8 @@ function AppContent({ config, onLogout }) {
       <Header
         theme={theme}
         setFrogTheme={setFrogTheme}
+        lightMode={lightMode}
+        setLightMode={setLightMode}
         onSubmit={submitAnnotation}
         onLogout={onLogout}
       />
@@ -195,7 +197,7 @@ function AppContent({ config, onLogout }) {
             />
             <Tools
               theme={theme}
-              frogTheme={frogTheme}
+              lightMode={lightMode}
             />
           </div>
 

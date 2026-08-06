@@ -216,13 +216,13 @@ function WaveformSpectrogram({
                                 style={{
                                     top: Math.min(freqToY(freq, lowCutoff, highCutoff, yScale), spectroHeight - 1),
                                     transform: 'translateY(-50%)',
-                                    color: 'white',
+                                    color: theme.text,
                                 }}
                             >
                                 {freq} Hz
                             </span>
                         ))
-                        : <span className="absolute right-1 text-[12px] font-display" style={{ color: 'white' }}>0 Hz</span>
+                        : <span className="absolute right-1 text-[12px] font-display" style={{ color: theme.text }}>0 Hz</span>
                     }
                 </div>
 

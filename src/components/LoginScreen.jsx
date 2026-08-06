@@ -1,9 +1,10 @@
 import { useState } from 'react';
 import frogIdLogo from '../assets/frog_id_logo.png';
 import { useTheme } from '../hooks/useTheme';
+import LightModeToggle from './LightModeToggle';
 
 function LoginScreen({ defaultFormValues, onLogin }) {
-    const { theme } = useTheme();
+    const { theme, lightMode, setLightMode } = useTheme();
     const [demoMode, setDemoMode] = useState(defaultFormValues.demoMode);
     const [token, setToken] = useState(defaultFormValues.token);
     const [projectId, setProjectId] = useState(defaultFormValues.projectId);
@@ -130,6 +131,10 @@ function LoginScreen({ defaultFormValues, onLogin }) {
                         {demoMode ? 'Start Demo' : 'Connect'}
                     </button>
                 </form>
+
+                <div className="flex justify-center mt-4">
+                    <LightModeToggle theme={theme} lightMode={lightMode} setLightMode={setLightMode} />
+                </div>
             </div>
         </div>
     );
