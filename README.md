@@ -20,7 +20,6 @@ Additionally, we also have the [adapters](https://github.com/caileymm/froglabel-
   
 ```bash 
         froglabel-studio/
-        ├── .DS_Store
         ├── .gitignore
         ├── README.md
         ├── eslint.config.js
@@ -31,7 +30,6 @@ Additionally, we also have the [adapters](https://github.com/caileymm/froglabel-
         │   ├── favicon.svg
         │   └── icons.svg
         ├── src/
-        │   ├── .DS_Store
         │   ├── App.css
         │   ├── App.jsx
         │   ├── adapters/
