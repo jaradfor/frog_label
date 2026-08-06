@@ -85,7 +85,7 @@ function AppContent({ config, onLogout }) {
       duration:  (endTime - startTime).toFixed(3),
       startFreq: Math.round(startFreq),
       endFreq:   Math.round(endFreq),
-      bandwidth: Math.round(startFreq - endFreq),
+      bandwidth: Math.round(endFreq - startFreq),
     };
   }, [codesDict]);
 
@@ -158,7 +158,6 @@ function AppContent({ config, onLogout }) {
               zoomX={zoomX}
               setZoomX={setZoomX}
               duration={duration}
-              setVisibleTime={setVisibleTime}
               theme={theme}
               setDrawingBox={setDrawingBox}
             />

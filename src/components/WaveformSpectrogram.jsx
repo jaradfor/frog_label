@@ -143,7 +143,7 @@ function WaveformSpectrogram({
                       }),
                   ],
               });
-               setModifyBandPass(false); 
+               setModifyBandPass(false);
 
               ws.on('ready', () => {
                   const totalDur = ws.getDuration();
@@ -151,6 +151,26 @@ function WaveformSpectrogram({
                   setVisibleTime({ start: 0, end: totalDur });
                   setSpectroReady(true);
               });
+
+              // Keep visibleTime in sync with wavesurfer's actual scroll position/width
+              // instead of computing it from a locally-tracked zoom value, so playback
+              // auto-scroll, drag-to-seek, and any container resize (browser zoom, OS
+              // window snap, sidebar toggles) all stay reflected accurately.
+              const syncVisibleTime = () => {
+                  const wrapper = ws.getWrapper()?.parentElement;
+                  if (!wrapper) return;
+                  const { scrollLeft, scrollWidth, clientWidth } = wrapper;
+                  const dur = ws.getDuration();
+                  if (!scrollWidth || !dur) return;
+                  setVisibleTime({
+                      start: (scrollLeft / scrollWidth) * dur,
+                      end: Math.min(dur, ((scrollLeft + clientWidth) / scrollWidth) * dur),
+                  });
+              };
+
+              ws.on('scroll', (start, end) => setVisibleTime({ start, end }));
+              ws.on('zoom', syncVisibleTime);
+              ws.on('resize', syncVisibleTime);
 
               wavesurferRef.current = ws;
             }).catch((error) => {
