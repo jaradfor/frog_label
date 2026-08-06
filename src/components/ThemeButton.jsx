@@ -1,8 +1,9 @@
-function ThemeButton({ theme, onClick, children, className = '', type = 'button', active = false }) {
+function ThemeButton({ theme, onClick, children, className = '', type = 'button', active = false, ...rest }) {
     return (
         <button
             type={type}
             onClick={onClick}
+            {...rest}
             style={{
                 backgroundColor: active ? theme.buttonsPressed : theme.buttons,
                 color: theme.buttonsText,

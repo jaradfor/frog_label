@@ -1,8 +1,9 @@
 import frogIdLogo from '.././assets/frog_id_logo.png'
 import frog from '.././assets/frog.png'
 import ThemeButton from './ThemeButton'
+import LightModeToggle from './LightModeToggle'
 
-function Header({ theme, setFrogTheme, onSubmit, onLogout, showActions = true }) {
+function Header({ theme, setFrogTheme, lightMode, setLightMode, onSubmit, onLogout, showActions = true }) {
     return (
         <div
             style={{ backgroundColor: theme.header }}
@@ -33,6 +34,11 @@ function Header({ theme, setFrogTheme, onSubmit, onLogout, showActions = true })
             <div className="flex flex-1 items-center justify-end gap-2 min-w-0">
                 {showActions && (
                     <>
+                        <LightModeToggle
+                            theme={theme}
+                            lightMode={lightMode}
+                            setLightMode={setLightMode}
+                        />
                         <ThemeButton
                             theme={theme}
                             onClick={onSubmit}
