@@ -14,7 +14,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           cache: npm
 
       - run: npm ci
@@ -30,6 +30,9 @@ jobs:
         with:
           fetch-depth: 0
 
-      - uses: gitleaks/gitleaks-action@v2
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      # Runs the open-source gitleaks scanner directly (no license needed).
+      # gitleaks/gitleaks-action requires a paid GITLEAKS_LICENSE for
+      # GitHub orgs, even on public repos, so we skip that wrapper.
+      - uses: docker://ghcr.io/gitleaks/gitleaks:latest
+        with:
+          args: detect --source . --redact -v
