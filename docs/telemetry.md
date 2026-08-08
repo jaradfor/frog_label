@@ -1,3 +1,5 @@
+**Note: Apologies for the AI-Slop, we anticipate re-writing this for clarity. For now, an LLM can ingest this and make changes as needed.**
+
 # Telemetry (Phase 1)
 
 Automatic, anonymous usage telemetry for FrogLabel — built so testers (starting with the
