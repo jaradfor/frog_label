@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect } from 'react';
 import { freqToY, yToFreq } from '../utils/spectrogramScale';
 import moonCursor from '../assets/moon_cursor.png';
+import { track } from '../telemetry/telemetry';
 
 const BoundingBoxLayer = ({
   code,
@@ -22,6 +23,7 @@ const BoundingBoxLayer = ({
   const [localWidth, setLocalWidth] = useState(0);
   const resizeState = useRef(null);
   const containerRef = useRef(null);
+  const drawStartedAtRef = useRef(null);
 
   // Track width for responsiveness
   useEffect(() => {
@@ -100,6 +102,7 @@ const BoundingBoxLayer = ({
 
     setActiveBox({ startX: x, startY: y, currentX: x, currentY: y });
     setIsDrawing(true);
+    drawStartedAtRef.current = Date.now();
   };
 
   const handleMouseMove = (e) => {
@@ -191,6 +194,18 @@ const BoundingBoxLayer = ({
 
   const handleMouseUp = (e) => {
     if (resizeState.current) {
+      const { boxId, corner, originalBox } = resizeState.current;
+      const finalBox = boxes.find((b) => b.id === boxId);
+      if (finalBox) {
+        track('box_resized', {
+          corner,
+          code: finalBox.code,
+          deltaStartTimeSec: +(finalBox.startTime - originalBox.startTime).toFixed(3),
+          deltaEndTimeSec: +(finalBox.endTime - originalBox.endTime).toFixed(3),
+          deltaStartFreqHz: Math.round(finalBox.startFreq - originalBox.startFreq),
+          deltaEndFreqHz: Math.round(finalBox.endFreq - originalBox.endFreq),
+        });
+      }
       resizeState.current = null;
       setDrawingBox?.(null);
       return;
@@ -225,8 +240,16 @@ const BoundingBoxLayer = ({
           code,
         },
       ]);
+
+      track('box_created', {
+        code,
+        durationSec: +(endTime - startTime).toFixed(3),
+        bandwidthHz: Math.round(endFreq - startFreq),
+        drawDurationMs: drawStartedAtRef.current ? Date.now() - drawStartedAtRef.current : null,
+      });
     }
 
+    drawStartedAtRef.current = null;
     setActiveBox(null);
     setIsDrawing(false);
     setDrawingBox?.(null);

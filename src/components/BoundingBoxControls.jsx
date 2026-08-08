@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
+import { track } from '../telemetry/telemetry';
 
 function BoundingBoxControls({
   code,
@@ -12,6 +13,7 @@ function BoundingBoxControls({
   theme,
 }) {
   const inputRef = useRef(null);
+  const codeEntryStartedAtRef = useRef(null);
   const [isError, setIsError] = useState(false);
 
   const [isSpacePressed, setIsSpacePressed] = useState(false);
@@ -22,6 +24,7 @@ function BoundingBoxControls({
 
   const handleSetCode = () => {
     setCode('');
+    codeEntryStartedAtRef.current = Date.now();
     inputRef.current?.focus();
     inputRef.current?.select();
   };
@@ -32,15 +35,20 @@ function BoundingBoxControls({
       setCode(value);
       setIsError(false);
       if (value.length === 3) {
+        const entryStartedAt = codeEntryStartedAtRef.current;
+        codeEntryStartedAtRef.current = null;
+        const entryDurationMs = entryStartedAt ? Date.now() - entryStartedAt : null;
         // Delay blur to allow typing to complete
         setTimeout(() => {
           if (Object.keys(codesDict).includes(value)) {
             setCurrTool(2);
             setIsError(false);
+            track('code_entry_success', { code: value, entryDurationMs });
           } else {
             setCode('');
             setIsError(true);
             setTimeout(() => setIsError(false), 1000);
+            track('code_entry_error', { attemptedCode: value, validCodesCount: Object.keys(codesDict).length });
           }
           inputRef.current?.blur();
         }, 100); // Short delay to prevent interruption
@@ -59,6 +67,13 @@ function BoundingBoxControls({
 
   const handleDeleteBox = () => {
     if (currSelectedBoxId !== -1) {
+      const deletedBox = boxes.find((box) => box.id === currSelectedBoxId);
+      // Box ids created by the draw tool are Date.now() at creation time, so this
+      // doubles as a creation timestamp; ids loaded from a backend annotation
+      // aren't, so only report an age when it looks plausible (drawn < 24h ago).
+      const rawAgeMs = typeof currSelectedBoxId === 'number' ? Date.now() - currSelectedBoxId : null;
+      const ageMs = rawAgeMs != null && rawAgeMs >= 0 && rawAgeMs < 24 * 60 * 60 * 1000 ? rawAgeMs : null;
+      track('box_deleted', { code: deletedBox?.code ?? null, ageMs });
       setBoxes((prev) => prev.filter((box) => box.id !== currSelectedBoxId));
       setCurrSelectedBoxId(-1);
     }

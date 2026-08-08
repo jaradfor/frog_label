@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import frogIdLogo from '../assets/frog_id_logo.png';
 import { useTheme } from '../hooks/useTheme';
+import { track } from '../telemetry/telemetry';
 import LightModeToggle from './LightModeToggle';
 
 function LoginScreen({ defaultFormValues, onLogin }) {
@@ -20,6 +21,7 @@ function LoginScreen({ defaultFormValues, onLogin }) {
     }
 
     const ok = onLogin({ demoMode, token, projectId, lsUrl: defaultFormValues.lsUrl });
+    track('login_screen_choice', { demoMode, success: ok });
     if (!ok) setError('Could not connect. Check your settings and try again.');
   };
 

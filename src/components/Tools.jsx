@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
+import { track } from '../telemetry/telemetry';
 import defaultBlack from '../assets/default_black.png';
 import defaultWhite from '../assets/default_white.png';
 import crosshairBlack from '../assets/crosshair_black.png';
@@ -53,7 +54,11 @@ function Tools({ theme, lightMode }) {
 
   // Icon buttons + T — select tool; tools 2 & 3 also open their panel
   const applyTool = useCallback(
-    (tool) => {
+    (tool, viaKeyboard = false) => {
+      const fromTool = currToolRef.current;
+      if (fromTool !== tool) {
+        track('tool_changed', { fromTool, toTool: tool, viaKeyboard });
+      }
       if (tool === TOOL_DEFAULT) {
         setCurrTool(TOOL_DEFAULT);
         setRightPanel(null);
@@ -74,15 +79,18 @@ function Tools({ theme, lightMode }) {
     [setCurrTool, setRightPanel, setShowLeftPanel],
   );
 
-  const handleChangeTool = useCallback(() => {
-    const curr = currToolRef.current;
-    let nextTool;
-    if (curr === TOOL_DEFAULT) nextTool = TOOL_CROSSHAIR;
-    else if (curr === TOOL_CROSSHAIR) nextTool = TOOL_SPECTRO;
-    else nextTool = TOOL_DEFAULT;
+  const handleChangeTool = useCallback(
+    (viaKeyboard = false) => {
+      const curr = currToolRef.current;
+      let nextTool;
+      if (curr === TOOL_DEFAULT) nextTool = TOOL_CROSSHAIR;
+      else if (curr === TOOL_CROSSHAIR) nextTool = TOOL_SPECTRO;
+      else nextTool = TOOL_DEFAULT;
 
-    applyTool(nextTool);
-  }, [applyTool]);
+      applyTool(nextTool, viaKeyboard);
+    },
+    [applyTool],
+  );
 
   useEffect(() => {
     if (!rightPanel && !showLeftPanel) {
@@ -96,11 +104,11 @@ function Tools({ theme, lightMode }) {
       if (isInputFocused) return;
       if (e.key.toUpperCase() === 'T') {
         setIsTPressed(true);
-        handleChangeTool();
+        handleChangeTool(true);
       }
-      if (e.key === '1') applyTool(TOOL_DEFAULT);
-      if (e.key === '2') applyTool(TOOL_CROSSHAIR);
-      if (e.key === '3') applyTool(TOOL_SPECTRO);
+      if (e.key === '1') applyTool(TOOL_DEFAULT, true);
+      if (e.key === '2') applyTool(TOOL_CROSSHAIR, true);
+      if (e.key === '3') applyTool(TOOL_SPECTRO, true);
       if (e.key === '4') handleChangeToTool4();
     };
     const handleKeyUp = (e) => {
@@ -120,7 +128,7 @@ function Tools({ theme, lightMode }) {
       className="py-2 rounded-xl flex items-center justify-center gap-2 w-60 mx-auto"
     >
       <button
-        onClick={handleChangeTool}
+        onClick={() => handleChangeTool(false)}
         style={{
           backgroundColor: isTPressed ? theme.buttonsPressed : theme.buttons,
           color: theme.buttonsText,

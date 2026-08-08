@@ -55,3 +55,7 @@ coverage/
 
 # Local scratch notes (never commit)
 work-summary.md
+
+# Wrangler local state / local secrets
+.wrangler/
+.dev.vars
