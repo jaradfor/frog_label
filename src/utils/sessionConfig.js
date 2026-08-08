@@ -4,33 +4,33 @@ export const DEFAULT_LS_URL = import.meta.env.VITE_LS_URL || 'http://localhost:8
 let activeConfig = null;
 
 export function getDefaultFormValues() {
-    return {
-        demoMode: import.meta.env.VITE_DEMO_MODE === 'true',
-        token: '',
-        projectId: String(import.meta.env.VITE_LS_PROJECT_ID || ''),
-        lsUrl: DEFAULT_LS_URL,
-    };
+  return {
+    demoMode: import.meta.env.VITE_DEMO_MODE === 'true',
+    token: '',
+    projectId: String(import.meta.env.VITE_LS_PROJECT_ID || ''),
+    lsUrl: DEFAULT_LS_URL,
+  };
 }
 
 export function isValidConfig(config) {
-    if (!config) return false;
-    if (config.demoMode) return true;
-    return Boolean(config.token?.trim() && config.projectId?.trim());
+  if (!config) return false;
+  if (config.demoMode) return true;
+  return Boolean(config.token?.trim() && config.projectId?.trim());
 }
 
 export function getSessionConfig() {
-    return activeConfig;
+  return activeConfig;
 }
 
 export function setSessionConfig(config) {
-    activeConfig = config;
+  activeConfig = config;
 }
 
 export function clearSessionConfig() {
-    activeConfig = null;
-    clearStoredConfig(); // cleans up anything previously saved
+  activeConfig = null;
+  clearStoredConfig(); // cleans up anything previously saved
 }
 
 function clearStoredConfig() {
-    localStorage.removeItem(STORAGE_KEY);
+  localStorage.removeItem(STORAGE_KEY);
 }
