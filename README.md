@@ -154,6 +154,7 @@ Additionally, we also have the [adapters](https://github.com/caileymm/froglabel-
 
 ## IMPORTANT LINKS
 
+- [TELEMETRY](docs/telemetry.md) - automatic, anonymous usage tracking for testers (Phase 1)
 - [FINAL PRESENTATION](https://docs.google.com/presentation/d/1TOCNL7Rg-TOa_IB5ZToZK-hIDA3hgP1P7RpdjB0QWuo/edit?usp=sharing)
 - [FINAL VIDEO](https://drive.google.com/file/d/1pu6PP8UIsiFl7K6Xt0NvXc5laxh9SYaq/view?usp=drive_link)
 - [INSTRUCTIONS TO USE THE FRONT END](here)
