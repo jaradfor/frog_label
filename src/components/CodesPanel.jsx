@@ -33,7 +33,7 @@ function CodesPanel({ codesDict, setCodesDict, theme }) {
         setSpeciesName('');
     };
 
-    const filteredCodes = Object.entries(codesDict).filter(([c, name]) =>
+    const filteredCodes = Object.entries(codesDict).filter(([, name]) =>
         name.toLowerCase().includes(search.toLowerCase())
     );
 

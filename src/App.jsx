@@ -1,5 +1,5 @@
 import './App.css'
-import { usePanels } from './components/PanelContext';
+import { usePanels } from './hooks/usePanels';
 import Header from './components/Header'
 import BoundingBoxControls from './components/BoundingBoxControls'
 import WaveformSpectrogram from './components/WaveformSpectrogram'
@@ -30,10 +30,7 @@ function AppContent({ config, onLogout }) {
 
   const { currentTask, selectedAudio, boxes, setBoxes, submitAnnotation } = useAnnotationSession(config);
   const audioFilename = selectedAudio ? selectedAudio.split('/').pop()?.split('?')[0] : null;
-  const {sampleRate, setSampleRate} = usePanels();
   const {currTool, setCurrTool} = usePanels();
-  const {lowCutoff, highCutoff} = usePanels();
-  const {yScale} = usePanels();
 
   const [code, setCode] = useState('');
   const [codesDict, setCodesDict] = useState({
@@ -53,12 +50,12 @@ function AppContent({ config, onLogout }) {
   const currSelectedIndex = boxes.findIndex(b => b.id === currSelectedBoxId);
 
   const [zoomX, setZoomX] = useState(1);
-  const [isPlaying, setIsPlaying] = useState(false);
+  const [isPlaying] = useState(false);
 
-  const { showLeftPanel, setShowLeftPanel, rightPanel, setRightPanel, showDataset, setShowDataset } = usePanels();
+  const { showLeftPanel, rightPanel, showDataset } = usePanels();
 
   const [duration, setDuration] = useState(0);
-  const [containerWidth, setContainerWidth] = useState(0);
+  const [, setContainerWidth] = useState(0);
   const [drawingBox, setDrawingBox] = useState(null);
 
   const wavesurferRef = useRef(null);

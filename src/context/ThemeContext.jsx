@@ -1,7 +1,6 @@
-import { createContext, useState, useMemo, useEffect } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { resolveTheme } from '../utils/theme';
-
-export const ThemeContext = createContext(null);
+import { ThemeContext } from '../hooks/useTheme';
 
 const LIGHT_MODE_STORAGE_KEY = 'froglabel-light-mode';
 

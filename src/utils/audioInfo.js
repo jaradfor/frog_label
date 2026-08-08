@@ -10,7 +10,6 @@ export async function getAudioInfo(audioSrc) {
   await tempContext.close();
 
   const sampleRate = audioBuffer.sampleRate;
-  const channelData = audioBuffer.getChannelData(0);
 
   // --- Step 2: Proper FFT using OfflineAudioContext ---
   const fftSize = 8192;

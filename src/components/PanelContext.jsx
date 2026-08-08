@@ -1,9 +1,8 @@
-import { createContext, useContext, useState, useEffect, useRef } from 'react';
+import { useState, useRef } from 'react';
 import { SCALE, FREQUENCY_MIN, FREQUENCY_MAX, FFT_SAMPLES } from "../utils/spectrogramConfig";
+import { PanelContext } from '../hooks/usePanels';
 
-//all variables that need to be accessed by multiple files will be created and saved here to be accessed. 
-const PanelContext = createContext(null);
-
+//all variables that need to be accessed by multiple files will be created and saved here to be accessed.
 export function PanelProvider({ children }) {
   const [currTool,      setCurrTool] = useState(1);
   const [showLeftPanel, setShowLeftPanel] = useState(false);
@@ -13,7 +12,6 @@ export function PanelProvider({ children }) {
   const [contrast,      setContrast] = useState(1.0);
   const [yScale,        setYScale] = useState(SCALE);
   const [colorScale,    setColorScale] = useState('roseus');
-  const [bandPassFilter,setbandPassFilter] = useState(false);
   const [FFTSamples,    setFFTSamples] = useState(FFT_SAMPLES);
   const [windowFunction,setWindowFunction ] = useState('hann');
   const [overlap,       setOverlap ] = useState(0);
@@ -66,7 +64,6 @@ export function PanelProvider({ children }) {
       highCutoff,    setHighCutoff,
       modifyBandPass,setModifyBandPass,
       sampleRate,    setSampleRate,
-      yScale,        setYScale,
       handleSpectroMouseDown,
       handleSpectroMouseMove,
       handleSpectroMouseUp,
@@ -74,10 +71,4 @@ export function PanelProvider({ children }) {
       {children}
     </PanelContext.Provider>
   );
-}
-
-export function usePanels() {
-  const ctx = useContext(PanelContext);
-  if (!ctx) throw new Error('usePanels must be used inside <PanelProvider>');
-  return ctx;
 }

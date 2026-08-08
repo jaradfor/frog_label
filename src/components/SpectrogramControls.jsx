@@ -1,10 +1,9 @@
 import { useState, useEffect, useCallback } from 'react';
-import { wavesurferRef } from './WaveformSpectrogram.jsx';
-import { usePanels } from './PanelContext';
+import { wavesurferRef } from '../utils/wavesurferRef';
 
 
 
-function SpectrogramControls({ zoomX, setZoomX, duration, theme, setDrawingBox }) {
+function SpectrogramControls({ duration, theme, setDrawingBox }) {
   const [isVPressed, setIsVPressed] = useState(false);
   const [isAPressed, setIsAPressed] = useState(false);
   const [isDPressed, setIsDPressed] = useState(false);
@@ -20,8 +19,6 @@ function SpectrogramControls({ zoomX, setZoomX, duration, theme, setDrawingBox }
   
 
 
-  const { lowCutoff, highCutoff, setLowCutoff, setHighCutoff } = usePanels();
-  const { maxFreq } = usePanels();
   const SPEEDS = [0.25, 0.5, 0.75, 1, 1.25, 1.5, 2];
 
 

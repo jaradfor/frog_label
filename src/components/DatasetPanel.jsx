@@ -1,5 +1,3 @@
-import { useState } from 'react';
-
 function DatasetPanel({ rows, onDeleteRow, theme }) {
     const colClass = 'flex-1 flex items-center justify-center px-1 font-display text-sm';
 

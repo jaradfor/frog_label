@@ -46,7 +46,9 @@ export function useAnnotationSession(config) {
         }
     }, [config]);
 
+    // Fetch the first task on mount / whenever the session config changes.
     useEffect(() => {
+        // eslint-disable-next-line react-hooks/set-state-in-effect
         loadNextTask();
     }, [loadNextTask]);
 

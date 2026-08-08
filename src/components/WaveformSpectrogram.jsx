@@ -3,20 +3,18 @@ import { useEffect, useState, useRef, useMemo } from "react";
 import Spectrogram from "wavesurfer.js/dist/plugins/spectrogram.esm.js";
 import WaveSurfer from "wavesurfer.js";
 import TimelinePlugin from 'wavesurfer.js/dist/plugins/timeline.esm.js';
-import { WAVEFORM_HEIGHT, SCALE, SPECTROGRAM_HEIGHT, FREQUENCY_MIN, FREQUENCY_MAX, FFT_SAMPLES } from "../utils/spectrogramConfig";
+import { WAVEFORM_HEIGHT, SPECTROGRAM_HEIGHT } from "../utils/spectrogramConfig";
 import { freqToY, yToFreq } from '../utils/spectrogramScale';
 import { fetchAuthenticatedAudio } from '../api/labelStudio';
 import { getAudioInfo } from '../utils/audioInfo';
-import { usePanels } from './PanelContext';
+import { usePanels } from '../hooks/usePanels';
+import { wavesurferRef } from '../utils/wavesurferRef';
 import moonCursor from '../assets/moon_cursor.png';
 
 import generateViridis from '../color_palettes/viridis.jsx'
 import generateMagma from '../color_palettes/magma.jsx'
 import generateInferno from "../color_palettes/inferno.jsx";
 import generatePlasma from '../color_palettes/plasma.jsx'
-
-
-export const wavesurferRef = { current: null };
 
 function WaveformSpectrogram({
     selectedAudio,
@@ -25,7 +23,6 @@ function WaveformSpectrogram({
     setBoxes,
     currSelectedBoxId,
     setCurrSelectedBoxId,
-    duration,
     setDuration,
     setDrawingBox,
     visibleTime,
@@ -49,8 +46,8 @@ function WaveformSpectrogram({
     const { overlap } = usePanels();
     const { modifyBandPass, setModifyBandPass } = usePanels();
     const { lowCutoff, highCutoff, setHighCutoff} = usePanels();
-    const { maxFreq, setMaxFreq} = usePanels();
-    const { sampleRate, setSampleRate} = usePanels();
+    const { setMaxFreq } = usePanels();
+    const { setSampleRate } = usePanels();
     const viridisMap = generateViridis();
     const magmaMap = generateMagma();
     const infernoMap = generateInferno();

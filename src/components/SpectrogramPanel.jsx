@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { usePanels } from './PanelContext';
+import { usePanels } from '../hooks/usePanels';
 import generateViridis from '../color_palettes/viridis.jsx'
 import generateMagma from '../color_palettes/magma.jsx';
 import generateInferno from '../color_palettes/inferno.jsx'
@@ -25,7 +25,11 @@ function SliderWithInput({
 
     const format = (v) => (decimals === 0 ? String(Math.round(v)) : Number(v).toFixed(decimals));
 
+    // Re-sync the text draft from the external value whenever it changes elsewhere
+    // (e.g. another control moves the same setting), but only while this input
+    // isn't focused, so we never clobber text the user is actively typing.
     useEffect(() => {
+        // eslint-disable-next-line react-hooks/set-state-in-effect
         if (!focused) setDraft(format(value));
     }, [value, focused, decimals]);
 
@@ -44,12 +48,6 @@ function SliderWithInput({
         const final = decimals === 0 ? clamped : parseFloat(clamped.toFixed(decimals));
         onChange(final);
         setDraft(format(final));
-    };
-
-    const inputStyle = {
-        backgroundColor: theme.textInput,
-        color: theme.textInputText,
-        '--placeholder-color': theme.placeholderText,
     };
 
     return (
@@ -101,13 +99,17 @@ function SpectrogramPanel({ theme }) {
     const { windowFunction, setWindowFunction } = usePanels();
     const { overlap, setOverlap } = usePanels();
     const { maxFreq } = usePanels();
-    const { modifyBandPass, setModifyBandPass } = usePanels();
+    const { setModifyBandPass } = usePanels();
     const { lowCutoff, setLowCutoff } = usePanels();
     const { highCutoff, setHighCutoff } = usePanels();
     const [pendingLow, setPendingLow] = useState(lowCutoff);
     const [pendingHigh, setPendingHigh] = useState(highCutoff);
 
+    // Keep the pending (unapplied) slider values in sync when the applied
+    // cutoff changes elsewhere (e.g. "Reset" or a newly loaded audio file).
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     useEffect(() => { setPendingLow(lowCutoff); }, [lowCutoff]);
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     useEffect(() => { setPendingHigh(highCutoff); }, [highCutoff]);
 
 
@@ -123,7 +125,6 @@ function SpectrogramPanel({ theme }) {
     ]
 
     const colorName = colorScales.find(c => c.name === colorScale) || colorScales[0];
-    const selected = colorName.colorMap;
     const titleClass = 'font-display text-md';
     const labelClass = 'font-display text-sm';
     const metaClass = 'font-display text-xs';

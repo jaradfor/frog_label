@@ -6,7 +6,7 @@ function BoundingBoxControls({ code, setCode, codesDict, boxes, setBoxes, currSe
   
   const [isSpacePressed, setIsSpacePressed] = useState(false);
   const [isTabPressed, setIsTabPressed] = useState(false);
-  const [isShiftVPressed, setIsShiftVPressed] = useState(false);
+  const [, setIsShiftVPressed] = useState(false);
   const [isShiftDPressed, setIsShiftDPressed] = useState(false);
   const [isEscPressed, setIsEscPressed] = useState(false);
 

@@ -1,6 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
 import { freqToY, yToFreq } from '../utils/spectrogramScale';
-import { SPECTROGRAM_HEIGHT } from '../utils/spectrogramConfig';
 import moonCursor from '../assets/moon_cursor.png';
 
 const BoundingBoxLayer = ({ 
@@ -36,8 +35,10 @@ const BoundingBoxLayer = ({
         return () => ro.disconnect();
     }, []);
 
-    // Clear drawing/resizing state when view changes
+    // Clear drawing/resizing state when the visible viewport changes (e.g. scroll/zoom),
+    // so a stale in-progress box doesn't carry over into the new view.
     useEffect(() => {
+        // eslint-disable-next-line react-hooks/set-state-in-effect
         setActiveBox(null);
         setIsDrawing(false);
         resizeState.current = null;

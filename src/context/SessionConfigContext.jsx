@@ -1,12 +1,11 @@
-import { createContext, useState, useCallback, useMemo } from 'react';
+import { useState, useCallback, useMemo } from 'react';
 import {
     setSessionConfig,
     clearSessionConfig,
     isValidConfig,
     getDefaultFormValues,
 } from '../utils/sessionConfig';
-
-export const SessionConfigContext = createContext(null);
+import { SessionConfigContext } from '../hooks/useSessionConfig';
 
 export function SessionConfigProvider({ children }) {
     const [config, setConfig] = useState(null);

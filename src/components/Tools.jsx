@@ -5,7 +5,7 @@ import crosshairBlack from '../assets/crosshair_black.png';
 import crosshairWhite from '../assets/crosshair_white.png';
 import moonBlack from '../assets/moon_black.png';
 import moonWhite from '../assets/moon_white.png';
-import { usePanels } from './PanelContext';
+import { usePanels } from '../hooks/usePanels';
 
 // Tool numbers match panel badges: tool 1 = default, tool 2 = crosshair/box file, tool 3 = moon/spectrogram
 const TOOL_DEFAULT = 1;
