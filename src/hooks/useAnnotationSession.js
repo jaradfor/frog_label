@@ -1,8 +1,9 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { demoAdapter } from '../adapters/demoAdapter';
 import { labelStudioCeAdapter } from '../adapters/labelStudioCeApiAdapter';
 import { resolveTaskAudioUrl } from '../api/labelStudio';
 import { lsResultsToBoxes } from '../serializers/labelStudioCeResults';
+import { track, setTelemetryTaskId } from '../telemetry/telemetry';
 
 function resolveAudioUrl(task) {
   const audioPath = Object.values(task.data ?? {})[0];
@@ -13,6 +14,7 @@ export function useAnnotationSession(config) {
   const [currentTask, setCurrentTask] = useState(null);
   const [selectedAudio, setSelectedAudio] = useState(null);
   const [boxes, setBoxes] = useState([]);
+  const taskStartedAtRef = useRef(null);
 
   const loadNextTask = useCallback(async () => {
     if (!config) return;
@@ -23,6 +25,8 @@ export function useAnnotationSession(config) {
       const task = await adapter.getNextTask();
       if (!task || !task.data) {
         console.warn('No task returned or task has no data:', task);
+        setTelemetryTaskId(null);
+        track('tasks_exhausted', { demoMode: config.demoMode });
         setCurrentTask(null);
         setSelectedAudio(null);
         setBoxes([]);
@@ -31,15 +35,16 @@ export function useAnnotationSession(config) {
 
       setCurrentTask(task);
       setSelectedAudio(resolveAudioUrl(task));
+      setTelemetryTaskId(task.id);
+      taskStartedAtRef.current = Date.now();
 
       const existing = task.annotations?.[0];
-      if (existing?.result?.length) {
-        setBoxes(lsResultsToBoxes(existing.result));
-      } else {
-        setBoxes([]);
-      }
+      const startingBoxes = existing?.result?.length ? lsResultsToBoxes(existing.result) : [];
+      setBoxes(startingBoxes);
+      track('task_started', { demoMode: config.demoMode, startingBoxCount: startingBoxes.length });
     } catch (error) {
       console.error('Error loading task:', error);
+      setTelemetryTaskId(null);
       setCurrentTask(null);
       setSelectedAudio(null);
       setBoxes([]);
@@ -56,6 +61,7 @@ export function useAnnotationSession(config) {
     if (!currentTask || !config) return;
 
     const adapter = config.demoMode ? demoAdapter : labelStudioCeAdapter;
+    const wallClockMs = taskStartedAtRef.current ? Date.now() - taskStartedAtRef.current : null;
 
     try {
       const existing = currentTask.annotations?.[0];
@@ -64,9 +70,21 @@ export function useAnnotationSession(config) {
       } else {
         await adapter.submitAnnotation(currentTask.id, boxes);
       }
+      track('task_submitted', {
+        success: true,
+        boxCount: boxes.length,
+        wallClockMs,
+        demoMode: config.demoMode,
+      });
       await loadNextTask();
     } catch (error) {
       console.error('Error submitting annotation:', error);
+      track('task_submitted', {
+        success: false,
+        boxCount: boxes.length,
+        wallClockMs,
+        demoMode: config.demoMode,
+      });
     }
   }, [currentTask, boxes, loadNextTask, config]);
 

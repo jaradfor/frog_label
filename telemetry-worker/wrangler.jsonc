@@ -1,0 +1,22 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "frog-label-telemetry",
+  "main": "src/index.js",
+  "compatibility_date": "2026-08-08",
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "frog-label-telemetry",
+      "database_id": "855dd7dd-8e88-4fc0-8e3f-07c746154427",
+      "migrations_dir": "./migrations",
+    },
+  ],
+  "vars": {
+    // Comma-separated allowlist of origins permitted to POST events.
+    // The deployed GitHub Pages origin plus common local Vite dev ports.
+    "ALLOWED_ORIGINS": "https://ucsd-e4e.github.io,http://localhost:5173,http://127.0.0.1:5173,http://localhost:4173",
+  },
+  "observability": {
+    "enabled": true,
+  },
+}
