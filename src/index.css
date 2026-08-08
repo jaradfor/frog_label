@@ -1,15 +1,15 @@
-@import "tailwindcss";
+@import 'tailwindcss';
 
 @theme {
-    --font-display: "Afacad", sans-serif;
+  --font-display: 'Afacad', sans-serif;
 }
 
 body {
-    margin: 0;
+  margin: 0;
 }
 
 .afacad-font {
-  font-family: "Afacad", sans-serif;
+  font-family: 'Afacad', sans-serif;
   font-optical-sizing: auto;
   font-style: normal;
 }

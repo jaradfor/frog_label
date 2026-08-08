@@ -1,11 +1,11 @@
-import { getSessionConfig, DEFAULT_LS_URL } from "../utils/sessionConfig";
+import { getSessionConfig, DEFAULT_LS_URL } from '../utils/sessionConfig';
 
 function getLsConfig() {
   const config = getSessionConfig();
   return {
     lsUrl: config?.lsUrl || DEFAULT_LS_URL,
-    token: config?.token || "",
-    projectId: config?.projectId || import.meta.env.VITE_LS_PROJECT_ID || "",
+    token: config?.token || '',
+    projectId: config?.projectId || import.meta.env.VITE_LS_PROJECT_ID || '',
   };
 }
 
@@ -17,10 +17,10 @@ function authHeaders() {
 /** Turn a task data audio path into a fetchable URL (matches original App.jsx). */
 export function resolveTaskAudioUrl(audioPath) {
   const { lsUrl } = getLsConfig();
-  if (!audioPath || typeof audioPath !== "string") return null;
-  if (audioPath.startsWith("http") || audioPath.startsWith("blob:")) return audioPath;
+  if (!audioPath || typeof audioPath !== 'string') return null;
+  if (audioPath.startsWith('http') || audioPath.startsWith('blob:')) return audioPath;
   // Vite demo assets (/src/assets, /assets) are served from the app origin
-  if (!audioPath.startsWith("/data/")) return audioPath;
+  if (!audioPath.startsWith('/data/')) return audioPath;
   return `${lsUrl}${audioPath}`;
 }
 
@@ -47,7 +47,7 @@ export const getNextTask = () => {
   const { lsUrl, projectId } = getLsConfig();
   const BASE = `${lsUrl}/api`;
   return fetch(`${BASE}/projects/${projectId}/next/`, {
-    headers: { ...authHeaders(), "Content-Type": "application/json" },
+    headers: { ...authHeaders(), 'Content-Type': 'application/json' },
   }).then((r) => r.json());
 };
 
@@ -56,11 +56,11 @@ export const submitAnnotation = (taskId, boxes) => {
   const { lsUrl } = getLsConfig();
   const BASE = `${lsUrl}/api`;
   return fetch(`${BASE}/tasks/${taskId}/annotations/`, {
-    method: "POST",
-    headers: { ...authHeaders(), "Content-Type": "application/json" },
+    method: 'POST',
+    headers: { ...authHeaders(), 'Content-Type': 'application/json' },
     body: JSON.stringify({
       result: boxes.map((box) => ({
-        type: "rectanglelabels",
+        type: 'rectanglelabels',
         value: {
           start: box.startTime,
           end: box.endTime,

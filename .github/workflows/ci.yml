@@ -1,0 +1,38 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run format:check
+      - run: npm run build
+      - run: npm run size
+
+  secret-scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # Runs the open-source gitleaks scanner directly (no license needed).
+      # gitleaks/gitleaks-action requires a paid GITLEAKS_LICENSE for
+      # GitHub orgs, even on public repos, so we skip that wrapper.
+      - uses: docker://ghcr.io/gitleaks/gitleaks:latest
+        with:
+          args: detect --source . --redact -v

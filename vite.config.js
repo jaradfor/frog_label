@@ -1,16 +1,13 @@
-import { defineConfig } from 'vite'
-import react from '@vitejs/plugin-react'
-import tailwindcss from '@tailwindcss/vite'
-import path from 'path'
+import { defineConfig } from 'vite';
+import react from '@vitejs/plugin-react';
+import tailwindcss from '@tailwindcss/vite';
+import path from 'path';
 
 // https://vite.dev/config/
 
 export default defineConfig({
-  base: '/froglabel/',
-  plugins: [
-    react(),
-    tailwindcss(),
-  ],
+  base: '/frog_label/',
+  plugins: [react(), tailwindcss()],
   assetsInclude: ['**/*.mp3'],
   resolve: {
     alias: {
@@ -18,5 +15,4 @@ export default defineConfig({
       'react-dom': path.resolve('./node_modules/react-dom'),
     },
   },
-})
-
+});
