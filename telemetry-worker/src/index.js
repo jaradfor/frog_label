@@ -29,13 +29,16 @@ function validateBody(body) {
   if (!isPlainObject(body)) return 'body must be an object';
   if (body.client !== EXPECTED_CLIENT) return 'unrecognized client';
   if (typeof body.device_id !== 'string' || !ID_RE.test(body.device_id)) return 'invalid device_id';
-  if (typeof body.session_id !== 'string' || !ID_RE.test(body.session_id)) return 'invalid session_id';
-  if (!Array.isArray(body.events) || body.events.length === 0) return 'events must be a non-empty array';
+  if (typeof body.session_id !== 'string' || !ID_RE.test(body.session_id))
+    return 'invalid session_id';
+  if (!Array.isArray(body.events) || body.events.length === 0)
+    return 'events must be a non-empty array';
   if (body.events.length > MAX_EVENTS_PER_BATCH) return 'too many events in one batch';
 
   for (const evt of body.events) {
     if (!isPlainObject(evt)) return 'each event must be an object';
-    if (typeof evt.event !== 'string' || !EVENT_NAME_RE.test(evt.event)) return 'invalid event name';
+    if (typeof evt.event !== 'string' || !EVENT_NAME_RE.test(evt.event))
+      return 'invalid event name';
     if (evt.task_id != null && typeof evt.task_id !== 'string') return 'invalid task_id';
     if (evt.ts != null && typeof evt.ts !== 'number') return 'invalid ts';
     if (evt.payload != null && !isPlainObject(evt.payload)) return 'payload must be an object';

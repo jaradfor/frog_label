@@ -14,10 +14,9 @@ Testers hit **Demo mode** first (`src/adapters/demoAdapter.js` — four fixed lo
 files, no backend). Prior art we grounded this in:
 
 - Cartwright et al., ["Seeing Sound: Investigating the Effects of Visualizations and
-  Complexity on Crowdsourced Audio Annotations"](https://doi.org/10.1145/3134664) (CSCW
-  2017) — the paper this app's predecessor (audio annotation over a spectrogram) is
+  Complexity on Crowdsourced Audio Annotations"](https://doi.org/10.1145/3134664) (CSCW 2017) — the paper this app's predecessor (audio annotation over a spectrogram) is
   descended from. Its key methodological point: they didn't just grade final annotations,
-  they replayed *interaction logs* to reconstruct state over time and measure where errors
+  they replayed _interaction logs_ to reconstruct state over time and measure where errors
   happen (onset accurate, offset systematically late; recall hurt more than precision by
   complexity; quality improves over a tester's first 5–10 tasks).
 - [CrowdCurio's `audio-annotator`](https://github.com/CrowdCurio/audio-annotator), the tool
@@ -53,7 +52,7 @@ Implemented in `src/telemetry/identity.js`:
   without accounts or logins.
 - **`session_id`** — a fresh UUID per page load, grouping events within one visit.
 
-**Known limitation, by design**: this identifies *browser profiles*, not people. Cleared
+**Known limitation, by design**: this identifies _browser profiles_, not people. Cleared
 storage, private/incognito mode, or a different browser/device all produce a "new" tester.
 That's an accepted tradeoff for zero-friction, non-account-based identification at this
 testing scale — deliberately not solved with fingerprinting techniques (canvas/font
@@ -98,18 +97,18 @@ be disclosed rather than hidden.
 
 ## Event catalog (Phase 1)
 
-| Event | Fired from | Payload | Signal |
-|---|---|---|---|
-| `login_screen_choice` | [`LoginScreen.jsx`](../src/components/LoginScreen.jsx) | `demoMode, success` | Confirms/quantifies that testers pick Demo mode first |
-| `task_started` | [`useAnnotationSession.js`](../src/hooks/useAnnotationSession.js) | `demoMode, startingBoxCount` | Per-task cadence; also tags all subsequent events with `task_id` until the next task loads |
-| `task_submitted` | [`useAnnotationSession.js`](../src/hooks/useAnnotationSession.js) | `success, boxCount, wallClockMs, demoMode` | Completion time per task, comparable to the paper's per-complexity medians; failure path is explicitly tracked |
-| `tasks_exhausted` | [`useAnnotationSession.js`](../src/hooks/useAnnotationSession.js) | `demoMode` | Tester reached the end of the task queue (all 4 demo clips, or LS queue empty) |
-| `tool_changed` | [`Tools.jsx`](../src/components/Tools.jsx) | `fromTool, toTool, viaKeyboard` | Keyboard vs. mouse adoption for this left-hand-shortcut-first UI |
-| `code_entry_success` | [`BoundingBoxControls.jsx`](../src/components/BoundingBoxControls.jsx) | `code, entryDurationMs` | Time-to-valid-code, keyboard fluency |
-| `code_entry_error` | [`BoundingBoxControls.jsx`](../src/components/BoundingBoxControls.jsx) | `attemptedCode, validCodesCount` | Interface-clarity signal for the 3-letter code system |
-| `box_created` | [`BoundingBoxLayer.jsx`](../src/components/BoundingBoxLayer.jsx) | `code, durationSec, bandwidthHz, drawDurationMs` | Baseline annotation throughput |
-| `box_resized` | [`BoundingBoxLayer.jsx`](../src/components/BoundingBoxLayer.jsx) | `corner, code, deltaStartTimeSec, deltaEndTimeSec, deltaStartFreqHz, deltaEndFreqHz` | Proxy for onset/offset correction — the paper found offsets are the error-prone edge; a high resize rate concentrated on the *end* edge would replicate that finding here |
-| `box_deleted` | [`BoundingBoxControls.jsx`](../src/components/BoundingBoxControls.jsx) | `code, ageMs` | Fast deletes suggest mis-clicks/UI friction; late deletes suggest judgment reversal |
+| Event                 | Fired from                                                             | Payload                                                                              | Signal                                                                                                                                                                    |
+| --------------------- | ---------------------------------------------------------------------- | ------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `login_screen_choice` | [`LoginScreen.jsx`](../src/components/LoginScreen.jsx)                 | `demoMode, success`                                                                  | Confirms/quantifies that testers pick Demo mode first                                                                                                                     |
+| `task_started`        | [`useAnnotationSession.js`](../src/hooks/useAnnotationSession.js)      | `demoMode, startingBoxCount`                                                         | Per-task cadence; also tags all subsequent events with `task_id` until the next task loads                                                                                |
+| `task_submitted`      | [`useAnnotationSession.js`](../src/hooks/useAnnotationSession.js)      | `success, boxCount, wallClockMs, demoMode`                                           | Completion time per task, comparable to the paper's per-complexity medians; failure path is explicitly tracked                                                            |
+| `tasks_exhausted`     | [`useAnnotationSession.js`](../src/hooks/useAnnotationSession.js)      | `demoMode`                                                                           | Tester reached the end of the task queue (all 4 demo clips, or LS queue empty)                                                                                            |
+| `tool_changed`        | [`Tools.jsx`](../src/components/Tools.jsx)                             | `fromTool, toTool, viaKeyboard`                                                      | Keyboard vs. mouse adoption for this left-hand-shortcut-first UI                                                                                                          |
+| `code_entry_success`  | [`BoundingBoxControls.jsx`](../src/components/BoundingBoxControls.jsx) | `code, entryDurationMs`                                                              | Time-to-valid-code, keyboard fluency                                                                                                                                      |
+| `code_entry_error`    | [`BoundingBoxControls.jsx`](../src/components/BoundingBoxControls.jsx) | `attemptedCode, validCodesCount`                                                     | Interface-clarity signal for the 3-letter code system                                                                                                                     |
+| `box_created`         | [`BoundingBoxLayer.jsx`](../src/components/BoundingBoxLayer.jsx)       | `code, durationSec, bandwidthHz, drawDurationMs`                                     | Baseline annotation throughput                                                                                                                                            |
+| `box_resized`         | [`BoundingBoxLayer.jsx`](../src/components/BoundingBoxLayer.jsx)       | `corner, code, deltaStartTimeSec, deltaEndTimeSec, deltaStartFreqHz, deltaEndFreqHz` | Proxy for onset/offset correction — the paper found offsets are the error-prone edge; a high resize rate concentrated on the _end_ edge would replicate that finding here |
+| `box_deleted`         | [`BoundingBoxControls.jsx`](../src/components/BoundingBoxControls.jsx) | `code, ageMs`                                                                        | Fast deletes suggest mis-clicks/UI friction; late deletes suggest judgment reversal                                                                                       |
 
 All events also carry `device_id`, `session_id`, `task_id` (when set), and a client
 timestamp `ts`, added by `telemetry.js` — not repeated per row above.

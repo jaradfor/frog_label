@@ -48,7 +48,10 @@ function BoundingBoxControls({
             setCode('');
             setIsError(true);
             setTimeout(() => setIsError(false), 1000);
-            track('code_entry_error', { attemptedCode: value, validCodesCount: Object.keys(codesDict).length });
+            track('code_entry_error', {
+              attemptedCode: value,
+              validCodesCount: Object.keys(codesDict).length,
+            });
           }
           inputRef.current?.blur();
         }, 100); // Short delay to prevent interruption
@@ -71,8 +74,10 @@ function BoundingBoxControls({
       // Box ids created by the draw tool are Date.now() at creation time, so this
       // doubles as a creation timestamp; ids loaded from a backend annotation
       // aren't, so only report an age when it looks plausible (drawn < 24h ago).
-      const rawAgeMs = typeof currSelectedBoxId === 'number' ? Date.now() - currSelectedBoxId : null;
-      const ageMs = rawAgeMs != null && rawAgeMs >= 0 && rawAgeMs < 24 * 60 * 60 * 1000 ? rawAgeMs : null;
+      const rawAgeMs =
+        typeof currSelectedBoxId === 'number' ? Date.now() - currSelectedBoxId : null;
+      const ageMs =
+        rawAgeMs != null && rawAgeMs >= 0 && rawAgeMs < 24 * 60 * 60 * 1000 ? rawAgeMs : null;
       track('box_deleted', { code: deletedBox?.code ?? null, ageMs });
       setBoxes((prev) => prev.filter((box) => box.id !== currSelectedBoxId));
       setCurrSelectedBoxId(-1);

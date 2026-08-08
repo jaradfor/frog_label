@@ -70,11 +70,21 @@ export function useAnnotationSession(config) {
       } else {
         await adapter.submitAnnotation(currentTask.id, boxes);
       }
-      track('task_submitted', { success: true, boxCount: boxes.length, wallClockMs, demoMode: config.demoMode });
+      track('task_submitted', {
+        success: true,
+        boxCount: boxes.length,
+        wallClockMs,
+        demoMode: config.demoMode,
+      });
       await loadNextTask();
     } catch (error) {
       console.error('Error submitting annotation:', error);
-      track('task_submitted', { success: false, boxCount: boxes.length, wallClockMs, demoMode: config.demoMode });
+      track('task_submitted', {
+        success: false,
+        boxCount: boxes.length,
+        wallClockMs,
+        demoMode: config.demoMode,
+      });
     }
   }, [currentTask, boxes, loadNextTask, config]);
 
