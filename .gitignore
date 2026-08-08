@@ -59,3 +59,6 @@ work-summary.md
 # Wrangler local state / local secrets
 .wrangler/
 .dev.vars
+
+# Claude Code local tooling config
+.claude/
