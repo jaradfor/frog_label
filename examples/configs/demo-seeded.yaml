@@ -1,0 +1,18 @@
+schemaVersion: 1
+project:
+  hostProjectId: 1
+  defaultSpeciesId: local:green-tree-frog
+catalog:
+  species:
+    - speciesId: local:green-tree-frog
+      code: GRE
+      speciesName: Green Tree Frog
+      scientificName: Ranoidea caerulea
+audio:
+  maxDurationSeconds: 300
+  maxFileBytes: 134217728
+  maxChannels: 2
+  maxSourceSampleRateHz: 192000
+  maxDecodedChannelSamples: 30000000
+ui:
+  defaultAnalysisChannelMode: average

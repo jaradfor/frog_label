@@ -1,0 +1,20 @@
+{
+  "kind": "froglabel.enterprise-component-bundle",
+  "schemaVersion": 1,
+  "buildVersion": "1.0.0+cc521dbb12d4",
+  "sourceCommit": "cc521dbb12d4",
+  "entry": "src/enterprise/entry.tsx",
+  "exportName": "renderEnterpriseFrogLabel",
+  "hostReactExternal": true,
+  "bundledDependencies": [
+    "generated JSON-schema validators"
+  ],
+  "embeddedAssets": [
+    "scoped CSS",
+    "FrogLabel logo",
+    "spectrogram worker source"
+  ],
+  "minifiedBytes": 375062,
+  "unminifiedBytes": 568857,
+  "forbiddenScan": "passed"
+}

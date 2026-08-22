@@ -13,6 +13,10 @@ node_modules
 # Build output
 dist
 dist-ssr
+dist-pages
+dist-ce
+build/
+artifacts/
 
 # Environment variables
 .env
@@ -21,7 +25,10 @@ dist-ssr
 .env.development.local
 .env.test.local
 .env.production.local
+local.env
 .venv/
+__pycache__/
+*.py[cod]
 *.local
 
 # Editor directories and files
@@ -43,13 +50,23 @@ coverage/
 
 # Cache
 .cache/
+.npm-cache/
+.pip-cache/
+.yarn-cache/
+.coverage
+.playwright-browsers/
+vendor/
+playwright-report/
+playwright-report-pages/
+test-results/
 .parcel-cache/
 
 # Large audio/media files
 *.wav
+!public/audio/synthetic-frog-practice.wav
 *.mp4
 *.ogg
-*.flacdist
+*.flac
 
 .env
 

@@ -1,0 +1,7 @@
+SPDX-License-Identifier: CC0-1.0
+
+The synthetic-frog-practice.wav fixture and its deterministic generator are
+dedicated to the public domain under CC0 1.0. The signal is original
+mathematical synthesis and contains no biological or third-party recording.
+
+CC0 legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode

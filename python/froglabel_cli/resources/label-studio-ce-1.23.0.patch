@@ -1,0 +1,999 @@
+diff --git a/label_studio/labels_manager/api.py b/label_studio/labels_manager/api.py
+index b527537..12c52b6 100755
+--- a/label_studio/labels_manager/api.py
++++ b/label_studio/labels_manager/api.py
+@@ -209,13 +209,19 @@ class LabelLinkAPI(viewsets.ModelViewSet):
+     )
+ 
+     def get_queryset(self):
+-        return LabelLink.objects.filter(label__organization=self.request.user.active_organization).annotate(
+-            annotations_count=Count(
+-                'project__tasks__annotations',
+-                filter=Q(
+-                    project__tasks__annotations__result__icontains=Cast('label__value', output_field=CharField())
+-                ),
++        return (
++            LabelLink.objects.filter(label__organization=self.request.user.active_organization)
++            .annotate(
++                annotations_count=Count(
++                    'project__tasks__annotations',
++                    filter=Q(
++                        project__tasks__annotations__result__icontains=Cast(
++                            'label__value', output_field=CharField()
++                        )
++                    ),
++                )
+             )
++            .order_by('id')
+         )
+ 
+     @api_webhook('LABEL_LINK_UPDATED')
+diff --git a/label_studio/projects/api.py b/label_studio/projects/api.py
+index 75bb472..b8a18c3 100644
+--- a/label_studio/projects/api.py
++++ b/label_studio/projects/api.py
+@@ -846,8 +846,10 @@ class ProjectSampleTask(generics.RetrieveAPIView):
+                     annotation['completed_by'] = user_id
+                 return Response({'sample_task': complete_task}, status=200)
+             except Exception as e:
+-                logger.error(
+-                    f'Error generating enhanced sample task, falling back to original method: {str(e)}. Label config: {label_config}'
++                log = logger.debug if '<ReactCode' in label_config else logger.error
++                log(
++                    'Error generating enhanced sample task, falling back to original method: '
++                    f'{str(e)}. Label config: {label_config}'
+                 )
+                 # Fallback to project.get_sample_task if LabelInterface.generate_complete_sample_task failed
+                 return Response({'sample_task': project.get_sample_task(label_config)}, status=200)
+diff --git a/label_studio/templates/base.html b/label_studio/templates/base.html
+index 17b9fac..4bb6c5f 100644
+--- a/label_studio/templates/base.html
++++ b/label_studio/templates/base.html
+@@ -30,7 +30,7 @@
+ 
+   {% block theme_colors %}
+     {% if feature_flags.fflag_feat_front_optic_1217_theme_toggle_short %}
+-    <script>
++    <script nonce="{{request.csp_nonce}}">
+       function handleThemeColor() {
+         let themeColor = window.localStorage.getItem("preferred-color-scheme");
+         if (themeColor === "Auto") {
+diff --git a/label_studio/templates/simple.html b/label_studio/templates/simple.html
+index adc27af..e6d3a79 100644
+--- a/label_studio/templates/simple.html
++++ b/label_studio/templates/simple.html
+@@ -28,7 +28,7 @@
+   {% endblock %}
+ 
+   {% block theme_colors %}
+-    <script>
++    <script nonce="{{request.csp_nonce}}">
+       function handleThemeColor() {
+         let themeColor = window.localStorage.getItem("preferred-color-scheme");
+         if (themeColor === "Auto") {
+diff --git a/web/libs/datamanager/src/sdk/lsf-sdk.js b/web/libs/datamanager/src/sdk/lsf-sdk.js
+index ef1c878..60e3b69 100644
+--- a/web/libs/datamanager/src/sdk/lsf-sdk.js
++++ b/web/libs/datamanager/src/sdk/lsf-sdk.js
+@@ -14,8 +14,8 @@ import { Modal } from "../components/Common/Modal/Modal";
+ import { CommentsSdk } from "./comments-sdk";
+ // import { LSFHistory } from "./lsf-history";
+ import { annotationToServer, taskToLSFormat } from "./lsf-utils";
+-import { when, runInAction } from "mobx";
+-import { isAlive } from "mobx-state-tree";
++import { when, runInAction, toJS } from "mobx";
++import { isAlive, isStateTreeNode } from "mobx-state-tree";
+ import { imageCache } from "@humansignal/core";
+ import { invalidateAnnotationCache, invalidateDistributionCache } from "@humansignal/core/lib/utils/annotation-cache";
+ 
+@@ -24,6 +24,19 @@ const waitForPaint = () =>
+     requestAnimationFrame(() => requestAnimationFrame(resolve));
+   });
+ 
++/**
++ * Data Manager task models are replaced as fresh API responses arrive. Keep the
++ * editor boundary on immutable data so an animation-frame yield cannot leave
++ * Label Studio reading a detached MST node.
++ */
++const snapshotTask = (task) => {
++  if (!task || !isStateTreeNode(task)) return task;
++  // MST snapshots serialize CustomJSON fields such as `data`, `annotations`,
++  // and `predictions` to JSON strings. `toJS` preserves their runtime shapes
++  // while still removing the task's attachment to the Data Manager tree.
++  return isAlive(task) ? toJS(task) : null;
++};
++
+ const DEFAULT_INTERFACES = [
+   "basic",
+   "controls",
+@@ -132,7 +145,7 @@ export class LSFWrapper {
+     this.datamanager = dm;
+     this.store = dm.store;
+     this.root = element;
+-    this.task = task;
++    this.task = snapshotTask(task);
+     this.preload = preload;
+     this.labelStream = isLabelStream ?? false;
+     this.initialAnnotation = annotation;
+@@ -173,6 +186,7 @@ export class LSFWrapper {
+         "infobar",
+         "annotations:add-new",
+         "annotations:view-all",
++        "annotations:summary",
+         "annotations:delete",
+         "annotations:tabs",
+         "predictions:tabs",
+@@ -221,6 +235,7 @@ export class LSFWrapper {
+       user: options.user,
+       config: this.lsfConfig,
+       task: taskToLSFormat(this.task),
++      project: { id: this.project.id },
+       description: this.instruction,
+       interfaces,
+       users: dm.store.users.map((u) => u.toJSON()),
+@@ -372,20 +387,29 @@ export class LSFWrapper {
+     const needsAnnotationsMerge = task && this.task?.id === task.id;
+     const annotations = needsAnnotationsMerge ? [...this.annotations] : [];
+ 
+-    this.task = task;
+-
+     if (needsAnnotationsMerge) {
+-      this.task.mergeAnnotations(annotations);
++      task.mergeAnnotations(annotations);
+     }
+ 
++    const taskData = snapshotTask(task);
++    if (!taskData) return;
++    this.task = taskData;
++
+     this.loadUserLabels();
+ 
+-    await this.setLSFTask(task, annotationID, fromHistory);
++    await this.setLSFTask(taskData, annotationID, fromHistory);
+   }
+ 
+   async setLSFTask(task, annotationID, fromHistory, selectPrediction = false) {
+     if (!this.lsf) return;
+ 
++    // Some Data Manager paths call this method directly rather than through
++    // selectTask(). Materialize the task before the first animation-frame
++    // yield in both cases.
++    task = snapshotTask(task);
++    if (!task) return;
++    this.task = task;
++
+     if (isFF(FF_FIT_1304_STRICT_OVERLAP)) {
+       this.dismissOverlapToast();
+     }
+@@ -431,14 +455,14 @@ export class LSFWrapper {
+         this.lsf.resetAnnotationStore();
+       }
+ 
+-      this.lsf.toggleInterface("postpone", this.task.allow_postpone !== false);
++      this.lsf.toggleInterface("postpone", task.allow_postpone !== false);
+       this.lsf.toggleInterface("topbar:task-counter", true);
+ 
+       if (isFF(FF_FIT_1304_STRICT_OVERLAP)) {
+-        const overlapReached = this.task.overlap_reached === true;
++        const overlapReached = task.overlap_reached === true;
+         this.overlapReached = overlapReached;
+         this.overlapReachedMessage =
+-          this.task.overlap_reached_message ||
++          task.overlap_reached_message ||
+           "Annotation overlap has been reached for this task. Your draft is preserved but cannot be submitted.";
+ 
+         this.lsf.setFlags({
+@@ -765,8 +789,9 @@ export class LSFWrapper {
+     this.datamanager.invoke("onStorageInitialized", ls);
+ 
+     if (this.task && this.labelStream === false) {
++      const lastAnnotation = this.task.annotations?.at(-1);
+       const annotationID =
+-        this.initialAnnotation?.pk ?? this.task.lastAnnotation?.pk ?? this.task.lastAnnotation?.id ?? "auto";
++        this.initialAnnotation?.pk ?? lastAnnotation?.pk ?? lastAnnotation?.id ?? "auto";
+ 
+       await this.setAnnotation(annotationID);
+     }
+@@ -921,7 +946,8 @@ export class LSFWrapper {
+       draftID: id,
+     });
+ 
+-    this.task.deleteDraft(id);
++    const taskModel = this.datamanager.store.taskStore.list.find((task) => task.id === this.task.id);
++    taskModel?.deleteDraft(id);
+     return response;
+   };
+ 
+@@ -930,7 +956,8 @@ export class LSFWrapper {
+     const { task } = this;
+     let response;
+ 
+-    task.deleteAnnotation(annotation);
++    const taskModel = this.datamanager.store.taskStore.list.find((candidate) => candidate.id === task.id);
++    taskModel?.deleteAnnotation(annotation);
+ 
+     if (annotation.userGenerate && annotation.sentUserGenerate === false) {
+       if (annotation.draftId) {
+diff --git a/web/libs/datamanager/src/stores/AppStore.js b/web/libs/datamanager/src/stores/AppStore.js
+index 1f9b5a8..93dc4b2 100644
+--- a/web/libs/datamanager/src/stores/AppStore.js
++++ b/web/libs/datamanager/src/stores/AppStore.js
+@@ -1,4 +1,4 @@
+-import { destroy, flow, types } from "mobx-state-tree";
++import { destroy, flow, isAlive, types } from "mobx-state-tree";
+ import { runInAction } from "mobx";
+ import { Modal } from "../components/Common/Modal/Modal";
+ import { FF_DEV_2887, FF_DISABLE_GLOBAL_USER_FETCHING, FF_LOPS_E_3, isFF } from "../utils/feature-flags";
+@@ -78,7 +78,7 @@ export const AppStore = types
+     },
+ 
+     get currentView() {
+-      return self.viewsStore.selected;
++      return isAlive(self) ? self.viewsStore.selected : undefined;
+     },
+ 
+     get dataStore() {
+@@ -93,7 +93,7 @@ export const AppStore = types
+     },
+ 
+     get target() {
+-      return self.viewsStore.selected?.target ?? "tasks";
++      return isAlive(self) ? (self.viewsStore.selected?.target ?? "tasks") : "tasks";
+     },
+ 
+     get labelingIsConfigured() {
+@@ -419,7 +419,7 @@ export const AppStore = types
+         viewId = self.currentView.tabKey;
+       } else if (isDefined(tabFromURL)) {
+         viewId = tabFromURL;
+-      } else if (isDefined(self.viewsStore)) {
++      } else if (isDefined(self.viewsStore) && self.viewsStore.views.length > 0) {
+         viewId = self.viewsStore.views[0]?.tabKey;
+       }
+ 
+diff --git a/web/libs/datamanager/src/stores/Tabs/store.js b/web/libs/datamanager/src/stores/Tabs/store.js
+index 0c51b33..fda9fb3 100644
+--- a/web/libs/datamanager/src/stores/Tabs/store.js
++++ b/web/libs/datamanager/src/stores/Tabs/store.js
+@@ -129,7 +129,7 @@ export const TabStore = types
+       } else if (view && view.id) {
+         selected = self.views.find((v) => v.id === view.id);
+       }
+-      if (!selected) {
++      if (!selected && self.views.length > 0) {
+         selected = self.views[0];
+       }
+ 
+diff --git a/web/libs/editor/src/components/AnnotationsCarousel/AnnotationButton.tsx b/web/libs/editor/src/components/AnnotationsCarousel/AnnotationButton.tsx
+index 99499b7..daba306 100644
+--- a/web/libs/editor/src/components/AnnotationsCarousel/AnnotationButton.tsx
++++ b/web/libs/editor/src/components/AnnotationsCarousel/AnnotationButton.tsx
+@@ -382,20 +382,22 @@ const AnnotationButtonContextMenu = injector(
+     }) => {
+       // Check if entity is alive - must be done before any hooks
+       const entityIsAlive = isAlive(entity);
++      const entityPk = entityIsAlive ? entity.pk : undefined;
++      const entityId = entityIsAlive ? entity.id : undefined;
++      const entityType = entityIsAlive ? entity.type : undefined;
++      const entityUserId = entityIsAlive ? entity.user?.id : undefined;
+ 
+       const annotationLink = useMemo(() => {
+-        if (!entityIsAlive || !entity.pk) {
++        if (!entityIsAlive || !entityPk) {
+           return "";
+         }
+         const url = new URL(window.location.href);
+-        if (entity.pk) {
+-          url.searchParams.set("annotation", entity.pk);
+-        }
++        url.searchParams.set("annotation", entityPk);
+         // In case of targeting directly an annotation, we don't want to show the region in the URL
+         // otherwise it will be shown as a region link
+         url.searchParams.delete("region");
+         return url.toString();
+-      }, [entityIsAlive, entity.pk]);
++      }, [entityIsAlive, entityPk]);
+       const [copyLink] = useCopyText({ defaultText: annotationLink });
+       const toast = useToast();
+       const dropdown = useDropdown();
+@@ -404,10 +406,12 @@ const AnnotationButtonContextMenu = injector(
+         dropdown?.close();
+       };
+       const setGroundTruth = useCallback<MenuActionOnClick>(() => {
++        if (!isAlive(entity)) return;
+         entity.setGroundTruth(!isGroundTruth);
+         clickHandler();
+       }, [entity, isGroundTruth]);
+       const duplicateAnnotation = useCallback<MenuActionOnClick>(() => {
++        if (!isAlive(entity)) return;
+         const c = annotationStore.addAnnotationFromPrediction(entity);
+ 
+         window.setTimeout(() => {
+@@ -423,7 +427,7 @@ const AnnotationButtonContextMenu = injector(
+           type: ToastType.info,
+         });
+       }, [copyLink, toast, dropdown]);
+-      const [copyAnnotationId] = useCopyText({ defaultText: entity.pk?.toString() ?? entity.id?.toString() ?? "" });
++      const [copyAnnotationId] = useCopyText({ defaultText: entityPk?.toString() ?? entityId?.toString() ?? "" });
+       const copyAnnotationIdHandler = useCallback<MenuActionOnClick>(() => {
+         copyAnnotationId();
+         dropdown?.close();
+@@ -448,8 +452,8 @@ const AnnotationButtonContextMenu = injector(
+         }
+ 
+         // Add user, project, and annotation context
+-        if (entity.user?.id) {
+-          url.searchParams.set("user", entity.user.id);
++        if (entityUserId) {
++          url.searchParams.set("user", entityUserId);
+         }
+ 
+         const projectMatch = window.location.pathname.match(/\/projects\/(\d+)/);
+@@ -459,7 +463,7 @@ const AnnotationButtonContextMenu = injector(
+ 
+         window.open(url.toString(), "_blank");
+         dropdown?.close();
+-      }, [entity, dropdown]);
++      }, [entityUserId, dropdown]);
+       const showOtherAnnotations = useCallback<MenuActionOnClick>(() => {
+         annotationStore.toggleViewingAllAnnotations();
+         clickHandler();
+@@ -478,12 +482,12 @@ const AnnotationButtonContextMenu = injector(
+           buttonLook: "negative",
+           okText: "Delete",
+           onOk: () => {
+-            entity.list.deleteAnnotation(entity);
++            if (isAlive(entity)) entity.list.deleteAnnotation(entity);
+           },
+         });
+       }, [entity, onAnnotationChange]);
+-      const isPrediction = entity.type === "prediction";
+-      const isDraft = !isDefined(entity.pk);
++      const isPrediction = entityType === "prediction";
++      const isDraft = !isDefined(entityPk);
+       const showGroundTruth = capabilities.groundTruthEnabled && !isPrediction && !isDraft;
+       const showDuplicateAnnotation = capabilities.enableCreateAnnotation && !isDraft;
+       const isLSE = (window as any).APP_SETTINGS?.version?.edition === "Enterprise";
+@@ -579,6 +583,9 @@ export const AnnotationButton = observer(
+     // Check if entity is alive - must be done before any hooks to avoid accessing dead entity
+     // But we'll return null AFTER all hooks are called to maintain hook order
+     const entityIsAlive = isAlive(entity);
++    const entityPk = entityIsAlive ? entity.pk : undefined;
++    const entityGroundTruth = entityIsAlive ? entity.ground_truth : undefined;
++    const entityUser = entityIsAlive ? entity.user : undefined;
+ 
+     const iconSize = 32;
+     // Guard entity property access - use safe defaults if entity is not alive
+@@ -586,12 +593,12 @@ export const AnnotationButton = observer(
+     // Use entity.user if it has meaningful display data (name/email); otherwise
+     // fall back to createdBy (which comes from created_username in stub annotations).
+     const resolvedUser =
+-      entityIsAlive && entity.user && isUserComplete(entity.user)
+-        ? entity.user
++      entityUser && isUserComplete(entityUser)
++        ? entityUser
+         : { firstName: entityIsAlive ? entity.createdBy || "Admin" : "Unknown" };
+     const username = entityIsAlive ? userDisplayName(resolvedUser) : "Unknown";
+     const [isGroundTruth, setIsGroundTruth] = useState<boolean>();
+-    const isDraft = entityIsAlive && !isPrediction && !isDefined(entity.pk);
++    const isDraft = entityIsAlive && !isPrediction && !isDefined(entityPk);
+     const isDraftSaved = entityIsAlive && !isPrediction && entity.draftId > 0;
+     const isSkipped = entityIsAlive && !isPrediction && entity.skipped === true;
+     // isSubmitted should be independent of skipped/ground truth status
+@@ -616,7 +623,7 @@ export const AnnotationButton = observer(
+       (userData: any) => annotationStore?.store?.enrichUsers?.([userData]),
+       [annotationStore],
+     );
+-    useResolveUser({ user: entity?.user, onUserResolved: enrichUser, elementRef: buttonRef });
++    useResolveUser({ user: entityUser, onUserResolved: enrichUser, elementRef: buttonRef });
+ 
+     if (infoIsHidden && entityIsAlive) {
+       // this data can be missing in tests, but we don't have `infoIsHidden` there, so hiding logic like this
+@@ -637,15 +644,15 @@ export const AnnotationButton = observer(
+         ? truncate(displayUsername, NAME_TRUNCATE_START, NAME_TRUNCATE_END, "...")
+         : displayUsername;
+ 
+-    const CommentIcon = renderCommentIcon(entity);
++    const CommentIcon = entityIsAlive ? renderCommentIcon(entity) : null;
+     // need to find a more reliable way to grab this value
+     // const historyActionType = annotationStore.history.toJSON()?.[0]?.actionType;
+ 
+     useEffect(() => {
+       if (entityIsAlive) {
+-        setIsGroundTruth(entity.ground_truth);
++        setIsGroundTruth(entityGroundTruth);
+       }
+-    }, [entityIsAlive, entity, entity.ground_truth]);
++    }, [entityIsAlive, entityGroundTruth]);
+ 
+     // Click outside handler for tooltip
+     useEffect(() => {
+@@ -913,8 +920,8 @@ export const AnnotationButton = observer(
+         // Find the current annotation's index in the backend's annotations array
+         // The backend builds annotators array by iterating through this same list
+         const annotationIndex = backendAnnotations.findIndex((ann: any) => {
+-          if (entity.pk && ann.id) {
+-            return String(ann.id) === String(entity.pk);
++          if (entityPk && ann.id) {
++            return String(ann.id) === String(entityPk);
+           }
+           return false;
+         });
+@@ -928,7 +935,7 @@ export const AnnotationButton = observer(
+       } catch {
+         return null;
+       }
+-    }, [entityIsAlive, isPrediction, annotationStore, entity.pk]);
++    }, [entityIsAlive, isPrediction, annotationStore, entityPk]);
+ 
+     // Return null if entity is not alive, but only after all hooks have been called
+     if (!entityIsAlive) {
+diff --git a/web/libs/editor/src/components/AnnotationsCarousel/AnnotationsCarousel.tsx b/web/libs/editor/src/components/AnnotationsCarousel/AnnotationsCarousel.tsx
+index 6e28bc3..a01429c 100644
+--- a/web/libs/editor/src/components/AnnotationsCarousel/AnnotationsCarousel.tsx
++++ b/web/libs/editor/src/components/AnnotationsCarousel/AnnotationsCarousel.tsx
+@@ -1,5 +1,6 @@
+ import { Button, IconChevronLeft, IconChevronRight } from "@humansignal/ui";
+ import { observer } from "mobx-react";
++import { isAlive } from "mobx-state-tree";
+ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+ import { FixedSizeList as List, type ListChildComponentProps } from "react-window";
+ import AutoSizer from "react-virtualized-auto-sizer";
+@@ -42,7 +43,6 @@ const VirtualizedAnnotationButton = ({ index, style, data }: ListChildComponentP
+ };
+ 
+ export const AnnotationsCarousel = observer(({ store, annotationStore }: AnnotationsCarouselInterface) => {
+-  const [entities, setEntities] = useState<any[]>([]);
+   const enableAnnotations = store.hasInterface("annotations:tabs");
+   const enablePredictions = store.hasInterface("predictions:tabs");
+   const enableCreateAnnotation = store.hasInterface("annotations:add-new");
+@@ -71,7 +71,15 @@ export const AnnotationsCarousel = observer(({ store, annotationStore }: Annotat
+     [enablePredictions, enableCreateAnnotation, groundTruthEnabled, enableAnnotations, enableAnnotationDelete],
+   );
+ 
+-  const sortedEntities = useMemo(() => sortAnnotations(entities), [entities]);
++  // Do not retain MST entities in React state: native Submit/Update replaces
++  // the annotation tree and those references become detached immediately.
++  const entities = [
++    ...(enablePredictions ? annotationStore.predictions.filter(isAlive) : []),
++    ...(enableAnnotations ? annotationStore.annotations.filter(isAlive) : []),
++  ];
++  const sortedEntities = sortAnnotations(entities);
++  const selected = annotationStore.selected;
++  const selectedId = selected && isAlive(selected) ? (selected.pk ?? selected.id) : undefined;
+ 
+   const totalWidth = sortedEntities.length * (ITEM_WIDTH + ITEM_GAP);
+   const shouldVirtualize =
+@@ -125,20 +133,19 @@ export const AnnotationsCarousel = observer(({ store, annotationStore }: Annotat
+   }, [sortedEntities.length, containerRef.current, carouselRef.current, currentPosition, shouldVirtualize]);
+ 
+   useEffect(() => {
+-    if (shouldVirtualize && listRef.current && annotationStore.selected) {
+-      const selectedIndex = sortedEntities.findIndex((e: any) => e?.id === annotationStore.selected?.id);
++    if (shouldVirtualize && listRef.current && selectedId !== undefined) {
++      const selectedIndex = sortedEntities.findIndex((entity: any) => entity.id === selectedId);
+       if (selectedIndex >= 0) {
+         listRef.current.scrollToItem(selectedIndex, "center");
+       }
+     }
+-  }, [annotationStore.selected?.id, sortedEntities, shouldVirtualize]);
++  }, [selectedId, sortedEntities, shouldVirtualize]);
+ 
+   // Non-virtualized: scroll carousel to bring selected annotation tab into view
+   useEffect(() => {
+     if (shouldVirtualize) return;
+-    if (!carouselRef.current || !containerRef.current || !annotationStore.selected) return;
++    if (!carouselRef.current || !containerRef.current || selectedId === undefined) return;
+ 
+-    const selectedId = annotationStore.selected.pk ?? annotationStore.selected.id;
+     const selectedEl = carouselRef.current.querySelector(`[data-annotation-id="${selectedId}"]`);
+     if (!selectedEl) return;
+ 
+@@ -152,16 +159,7 @@ export const AnnotationsCarousel = observer(({ store, annotationStore }: Annotat
+     const maxPosition = Math.max(0, carouselWidth - containerWidth);
+     const newPosition = clamp(targetPosition, 0, maxPosition);
+     setCurrentPosition(newPosition);
+-  }, [annotationStore.selected?.id, shouldVirtualize]);
+-
+-  useEffect(() => {
+-    const newEntities = [];
+-
+-    if (enablePredictions) newEntities.push(...annotationStore.predictions);
+-
+-    if (enableAnnotations) newEntities.push(...annotationStore.annotations);
+-    setEntities(newEntities);
+-  }, [annotationStore, JSON.stringify(annotationStore.predictions), JSON.stringify(annotationStore.annotations)]);
++  }, [selectedId, shouldVirtualize]);
+ 
+   const itemData = useMemo(
+     () => ({
+diff --git a/web/libs/editor/src/components/TaskSummary/TaskSummary.tsx b/web/libs/editor/src/components/TaskSummary/TaskSummary.tsx
+index 74aad02..8577ee0 100644
+--- a/web/libs/editor/src/components/TaskSummary/TaskSummary.tsx
++++ b/web/libs/editor/src/components/TaskSummary/TaskSummary.tsx
+@@ -1,4 +1,5 @@
+ import type { MSTAnnotation, MSTControlTag, MSTStore } from "../../stores/types";
++import { isAlive } from "mobx-state-tree";
+ import { DataSummary } from "./DataSummary";
+ import { LabelingSummary } from "./LabelingSummary";
+ import { NumbersSummary } from "./NumbersSummary";
+@@ -18,7 +19,7 @@ interface Annotation {
+ const TaskSummary = ({ annotations: all, store: annotationStore }: TaskSummaryProps) => {
+   const task = annotationStore.store.task;
+   // skip unsubmitted drafts
+-  const annotations = all.filter((a) => a.pk);
++  const annotations = all.filter((annotation) => isAlive(annotation) && annotation.pk);
+   const allTags = [...annotationStore.names];
+ 
+   const onSelect = (entity: Annotation) => {
+diff --git a/web/libs/editor/src/index.js b/web/libs/editor/src/index.js
+index 0acec1e..4594594 100644
+--- a/web/libs/editor/src/index.js
++++ b/web/libs/editor/src/index.js
+@@ -1,5 +1,6 @@
+ import "./core/feature-flags";
+ import "./assets/styles/global.scss";
++import "./integrations/froglabel-reactcode-ce";
+ import { LabelStudio } from "./LabelStudio";
+ 
+ window.LabelStudio = LabelStudio;
+diff --git a/web/libs/editor/src/integrations/froglabel-reactcode-ce/index.jsx b/web/libs/editor/src/integrations/froglabel-reactcode-ce/index.jsx
+new file mode 100644
+index 0000000..dbb758d
+--- /dev/null
++++ b/web/libs/editor/src/integrations/froglabel-reactcode-ce/index.jsx
+@@ -0,0 +1,396 @@
++import { AudioOutlined } from '@ant-design/icons';
++import { reaction } from 'mobx';
++import { getRoot, types } from 'mobx-state-tree';
++import { observer } from 'mobx-react';
++import { useEffect, useMemo, useRef, useState } from 'react';
++
++import Registry from '../../core/Registry';
++import { AreaMixin } from '../../mixins/AreaMixin';
++import { AnnotationMixin } from '../../mixins/AnnotationMixin';
++import RegionsMixin from '../../mixins/Regions';
++import ControlBase from '../../tags/control/Base';
++import { parseValue } from '../../utils/data';
++
++const ReactCodeAttrs = types.model({
++  data: types.maybeNull(types.string),
++  src: types.optional(types.string, ''),
++  value: types.optional(types.string, ''),
++  style: types.maybeNull(types.string),
++  allow: types.optional(types.string, ''),
++  outputs: types.maybeNull(types.string),
++  toname: types.optional(types.string, ''),
++  type: types.optional(types.literal('reactcode'), 'reactcode'),
++});
++
++export const ReactCodeModel = types
++  .compose('ReactCodeModel', ControlBase, ReactCodeAttrs, AnnotationMixin)
++  .volatile(() => ({
++    isObjectTag: true,
++    supportSuggestions: false,
++  }))
++  .views((self) => ({
++    get resultType() {
++      return 'reactcode';
++    },
++    get valueType() {
++      return 'reactcode';
++    },
++    get resolvedData() {
++      const taskData = getRoot(self)?.task?.dataObj ?? null;
++      return self.data ? parseValue(self.data, taskData ?? {}) : taskData;
++    },
++    get loadedData() {
++      return self.resolvedData;
++    },
++    get dimensions() {
++      return outputDimensions(self.outputs);
++    },
++    get regs() {
++      return matchingResults(self).map((result) => result.area);
++    },
++    states() {
++      return [];
++    },
++    activeStates() {
++      return [];
++    },
++  }));
++
++const ReactCodeRegionModel = types
++  .compose(
++    'ReactCodeRegionModel',
++    RegionsMixin,
++    AreaMixin,
++    types.model({
++      object: types.late(() => types.reference(ReactCodeModel)),
++    }),
++  )
++  .views((self) => ({
++    // This tag references itself, so the stock parent/result read-only walk cycles.
++    isReadOnly() {
++      return Boolean(self.locked || self.readonly || self.annotation?.isReadOnly());
++    },
++    get type() {
++      return 'reactcode';
++    },
++    get parent() {
++      return self.object;
++    },
++    get values() {
++      const document = self.results.find((result) => result.type === 'reactcode')?.mainValue;
++      return [documentSummary(document)];
++    },
++  }))
++  .actions(() => ({
++    serialize: () => ({}),
++  }));
++
++ReactCodeRegionModel.nodeView = {
++  name: 'FrogLabel',
++  icon: AudioOutlined,
++};
++
++function matchingResults(item) {
++  return (item.annotation?.results ?? []).filter(
++    (result) => result.from_name === item && result.to_name === item && result.type === 'reactcode',
++  );
++}
++
++function resultIsReadOnly(item, result) {
++  // A self-referencing custom tag is represented by Label Studio as a
++  // classification area whose parent points back to this result's control.
++  // result.isReadOnly() follows area -> parent.result -> area indefinitely, so
++  // read the two authoritative locks without entering that upstream cycle.
++  return Boolean(result.readonly || result.area.locked || item.annotation?.isReadOnly());
++}
++
++function serializeRegions(item) {
++  return matchingResults(item).map((result) => ({
++    id: result.area.cleanId,
++    value: result.mainValue,
++    selected: Boolean(result.area.selected || result.area.inSelection),
++    hidden: Boolean(result.area.hidden),
++    locked: resultIsReadOnly(item, result),
++    origin: result.area.origin ?? undefined,
++  }));
++}
++
++function viewState(item) {
++  const root = getRoot(item);
++  const projectId = Number(root?.project?.id);
++  const currentScreen = root?.hasInterface?.('review')
++    ? 'review_stream'
++    : root?.hasInterface?.('annotations:view-all')
++      ? 'side_by_side'
++      : root?.hasInterface?.('label-stream')
++        ? 'label_stream'
++        : 'quick_view';
++  return {
++    projectId: Number.isSafeInteger(projectId) && projectId > 0 ? projectId : null,
++    currentScreen,
++    darkMode:
++      document.documentElement.dataset.colorScheme === 'dark' ||
++      document.documentElement.classList.contains('dark'),
++    locked: Boolean(item.annotation?.isReadOnly()),
++    editable: !item.annotation?.isReadOnly(),
++  };
++}
++
++const dimensionCache = new Map();
++
++function outputDimensions(outputs) {
++  if (!outputs) return [];
++  if (dimensionCache.has(outputs)) return dimensionCache.get(outputs);
++  let dimensions = [];
++  try {
++    const schema = JSON.parse(outputs);
++    if (
++      schema?.type === 'object' &&
++      schema?.properties?.reviewStatus &&
++      schema?.properties?.boxes &&
++      schema?.properties?.catalogId
++    ) {
++      dimensions = ['$.reviewStatus', '$.boxes.length', '$.boxes[*].species.code'];
++    }
++  } catch {
++    dimensions = [];
++  }
++  dimensionCache.set(outputs, dimensions);
++  return dimensions;
++}
++
++function parsedStyle(value) {
++  if (!value) return { width: '100%', minHeight: '500px', border: 0 };
++  try {
++    const parsed = JSON.parse(value);
++    return typeof parsed === 'object' && parsed ? { width: '100%', border: 0, ...parsed } : {};
++  } catch {
++    return { width: '100%', minHeight: '500px', border: 0 };
++  }
++}
++
++export const ReactCodeSrcView = observer(({ item }) => {
++  const frameRef = useRef(null);
++  const readyRef = useRef(false);
++  const contextRef = useRef(null);
++  const dataRef = useRef(null);
++  const viewStateRef = useRef(null);
++  const style = useMemo(() => parsedStyle(item.style), [item.style]);
++  const hasTaskContext = Boolean(getRoot(item)?.task?.id && item.resolvedData !== null);
++  const [stableSource, setStableSource] = useState('');
++
++  useEffect(() => {
++    if (!hasTaskContext) {
++      setStableSource('');
++      return undefined;
++    }
++    const timer = window.setTimeout(() => setStableSource(item.src), 300);
++    return () => window.clearTimeout(timer);
++  }, [hasTaskContext, item.src]);
++
++  useEffect(() => {
++    const frame = frameRef.current;
++    if (!frame) return undefined;
++
++    const post = (message) =>
++      frame.contentWindow?.postMessage(
++        { ...message, tag: item.name, context: currentContext(item) },
++        window.location.origin,
++      );
++    const sendRegions = () => post({ type: 'regions', regions: serializeRegions(item) });
++    const rejectMutation = () => item.annotation?.isReadOnly();
++    const handleMessage = (event) => {
++      if (event.source !== frame.contentWindow || event.origin !== window.location.origin) return;
++      const message = event.data;
++      if (!message || typeof message !== 'object' || messageSize(message) > 2_000_000) return;
++      if (message.tag !== undefined && message.tag !== item.name) return;
++      if (message.type === 'ready') {
++        readyRef.current = true;
++        contextRef.current = currentContext(item);
++        dataRef.current = dataSignature(item.resolvedData);
++        viewStateRef.current = dataSignature(viewState(item));
++        post({
++          type: 'init',
++          data: item.resolvedData,
++          code: '',
++          regions: serializeRegions(item),
++          viewState: viewState(item),
++        });
++        return;
++      }
++      if (!readyRef.current || rejectMutation()) return;
++      if (message.context !== currentContext(item)) return;
++      if (message.type === 'addRegion') {
++        if (matchingResults(item).length !== 0 || !validDocument(message.value)) return;
++        item.annotation.createResult(
++          { reactcode: message.value },
++          { reactcode: message.value },
++          item,
++          item,
++        );
++        queueMicrotask(sendRegions);
++      } else if (message.type === 'updateRegion') {
++        const result = matchingResults(item).find((entry) => entry.area.cleanId === message.id);
++        if (!result || resultIsReadOnly(item, result) || !validDocument(message.value)) return;
++        result.setValue(message.value);
++        queueMicrotask(sendRegions);
++      } else if (message.type === 'deleteRegion') {
++        const result = matchingResults(item).find((entry) => entry.area.cleanId === message.id);
++        if (!result || resultIsReadOnly(item, result)) return;
++        item.annotation.unselectAll(true);
++        item.annotation.deleteArea(result.area);
++        queueMicrotask(sendRegions);
++      } else if (message.type === 'selectRegions') {
++        // Deliberate singleton no-op: FrogLabel owns its per-box selection.
++        sendRegions();
++      }
++    };
++
++    window.addEventListener('message', handleMessage);
++    const dispose = reaction(
++      () => ({
++        context: currentContext(item),
++        data: item.resolvedData,
++        regions: serializeRegions(item),
++        state: viewState(item),
++      }),
++      (snapshot) => {
++        if (!readyRef.current) return;
++        const contextChanged =
++          contextRef.current !== null && contextRef.current !== snapshot.context;
++        const nextData = dataSignature(snapshot.data);
++        const nextViewState = dataSignature(snapshot.state);
++        const dataChanged = dataRef.current !== null && dataRef.current !== nextData;
++        const viewStateChanged =
++          viewStateRef.current !== null && viewStateRef.current !== nextViewState;
++        contextRef.current = snapshot.context;
++        dataRef.current = nextData;
++        viewStateRef.current = nextViewState;
++        if (contextChanged || dataChanged) {
++          post({
++            type: 'update',
++            data: snapshot.data,
++            regions: snapshot.regions,
++            viewState: snapshot.state,
++          });
++        } else if (viewStateChanged) {
++          post({ type: 'viewState', viewState: snapshot.state });
++        } else {
++          post({ type: 'regions', regions: snapshot.regions });
++        }
++      },
++      { fireImmediately: true },
++    );
++    return () => {
++      readyRef.current = false;
++      contextRef.current = null;
++      dataRef.current = null;
++      viewStateRef.current = null;
++      dispose();
++      window.removeEventListener('message', handleMessage);
++    };
++  }, [hasTaskContext, item, stableSource]);
++
++  if (!hasTaskContext || !stableSource) return null;
++
++  return (
++    <iframe
++      ref={frameRef}
++      src={stableSource}
++      title="FrogLabel annotation workspace"
++      allow={item.allow || undefined}
++      style={style}
++      data-testid="froglabel-reactcode-frame"
++    />
++  );
++});
++
++function dataSignature(value) {
++  try {
++    return JSON.stringify(value);
++  } catch {
++    return String(value);
++  }
++}
++
++function currentContext(item) {
++  return `${getRoot(item)?.task?.id ?? ''}:${item.annotation?.id ?? ''}`;
++}
++
++function messageSize(value) {
++  try {
++    return JSON.stringify(value).length;
++  } catch {
++    return Number.POSITIVE_INFINITY;
++  }
++}
++
++function validDocument(value) {
++  if (
++    !value ||
++    typeof value !== 'object' ||
++    value.kind !== 'froglabel.annotation-set' ||
++    value.schemaVersion !== 1 ||
++    typeof value.catalogId !== 'string' ||
++    value.catalogId.length < 1 ||
++    value.catalogId.length > 256 ||
++    !['calls_present', 'no_calls'].includes(value.reviewStatus) ||
++    !Array.isArray(value.boxes) ||
++    value.boxes.length > 5000 ||
++    (value.reviewStatus === 'calls_present' && value.boxes.length === 0) ||
++    (value.reviewStatus === 'no_calls' && value.boxes.length !== 0)
++  )
++    return false;
++  const ids = new Set();
++  for (const box of value.boxes) {
++    if (
++      !box ||
++      typeof box !== 'object' ||
++      typeof box.id !== 'string' ||
++      ids.has(box.id) ||
++      !box.species ||
++      typeof box.species.speciesId !== 'string' ||
++      !/^[A-Z]{3}$/.test(box.species.code) ||
++      typeof box.species.speciesName !== 'string' ||
++      typeof box.species.addedAfterInitialization !== 'boolean' ||
++      !finiteOrdered(box.startTimeSeconds, box.endTimeSeconds, 0) ||
++      !finiteOrdered(box.lowFrequencyHz, box.highFrequencyHz, 0) ||
++      !box.provenance ||
++      !['human', 'model'].includes(box.provenance.source)
++    )
++      return false;
++    ids.add(box.id);
++  }
++  return true;
++}
++
++function documentSummary(value) {
++  if (!validDocument(value)) return 'FrogLabel annotation';
++  if (value.reviewStatus === 'no_calls') return 'FrogLabel · No calls present';
++  const codes = [...new Set(value.boxes.map((box) => box.species.code))];
++  const species = codes.length > 3 ? `${codes.slice(0, 3).join(', ')} +${codes.length - 3}` : codes.join(', ');
++  return `${value.boxes.length} box${value.boxes.length === 1 ? '' : 'es'} · ${species}`;
++}
++
++function finiteOrdered(low, high, minimum) {
++  return Number.isFinite(low) && Number.isFinite(high) && low >= minimum && high > low;
++}
++
++if (!APP_SETTINGS?.billing?.enterprise && !Registry.models.reactcode) {
++  Registry.addCustomTag('ReactCode', {
++    tag: 'ReactCode',
++    isObject: true,
++    model: ReactCodeModel,
++    view: ReactCodeSrcView,
++    resultName: 'reactcode',
++    result: types.frozen(),
++    region: ReactCodeRegionModel,
++    detector: (snapshot) => Boolean(snapshot?.reactcode || snapshot?.value?.reactcode),
++  });
++}
++
++if (!APP_SETTINGS?.billing?.enterprise && !Registry.models.reactcode) {
++  throw new Error(
++    'FrogLabel CE adapter could not register ReactCode. Verify custom-tags support and rebuild Label Studio before serving annotators.',
++  );
++}
+diff --git a/web/libs/editor/src/stores/AppStore.js b/web/libs/editor/src/stores/AppStore.js
+index 11e7210..192ad9b 100644
+--- a/web/libs/editor/src/stores/AppStore.js
++++ b/web/libs/editor/src/stores/AppStore.js
+@@ -1,6 +1,6 @@
+ /* global LSF_VERSION */
+ 
+-import { destroy, detach, flow, getEnv, getParent, getSnapshot, isRoot, types, walk } from "mobx-state-tree";
++import { destroy, detach, flow, getEnv, getParent, getSnapshot, isAlive, isRoot, types, walk } from "mobx-state-tree";
+ 
+ import { uniqBy } from "@humansignal/core/lib/utils/lodash-replacements";
+ import InfoModal from "../components/Infomodal/Infomodal";
+@@ -643,11 +643,11 @@ export default types
+           const allowedToSave = await getEnv(self).events.invoke("beforeSaveAnnotation", self, entity, { event });
+           if (allowedToSave && allowedToSave.some((x) => x === false)) return;
+ 
+-          entity.sendUserGenerate();
++          if (isAlive(entity)) entity.sendUserGenerate();
+         }
+         await getEnv(self).events.invoke(event, self, entity);
+         self.incrementQueuePosition();
+-        if (isFF(FF_CUSTOM_SCRIPT)) {
++        if (isFF(FF_CUSTOM_SCRIPT) && isAlive(entity)) {
+           entity.dropDraft();
+         }
+       });
+@@ -674,7 +674,7 @@ export default types
+         }
+         await getEnv(self).events.invoke("updateAnnotation", self, entity, extraData);
+         self.incrementQueuePosition();
+-        if (isFF(FF_CUSTOM_SCRIPT)) {
++        if (isFF(FF_CUSTOM_SCRIPT) && isAlive(entity)) {
+           entity.dropDraft();
+           !entity.sentUserGenerate && entity.sendUserGenerate();
+         }
+@@ -775,7 +775,7 @@ export default types
+ 
+         await getEnv(self).events.invoke("customButton", self, buttonName, { isDirty, entity, button });
+         self.incrementQueuePosition();
+-        entity.dropDraft();
++        if (isAlive(entity)) entity.dropDraft();
+       }, `Error during handling ${button} button, try again`);
+     }
+ 
+diff --git a/web/libs/editor/src/tags/object/RichText/view.jsx b/web/libs/editor/src/tags/object/RichText/view.jsx
+index f5a1924..0497519 100644
+--- a/web/libs/editor/src/tags/object/RichText/view.jsx
++++ b/web/libs/editor/src/tags/object/RichText/view.jsx
+@@ -390,6 +390,9 @@ class RichTextPieceView extends Component {
+    */
+   _handleUpdate(initial = false) {
+     const { item } = this.props;
++    // The deferred iframe/text load callback can run after task hydration has
++    // replaced the annotation tree.  Never dereference a dead MST model.
++    if (!item || !isAlive(item)) return;
+     const root = item.getRootNode();
+ 
+     if (!item.inline) {

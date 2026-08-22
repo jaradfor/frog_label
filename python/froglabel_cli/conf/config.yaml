@@ -1,0 +1,10 @@
+limits:
+  max_input_bytes: 104857600
+  max_records: 100000
+  max_report_classes: 10000
+network:
+  timeout_seconds: 30
+  max_pages: 100
+compiler:
+  from_name: froglabel
+  to_name: froglabel

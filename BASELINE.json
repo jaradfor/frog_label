@@ -1,0 +1,31 @@
+{
+  "frogLabel": {
+    "sourceCommit": "cc521dbb12d449fb4c7af8930782ff672996f1c1",
+    "archiveName": "frog_label-main(1).zip",
+    "archiveSha256": "1389305980760857eb61927845a7d4b3182d10d87f4c45ba3d55fbde156ac744",
+    "localBaselineCommit": "3079a2fdf8f608984d332471e7b358ed2e48abeb"
+  },
+  "labelStudioCommunity": {
+    "primary": {
+      "tag": "1.23.0",
+      "commit": "2a9bfbcbf0a844b999de97e601d16050a893f5fb"
+    },
+    "regression": {
+      "tag": "1.22.0",
+      "commit": "090298d3adceda6ed516682fcc37e374b13dd051"
+    },
+    "sdkVersionReviewed": "2.0.18"
+  },
+  "labelStudioEnterprise": {
+    "testedVersion": null,
+    "status": "unavailable-no-licensed-local-instance"
+  },
+  "toolchain": {
+    "node": "24.19.0",
+    "npm": "11.9.0",
+    "python": "3.12.13",
+    "git": "2.51.1",
+    "browser": "cloud Chrome CDP; exact Chromium build not exposed by controller"
+  },
+  "capturedAt": "2026-08-20T08:20:28-07:00"
+}

@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://froglabel.local/schemas/catalog.schema.json",
+  "title": "FrogLabel Species Catalog V1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "kind",
+    "catalogId",
+    "initializedAt",
+    "initializedBy",
+    "catalogRevision",
+    "defaultSpeciesId",
+    "species"
+  ],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "kind": { "const": "froglabel.species-catalog" },
+    "catalogId": { "type": "string", "minLength": 1, "maxLength": 256 },
+    "initializedAt": { "type": "string", "format": "date-time" },
+    "initializedBy": { "type": "string", "minLength": 1, "maxLength": 256 },
+    "catalogRevision": { "type": "integer", "minimum": 1 },
+    "defaultSpeciesId": { "type": ["string", "null"], "minLength": 1, "maxLength": 256 },
+    "species": {
+      "type": "array",
+      "maxItems": 10000,
+      "items": { "$ref": "https://froglabel.local/schemas/species.schema.json" }
+    }
+  }
+}

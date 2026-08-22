@@ -1,0 +1,8 @@
+defaults:
+  - catalog: empty
+  - audio: short_clip
+  - ui: default
+  - _self_
+
+schemaVersion: 1
+project: {}

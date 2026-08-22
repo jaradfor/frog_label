@@ -1,0 +1,149 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://froglabel.local/schemas/reactcode-message.schema.json",
+  "title": "ReactCode External Source Message",
+  "oneOf": [
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type"],
+      "properties": { "type": { "const": "ready" } }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "tag", "context", "data", "code", "regions", "viewState"],
+      "properties": {
+        "type": { "const": "init" },
+        "tag": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "context": { "type": "string", "minLength": 1, "maxLength": 256 },
+        "data": {
+          "oneOf": [{ "type": "string" }, { "type": "object" }, { "type": "null" }]
+        },
+        "code": { "type": "string" },
+        "regions": {
+          "type": "array",
+          "maxItems": 1000,
+          "items": { "$ref": "#/$defs/region" }
+        },
+        "viewState": { "type": ["object", "null"] }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "tag", "context"],
+      "properties": {
+        "type": { "const": "update" },
+        "tag": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "context": { "type": "string", "minLength": 1, "maxLength": 256 },
+        "data": {
+          "oneOf": [{ "type": "string" }, { "type": "object" }, { "type": "null" }]
+        },
+        "regions": {
+          "type": "array",
+          "maxItems": 1000,
+          "items": { "$ref": "#/$defs/region" }
+        },
+        "viewState": { "type": ["object", "null"] }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "tag", "context", "regions"],
+      "properties": {
+        "type": { "const": "regions" },
+        "tag": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "context": { "type": "string", "minLength": 1, "maxLength": 256 },
+        "regions": {
+          "type": "array",
+          "maxItems": 1000,
+          "items": { "$ref": "#/$defs/region" }
+        }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "tag", "context", "viewState"],
+      "properties": {
+        "type": { "const": "viewState" },
+        "tag": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "context": { "type": "string", "minLength": 1, "maxLength": 256 },
+        "viewState": { "type": ["object", "null"] }
+      }
+    },
+    {
+      "type": "object",
+      "required": ["type", "tag", "context", "value"],
+      "properties": {
+        "type": { "const": "addRegion" },
+        "tag": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "context": { "type": "string", "minLength": 1, "maxLength": 256 },
+        "value": { "$ref": "https://froglabel.local/schemas/document.schema.json" },
+        "extraData": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "displayText": { "type": "string", "minLength": 1, "maxLength": 256 }
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "tag", "context", "id", "value"],
+      "properties": {
+        "type": { "const": "updateRegion" },
+        "tag": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "context": { "type": "string", "minLength": 1, "maxLength": 256 },
+        "id": { "type": "string", "minLength": 1, "maxLength": 256 },
+        "value": { "$ref": "https://froglabel.local/schemas/document.schema.json" }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "tag", "context", "id"],
+      "properties": {
+        "type": { "const": "deleteRegion" },
+        "tag": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "context": { "type": "string", "minLength": 1, "maxLength": 256 },
+        "id": { "type": "string", "minLength": 1, "maxLength": 256 }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "tag", "context", "ids"],
+      "properties": {
+        "type": { "const": "selectRegions" },
+        "tag": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "context": { "type": "string", "minLength": 1, "maxLength": 256 },
+        "ids": {
+          "type": "array",
+          "maxItems": 1000,
+          "items": { "type": "string", "minLength": 1, "maxLength": 256 }
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "region": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "value", "selected", "hidden", "locked"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "maxLength": 256 },
+        "value": { "$ref": "https://froglabel.local/schemas/document.schema.json" },
+        "selected": { "type": "boolean" },
+        "hidden": { "type": "boolean" },
+        "locked": { "type": "boolean" },
+        "origin": { "type": "string", "minLength": 1, "maxLength": 128 }
+      }
+    }
+  }
+}

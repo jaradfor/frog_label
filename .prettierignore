@@ -1,3 +1,12 @@
-dist
-node_modules
-package-lock.json
+dist/
+dist-*/
+dist-pages/
+node_modules/
+.cache/
+.pytest_cache/
+vendor/
+playwright-report-pages/
+public/audio/
+src/domain/generated-validators.js
+python/froglabel_cli/resources/enterprise-bundle.js
+python/froglabel_cli/resources/enterprise-bundle.manifest.json

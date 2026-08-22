@@ -1,0 +1,1 @@
+"""FrogLabel CLI tests."""

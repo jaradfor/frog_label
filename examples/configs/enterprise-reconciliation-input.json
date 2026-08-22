@@ -1,0 +1,48 @@
+[
+  {
+    "id": 901,
+    "data": {
+      "froglabel": "/data/upload/synthetic-frog-practice.wav"
+    },
+    "annotations": [
+      {
+        "id": 902,
+        "was_cancelled": false,
+        "result": [
+          {
+            "id": "inline:review-example",
+            "from_name": "froglabel",
+            "to_name": "froglabel",
+            "type": "reactcode",
+            "value": {
+              "reactcode": {
+                "kind": "froglabel.annotation-set",
+                "schemaVersion": 1,
+                "catalogId": "local:40842a45-6197-4f9f-9307-d24d1d72112e",
+                "reviewStatus": "calls_present",
+                "boxes": [
+                  {
+                    "id": "box:review-example",
+                    "species": {
+                      "speciesId": "local:review-example-frog",
+                      "code": "REV",
+                      "speciesName": "Review Example Frog",
+                      "addedAfterInitialization": true
+                    },
+                    "startTimeSeconds": 0.125,
+                    "endTimeSeconds": 0.875,
+                    "lowFrequencyHz": 900.25,
+                    "highFrequencyHz": 2400.75,
+                    "provenance": {
+                      "source": "human"
+                    }
+                  }
+                ]
+              }
+            }
+          }
+        ]
+      }
+    ]
+  }
+]

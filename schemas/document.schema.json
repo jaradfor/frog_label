@@ -1,0 +1,127 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://froglabel.local/schemas/document.schema.json",
+  "title": "FrogLabel Annotation Document V1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["kind", "schemaVersion", "catalogId", "reviewStatus", "boxes"],
+  "properties": {
+    "kind": { "const": "froglabel.annotation-set" },
+    "schemaVersion": { "const": 1 },
+    "catalogId": { "type": "string", "minLength": 1, "maxLength": 256 },
+    "reviewStatus": { "enum": ["calls_present", "no_calls"] },
+    "boxes": {
+      "type": "array",
+      "maxItems": 5000,
+      "items": { "$ref": "#/$defs/box" }
+    }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "reviewStatus": { "const": "calls_present" } } },
+      "then": { "properties": { "boxes": { "type": "array", "minItems": 1 } } }
+    },
+    {
+      "if": { "properties": { "reviewStatus": { "const": "no_calls" } } },
+      "then": { "properties": { "boxes": { "type": "array", "maxItems": 0 } } }
+    }
+  ],
+  "$defs": {
+    "speciesSnapshot": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["speciesId", "code", "speciesName", "addedAfterInitialization"],
+      "properties": {
+        "speciesId": { "type": "string", "minLength": 1, "maxLength": 256 },
+        "code": { "type": "string", "pattern": "^[A-Z]{3}$" },
+        "speciesName": { "type": "string", "minLength": 1, "maxLength": 256 },
+        "scientificName": { "type": "string", "minLength": 1, "maxLength": 256 },
+        "addedAfterInitialization": { "type": "boolean" }
+      }
+    },
+    "candidate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["rawClass"],
+      "properties": {
+        "rawClass": { "type": "string", "minLength": 1, "maxLength": 256 },
+        "score": { "type": "number", "minimum": 0, "maximum": 1 },
+        "mappedSpeciesId": { "type": "string", "minLength": 1, "maxLength": 256 }
+      }
+    },
+    "provenance": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["source"],
+          "properties": { "source": { "const": "human" } }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["source", "model", "sourceDetectionId", "humanModified", "candidates"],
+          "properties": {
+            "source": { "const": "model" },
+            "model": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["name", "version"],
+              "properties": {
+                "name": { "type": "string", "minLength": 1, "maxLength": 128 },
+                "version": { "type": "string", "minLength": 1, "maxLength": 128 },
+                "runId": { "type": "string", "minLength": 1, "maxLength": 256 }
+              }
+            },
+            "sourceDetectionId": { "type": "string", "minLength": 1, "maxLength": 256 },
+            "confidence": { "type": "number", "minimum": 0, "maximum": 1 },
+            "mappingRuleId": { "type": "string", "minLength": 1, "maxLength": 128 },
+            "humanModified": { "type": "boolean" },
+            "candidates": {
+              "type": "array",
+              "maxItems": 20,
+              "items": { "$ref": "#/$defs/candidate" }
+            },
+            "attributes": {
+              "type": "object",
+              "maxProperties": 32,
+              "propertyNames": { "minLength": 1, "maxLength": 128 },
+              "additionalProperties": {
+                "oneOf": [
+                  { "type": "string", "maxLength": 1024 },
+                  { "type": "number" },
+                  { "type": "boolean" },
+                  { "type": "null" }
+                ]
+              }
+            }
+          }
+        }
+      ]
+    },
+    "box": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "species",
+        "startTimeSeconds",
+        "endTimeSeconds",
+        "lowFrequencyHz",
+        "highFrequencyHz",
+        "provenance"
+      ],
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "maxLength": 256 },
+        "species": { "$ref": "#/$defs/speciesSnapshot" },
+        "startTimeSeconds": { "type": "number", "minimum": 0 },
+        "endTimeSeconds": { "type": "number", "exclusiveMinimum": 0 },
+        "lowFrequencyHz": { "type": "number", "minimum": 0 },
+        "highFrequencyHz": { "type": "number", "exclusiveMinimum": 0 },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" },
+        "provenance": { "$ref": "#/$defs/provenance" }
+      }
+    }
+  }
+}

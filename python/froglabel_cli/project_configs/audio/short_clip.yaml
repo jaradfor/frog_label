@@ -1,0 +1,5 @@
+maxDurationSeconds: 300
+maxFileBytes: 134217728
+maxChannels: 2
+maxSourceSampleRateHz: 192000
+maxDecodedChannelSamples: 30000000

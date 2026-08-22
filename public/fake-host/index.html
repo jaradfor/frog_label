@@ -1,0 +1,218 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>FrogLabel deterministic ReactCode host</title>
+    <style>
+      * {
+        box-sizing: border-box;
+      }
+      html,
+      body {
+        height: 100%;
+        margin: 0;
+        font:
+          14px system-ui,
+          sans-serif;
+        background: #0b100d;
+        color: #eef6ef;
+      }
+      body {
+        display: grid;
+        grid-template-rows: 48px minmax(0, 1fr) 130px;
+      }
+      header {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 7px 12px;
+        border-bottom: 1px solid #405247;
+        background: #172019;
+      }
+      header strong {
+        margin-right: auto;
+        color: #70e6a1;
+      }
+      button {
+        border: 1px solid #50665a;
+        border-radius: 6px;
+        padding: 6px 9px;
+        background: #233028;
+        color: #eef6ef;
+        cursor: pointer;
+      }
+      iframe {
+        width: 100%;
+        height: 100%;
+        border: 0;
+        background: white;
+      }
+      footer {
+        display: grid;
+        grid-template-columns: 190px 1fr;
+        gap: 10px;
+        padding: 8px 12px;
+        border-top: 1px solid #405247;
+        background: #121914;
+      }
+      dl {
+        margin: 0;
+      }
+      dt {
+        color: #9eb1a2;
+        font-size: 11px;
+      }
+      dd {
+        margin: 0 0 6px;
+      }
+      pre {
+        margin: 0;
+        overflow: auto;
+        color: #b7d9bf;
+        font:
+          11px ui-monospace,
+          monospace;
+      }
+      .locked {
+        color: #ffba70;
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <strong>Deterministic ReactCode host · project 42</strong>
+      <button id="lock" type="button">Lock result</button>
+      <button id="task" type="button">Switch task/epoch</button>
+      <button id="export" type="button">Download native export</button>
+    </header>
+    <iframe
+      id="froglabel"
+      title="Embedded FrogLabel"
+      src="../embedded/?project=42"
+      allow="autoplay"
+    ></iframe>
+    <footer>
+      <dl>
+        <dt>Task epoch</dt>
+        <dd id="epoch">1</dd>
+        <dt>Singleton regions</dt>
+        <dd id="count">0</dd>
+        <dt>Host state</dt>
+        <dd id="state">waiting for ready</dd>
+      </dl>
+      <pre id="log" aria-live="polite"></pre>
+    </footer>
+    <script type="module">
+      const frame = document.querySelector('#froglabel');
+      const log = document.querySelector('#log');
+      const state = document.querySelector('#state');
+      const count = document.querySelector('#count');
+      const epochNode = document.querySelector('#epoch');
+      let epoch = 1;
+      let locked = false;
+      let region = null;
+      const tag = 'froglabel';
+      const targetOrigin = location.origin;
+
+      const write = (value) => {
+        log.textContent =
+          `${new Date().toISOString().slice(11, 23)} ${value}\n${log.textContent}`.slice(0, 5000);
+        count.textContent = region ? '1' : '0';
+        state.textContent = locked ? 'read-only prediction simulation' : 'editable host echo';
+        state.className = locked ? 'locked' : '';
+      };
+      const exposedRegion = () => (region ? [{ ...structuredClone(region), locked }] : []);
+      const context = () => `project:42/task:${epoch}/annotation:1`;
+      const send = (message) => frame.contentWindow.postMessage(message, targetOrigin);
+      const init = () =>
+        send({
+          type: 'init',
+          tag,
+          context: context(),
+          data: '../audio/synthetic-frog-practice.wav',
+          code: '',
+          regions: exposedRegion(),
+          viewState: { projectId: 42, editable: true, locked: false },
+        });
+      const reconcile = () => {
+        send({ type: 'regions', tag, context: context(), regions: exposedRegion() });
+        write('host → app regions');
+      };
+
+      window.addEventListener('message', (event) => {
+        if (
+          event.source !== frame.contentWindow ||
+          event.origin !== targetOrigin ||
+          !event.data ||
+          typeof event.data !== 'object'
+        )
+          return;
+        const message = event.data;
+        write(`app → host ${message.type}`);
+        if (message.type === 'ready') init();
+        if (message.type === 'addRegion' && !locked) {
+          region = {
+            id: `fake:${epoch}:document`,
+            value: structuredClone(message.value),
+            selected: false,
+            hidden: false,
+            locked: false,
+            origin: 'manual',
+          };
+          reconcile();
+        }
+        if (message.type === 'updateRegion' && !locked && region?.id === message.id) {
+          region = { ...region, value: structuredClone(message.value) };
+          reconcile();
+        }
+        if (message.type === 'deleteRegion' && !locked && region?.id === message.id) {
+          region = null;
+          reconcile();
+        }
+      });
+
+      document.querySelector('#lock').addEventListener('click', (event) => {
+        locked = !locked;
+        event.currentTarget.textContent = locked ? 'Unlock result' : 'Lock result';
+        reconcile();
+      });
+      document.querySelector('#task').addEventListener('click', () => {
+        epoch += 1;
+        region = null;
+        epochNode.textContent = String(epoch);
+        send({
+          type: 'update',
+          tag,
+          context: context(),
+          data: '../audio/synthetic-frog-practice.wav',
+          regions: [],
+          viewState: { projectId: 42, editable: true, locked: false, fakeEpoch: epoch },
+        });
+        write(`host → app update epoch ${epoch}`);
+      });
+      document.querySelector('#export').addEventListener('click', () => {
+        const result = region
+          ? [
+              {
+                id: region.id,
+                from_name: 'froglabel',
+                to_name: 'froglabel',
+                type: 'reactcode',
+                value: { reactcode: region.value },
+              },
+            ]
+          : [];
+        const payload = { id: 1, task: epoch, result };
+        const url = URL.createObjectURL(
+          new Blob([JSON.stringify(payload, null, 2) + '\n'], { type: 'application/json' }),
+        );
+        const anchor = document.createElement('a');
+        anchor.href = url;
+        anchor.download = 'fake-host-native-export.json';
+        anchor.click();
+        queueMicrotask(() => URL.revokeObjectURL(url));
+      });
+    </script>
+  </body>
+</html>

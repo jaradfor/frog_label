@@ -1,0 +1,55 @@
+[build-system]
+requires = ["hatchling>=1.27"]
+build-backend = "hatchling.build"
+
+[project]
+name = "froglabel-cli"
+version = "1.0.0"
+description = "FrogLabel human-labeling project administration and integration tools"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+dependencies = [
+  "hydra-core>=1.3.2,<2",
+  "pydantic>=2.10,<3",
+  "PyYAML>=6,<7",
+]
+
+[project.optional-dependencies]
+dev = [
+  "hypothesis>=6.120,<7",
+  "pytest>=8.3,<9",
+  "pytest-cov>=6,<7",
+  "ruff>=0.9,<1",
+]
+
+[project.scripts]
+froglabel = "froglabel_cli.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["python/froglabel_cli"]
+exclude = [
+  # Never include retired baseline compiler modules if a managed workspace
+  # rematerializes deleted files as untracked copies.
+  "python/froglabel_cli/compiler.py",
+  "python/froglabel_cli/io.py",
+]
+
+[tool.hatch.build.targets.wheel.force-include]
+"schemas/document.schema.json" = "froglabel_cli/resources/document.schema.json"
+"python/froglabel_cli/resources/enterprise-bundle.js" = "froglabel_cli/resources/enterprise-bundle.js"
+"python/froglabel_cli/resources/enterprise-bundle.manifest.json" = "froglabel_cli/resources/enterprise-bundle.manifest.json"
+"python/froglabel_cli/resources/label-studio-ce-1.23.0.patch" = "froglabel_cli/resources/label-studio-ce-1.23.0.patch"
+"integration/label-studio-ce/froglabel-reactcode-ce/index.jsx" = "froglabel_cli/resources/label-studio-ce-1.23.0/adapter/index.jsx"
+
+[tool.pytest.ini_options]
+testpaths = ["python/tests"]
+addopts = "-ra --strict-markers"
+
+[tool.ruff]
+target-version = "py311"
+line-length = 100
+src = ["python"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM", "RUF"]

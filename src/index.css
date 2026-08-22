@@ -1,28 +1,12 @@
-@import 'tailwindcss';
-
-@theme {
-  --font-display: 'Afacad', sans-serif;
-}
-
-body {
+html,
+body,
+#root {
+  width: 100%;
+  min-width: 0;
+  height: 100%;
   margin: 0;
+  overflow: hidden;
 }
-
-.afacad-font {
-  font-family: 'Afacad', sans-serif;
-  font-optical-sizing: auto;
-  font-style: normal;
-}
-
-@keyframes speed-limit-flash {
-  0% {
-    box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.9);
-  }
-  100% {
-    box-shadow: 0 0 0 0 rgba(239, 68, 68, 0);
-  }
-}
-
-.speed-limit-flash {
-  animation: speed-limit-flash 350ms ease-out;
+body {
+  background: #101512;
 }

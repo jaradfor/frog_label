@@ -1,0 +1,14 @@
+schemaVersion: 1
+project:
+  hostProjectId: 1
+  defaultSpeciesId: null
+catalog:
+  species: []
+audio:
+  maxDurationSeconds: 300
+  maxFileBytes: 134217728
+  maxChannels: 2
+  maxSourceSampleRateHz: 192000
+  maxDecodedChannelSamples: 30000000
+ui:
+  defaultAnalysisChannelMode: average

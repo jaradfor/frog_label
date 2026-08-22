@@ -1,0 +1,75 @@
+import { useEffect, useLayoutEffect, useMemo, useRef } from 'react';
+import appCss from '../App.css?inline';
+import { EmbeddedCatalogPort } from '../adapters/enterprise/EmbeddedCatalogPort';
+import {
+  EnterpriseInlineReactCodePort,
+  type EnterpriseInlineHostProps,
+} from '../adapters/enterprise/EnterpriseInlineReactCodePort';
+import { HostAudioSourcePort } from '../adapters/reactcode/HostAudioSourcePort';
+import { FrogLabelWorkspace } from '../components/workspace/FrogLabelWorkspace';
+import type { SpeciesCatalogV1 } from '../domain/types';
+import { embeddedTutorialAudioUrl } from './tutorialAudio';
+
+declare const __FROGLABEL_BUILD_VERSION__: string;
+
+interface EnterpriseApplicationProps {
+  host: EnterpriseInlineHostProps;
+  catalog: SpeciesCatalogV1;
+}
+
+function EnterpriseApplication({ host, catalog }: EnterpriseApplicationProps) {
+  const annotationRef = useRef<EnterpriseInlineReactCodePort | null>(null);
+  if (!annotationRef.current) annotationRef.current = new EnterpriseInlineReactCodePort(host);
+  const annotation = annotationRef.current;
+  const dependencies = useMemo(() => {
+    const species = new EmbeddedCatalogPort(catalog, annotation);
+    return {
+      species,
+      audio: new HostAudioSourcePort(annotation),
+    };
+  }, [annotation, catalog]);
+  const tutorialAudioSource = useMemo(
+    () => ({
+      url: embeddedTutorialAudioUrl(),
+      filename: 'synthetic-frog-practice.wav',
+      mimeType: 'audio/wav',
+      trustedSampleRateHz: 8_000,
+    }),
+    [],
+  );
+
+  useLayoutEffect(() => annotation.updateContext(host), [annotation, host]);
+  useEffect(
+    () => () => {
+      dependencies.audio.destroy();
+      dependencies.species.destroy();
+      annotation.destroy();
+    },
+    [annotation, dependencies],
+  );
+
+  return (
+    <div className="froglabel-enterprise-root" data-froglabel-build={__FROGLABEL_BUILD_VERSION__}>
+      <style>{appCss}</style>
+      <FrogLabelWorkspace
+        annotationPort={annotation}
+        catalogPort={dependencies.species}
+        audioSourcePort={dependencies.audio}
+        mode="embedded"
+        speciesCreateScope="annotation"
+        tutorialAudioSource={tutorialAudioSource}
+        persistenceLabel="Current Enterprise annotation updated"
+        headerExtras={
+          <span className="mode-badge">Enterprise inline · {__FROGLABEL_BUILD_VERSION__}</span>
+        }
+      />
+    </div>
+  );
+}
+
+export function renderEnterpriseFrogLabel(
+  host: EnterpriseInlineHostProps,
+  catalog: SpeciesCatalogV1,
+) {
+  return <EnterpriseApplication host={host} catalog={catalog} />;
+}
