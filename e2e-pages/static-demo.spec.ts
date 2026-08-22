@@ -326,6 +326,11 @@ test('serves the exact repository subpath and excludes Label Studio host code', 
   await page.goto('./');
   await page.reload();
   await expect(page.getByRole('heading', { name: 'FrogLabel' })).toBeVisible();
+  await expect(page.locator('.spectrogram-shell')).toHaveAttribute(
+    'data-spectrogram-state',
+    'firstFrameReady',
+    { timeout: 15_000 },
+  );
   expect(responses.filter((response) => response.status >= 400)).toEqual([]);
   expect(
     responses.some(
