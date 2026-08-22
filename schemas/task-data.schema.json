@@ -3,13 +3,13 @@
   "$id": "https://froglabel.local/schemas/task-data.schema.json",
   "title": "FrogLabel Host Data V1",
   "oneOf": [
-    { "type": "string", "minLength": 1, "maxLength": 8192 },
+    { "type": "string", "minLength": 1, "maxLength": 70000000 },
     {
       "type": "object",
       "additionalProperties": true,
       "required": ["froglabel"],
       "properties": {
-        "froglabel": { "type": "string", "minLength": 1, "maxLength": 8192 },
+        "froglabel": { "type": "string", "minLength": 1, "maxLength": 70000000 },
         "froglabelConfig": {
           "type": "object",
           "additionalProperties": false,

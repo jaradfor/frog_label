@@ -41,7 +41,7 @@ froglabel project sync --target enterprise \
   --output-dir dist/enterprise --dry-run
 ```
 
-Enterprise commands only update local state/artifacts. `catalogId` and initialization time remain stable; revision changes only after an applied semantic change. Native export reconciliation produces a proposed YAML fragment but never silently changes Hydra or the website.
+Enterprise commands only update local state/artifacts. They render `froglabel.enterprise.jsx`, its checksum manifest, and the embedded catalog. `catalogId` and initialization time remain stable; revision changes only after an applied semantic change. Native export reconciliation produces a proposed YAML fragment but never silently changes Hydra or the website. Use the Label Studio SDK commands in [Enterprise setup](ENTERPRISE_SETUP.md) for validation, preview, and explicit publication.
 
 The packaged `base` config and schemas resolve through Python resources, so they work outside the
 repository root. Demo/client configurations under `examples/configs` are source examples; pass an

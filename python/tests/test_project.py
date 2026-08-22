@@ -120,11 +120,15 @@ def test_enterprise_artifact_render_is_byte_deterministic_from_applied_state(
     administrator = EnterpriseProjectAdministrator()
     candidate = configuration()
     first = administrator.init(tmp_path, candidate)
-    first_xml = (tmp_path / "froglabel.enterprise.xml").read_bytes()
+    first_interface = (tmp_path / "froglabel.enterprise.jsx").read_bytes()
     second = administrator.render(tmp_path, candidate)
-    assert (tmp_path / "froglabel.enterprise.xml").read_bytes() == first_xml
+    assert (tmp_path / "froglabel.enterprise.jsx").read_bytes() == first_interface
     assert "Enterprise project is unchanged" in first["message"]
-    assert second["artifacts"]["xmlSha256"] == first["artifacts"]["xmlSha256"]
+    assert second["artifacts"]["interfaceSha256"] == first["artifacts"]["interfaceSha256"]
+    source = first_interface.decode("utf-8")
+    assert source.rstrip().endswith(");")
+    assert "default:FrogLabelEnterpriseInterface" in source
+    assert "outputSchema:FrogLabelEnterpriseBundle.outputSchema" in source
 
 
 def test_flat_export_validates_singleton_and_neutralizes_csv_formula(
@@ -188,6 +192,90 @@ def test_flat_export_validates_singleton_and_neutralizes_csv_formula(
         "csvOutput": str(csv_output),
     }
     assert "'=Green Tree Frog" in csv_output.read_text(encoding="utf-8")
+
+
+def test_flat_export_accepts_enterprise_interface_textarea_result(tmp_path: Path) -> None:
+    document = {
+        "kind": "froglabel.annotation-set",
+        "schemaVersion": 1,
+        "catalogId": "fixture:catalog",
+        "reviewStatus": "no_calls",
+        "boxes": [],
+    }
+    source = tmp_path / "native-interface.json"
+    source.write_text(
+        json.dumps(
+            [
+                {
+                    "id": 1,
+                    "annotations": [
+                        {
+                            "id": 2,
+                            "result": [
+                                {
+                                    "id": "outer:stable",
+                                    "from_name": "froglabel",
+                                    "to_name": "audio",
+                                    "type": "textarea",
+                                    "value": {"text": [json.dumps(document)]},
+                                }
+                            ],
+                        }
+                    ],
+                }
+            ]
+        ),
+        encoding="utf-8",
+    )
+    summary = export_label_studio_project(
+        source,
+        tmp_path / "canonical-interface.json",
+        tmp_path / "flat-interface.csv",
+    )
+    assert summary["annotationCount"] == 1
+    assert summary["boxCount"] == 0
+
+
+def test_flat_export_accepts_enterprise_interface_structured_result(tmp_path: Path) -> None:
+    document = {
+        "kind": "froglabel.annotation-set",
+        "schemaVersion": 1,
+        "catalogId": "fixture:catalog",
+        "reviewStatus": "no_calls",
+        "boxes": [],
+    }
+    source = tmp_path / "native-structured-interface.json"
+    source.write_text(
+        json.dumps(
+            [
+                {
+                    "id": 1,
+                    "annotations": [
+                        {
+                            "id": 2,
+                            "result": [
+                                {
+                                    "id": "outer:stable",
+                                    "from_name": "froglabel",
+                                    "to_name": "audio",
+                                    "type": "labels",
+                                    "value": [document],
+                                }
+                            ],
+                        }
+                    ],
+                }
+            ]
+        ),
+        encoding="utf-8",
+    )
+    summary = export_label_studio_project(
+        source,
+        tmp_path / "canonical-structured-interface.json",
+        tmp_path / "flat-structured-interface.csv",
+    )
+    assert summary["annotationCount"] == 1
+    assert summary["boxCount"] == 0
 
 
 def test_enterprise_rejects_ce_project_identity(tmp_path: Path) -> None:

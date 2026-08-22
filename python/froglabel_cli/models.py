@@ -3,7 +3,7 @@ from __future__ import annotations
 import math
 import unicodedata
 from datetime import datetime
-from typing import Annotated, Literal
+from typing import Annotated, Any, Literal
 
 from pydantic import AliasChoices, BaseModel, ConfigDict, Field, StringConstraints, model_validator
 
@@ -179,8 +179,26 @@ class LabelStudioResult(FrogModel):
     to_name: Identifier = Field(
         validation_alias=AliasChoices("to_name", "toName"), serialization_alias="to_name"
     )
-    type: Literal["reactcode"] = "reactcode"
-    value: dict[Literal["reactcode"], FrogLabelDocument]
+    type: Literal["reactcode", "textarea", "labels"]
+    value: Any
+
+    def document(self) -> FrogLabelDocument:
+        if self.type == "reactcode":
+            if not isinstance(self.value, dict):
+                raise ValueError("FrogLabel ReactCode result value must be an object")
+            return FrogLabelDocument.model_validate(self.value.get("reactcode"))
+        if self.type == "labels":
+            if isinstance(self.value, list) and len(self.value) == 1:
+                return FrogLabelDocument.model_validate(self.value[0])
+            raise ValueError("FrogLabel Interface result must contain one document object")
+        if not isinstance(self.value, dict):
+            raise ValueError("FrogLabel textarea result value must be an object")
+        text = self.value.get("text")
+        if isinstance(text, list) and len(text) == 1 and isinstance(text[0], str):
+            return FrogLabelDocument.model_validate_json(text[0])
+        if isinstance(text, str):
+            return FrogLabelDocument.model_validate_json(text)
+        raise ValueError("FrogLabel textarea result must contain one JSON document string")
 
 
 def species_snapshot(entry: SpeciesEntry) -> SpeciesSnapshot:

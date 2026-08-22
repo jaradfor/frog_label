@@ -10,12 +10,12 @@
         "was_cancelled": false,
         "result": [
           {
-            "id": "inline:review-example",
+            "id": "interface:review-example",
             "from_name": "froglabel",
-            "to_name": "froglabel",
-            "type": "reactcode",
-            "value": {
-              "reactcode": {
+            "to_name": "audio",
+            "type": "labels",
+            "value": [
+              {
                 "kind": "froglabel.annotation-set",
                 "schemaVersion": 1,
                 "catalogId": "local:40842a45-6197-4f9f-9307-d24d1d72112e",
@@ -39,7 +39,7 @@
                   }
                 ]
               }
-            }
+            ]
           }
         ]
       }

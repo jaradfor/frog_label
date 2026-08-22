@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import hashlib
-import html
 import json
 import shutil
 import uuid
@@ -9,19 +8,22 @@ from datetime import UTC, datetime
 from importlib import resources
 from pathlib import Path
 from typing import Any, Literal
-from xml.etree import ElementTree
 
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 
 from .admin_config import ProjectConfiguration, configuration_fingerprint
 from .errors import ErrorContext, FrogLabelCliError
-from .label_config import DATA_KEY_NAME, REACTCODE_NAME, WORKSPACE_STYLE, load_document_schema
-from .models import ExternalTaxon, FrogLabelDocument, SpeciesCatalog, SpeciesEntry
+from .models import (
+    ExternalTaxon,
+    LabelStudioResult,
+    SpeciesCatalog,
+    SpeciesEntry,
+)
 
 STATE_FILENAME = ".froglabel-enterprise-state.json"
-FULL_XML_FILENAME = "froglabel.enterprise.xml"
-PREVIOUS_XML_FILENAME = "froglabel.enterprise.previous.xml"
+FULL_INTERFACE_FILENAME = "froglabel.enterprise.jsx"
+PREVIOUS_INTERFACE_FILENAME = "froglabel.enterprise.previous.jsx"
 
 
 def _camel(name: str) -> str:
@@ -92,7 +94,7 @@ class EnterprisePlan(BaseModel):
 
 
 class EnterpriseProjectAdministrator:
-    """Pure local Enterprise state and paste-ready artifact administrator."""
+    """Pure local Enterprise state and publishable Interface administrator."""
 
     def init(self, output_dir: Path, candidate: ProjectConfiguration) -> dict[str, Any]:
         output = output_dir.expanduser().resolve()
@@ -383,51 +385,45 @@ def render_enterprise_artifacts(
     output.mkdir(parents=True, exist_ok=True)
     bundle, bundle_manifest = load_enterprise_bundle()
     catalog = state.catalog().model_dump(by_alias=True, mode="json", exclude_none=True)
-    code = enterprise_component(bundle, catalog)
-    xml = enterprise_xml(code)
-    validate_enterprise_xml(xml)
-    full_path = output / FULL_XML_FILENAME
-    if full_path.is_file() and full_path.read_bytes() != xml.encode("utf-8"):
-        shutil.copy2(full_path, output / PREVIOUS_XML_FILENAME)
-    atomic_text(full_path, xml)
+    source = enterprise_interface(bundle, catalog)
+    validate_enterprise_interface(source)
+    full_path = output / FULL_INTERFACE_FILENAME
+    if full_path.is_file() and full_path.read_bytes() != source.encode("utf-8"):
+        shutil.copy2(full_path, output / PREVIOUS_INTERFACE_FILENAME)
+    atomic_text(full_path, source)
     atomic_json(output / "embedded-catalog.json", catalog)
-    atomic_text(output / "enterprise-canary-minimal.xml", minimal_canary_xml())
-    atomic_text(output / "enterprise-canary-capabilities.xml", capability_canary_xml())
     manifest = {
-        "kind": "froglabel.enterprise-inline-artifact",
+        "kind": "froglabel.enterprise-interface-artifact",
         "schemaVersion": 1,
         "buildVersion": bundle_manifest["buildVersion"],
         "sourceCommit": bundle_manifest["sourceCommit"],
         "catalogId": state.catalog_id,
         "catalogRevision": state.catalog_revision,
         "configurationFingerprint": configuration_fingerprint(candidate),
-        "xmlSha256": sha256_text(xml),
-        "xmlBytes": len(xml.encode("utf-8")),
-        "componentBytes": len(code.encode("utf-8")),
+        "interfaceSha256": sha256_text(source),
+        "interfaceBytes": len(source.encode("utf-8")),
         "bundleMinifiedBytes": bundle_manifest["minifiedBytes"],
         "bundleUnminifiedBytes": bundle_manifest["unminifiedBytes"],
         "hostReactExternal": True,
         "networkPolicy": "task audio only",
-        "forbiddenContentScan": scan_enterprise_xml(xml),
+        "forbiddenContentScan": scan_enterprise_interface(source),
         "audioLimits": candidate.audio.model_dump(by_alias=True, mode="json"),
         "ui": candidate.ui.model_dump(by_alias=True, mode="json"),
     }
     atomic_json(output / "froglabel.enterprise.manifest.json", manifest)
     return {
-        "xml": str(full_path),
+        "interface": str(full_path),
         "manifest": str(output / "froglabel.enterprise.manifest.json"),
         "catalog": str(output / "embedded-catalog.json"),
-        "xmlSha256": manifest["xmlSha256"],
-        "xmlBytes": manifest["xmlBytes"],
+        "interfaceSha256": manifest["interfaceSha256"],
+        "interfaceBytes": manifest["interfaceBytes"],
     }
 
 
 def validate_artifacts(output: Path, state: EnterpriseState) -> None:
     required = [
-        FULL_XML_FILENAME,
+        FULL_INTERFACE_FILENAME,
         "froglabel.enterprise.manifest.json",
-        "enterprise-canary-minimal.xml",
-        "enterprise-canary-capabilities.xml",
         "embedded-catalog.json",
     ]
     missing = [name for name in required if not (output / name).is_file()]
@@ -435,12 +431,14 @@ def validate_artifacts(output: Path, state: EnterpriseState) -> None:
         raise FrogLabelCliError(
             "ENTERPRISE_ARTIFACT_MISSING", f"Missing generated artifacts: {', '.join(missing)}"
         )
-    xml = (output / FULL_XML_FILENAME).read_text(encoding="utf-8")
-    validate_enterprise_xml(xml)
+    source = (output / FULL_INTERFACE_FILENAME).read_text(encoding="utf-8")
+    validate_enterprise_interface(source)
     manifest = json.loads((output / "froglabel.enterprise.manifest.json").read_text())
     catalog = SpeciesCatalog.model_validate_json((output / "embedded-catalog.json").read_text())
-    if manifest.get("xmlSha256") != sha256_text(xml):
-        raise FrogLabelCliError("ENTERPRISE_MANIFEST_DRIFT", "Enterprise XML checksum differs")
+    if manifest.get("interfaceSha256") != sha256_text(source):
+        raise FrogLabelCliError(
+            "ENTERPRISE_MANIFEST_DRIFT", "Enterprise Interface checksum differs"
+        )
     if catalog.catalog_id != state.catalog_id or catalog.catalog_revision != state.catalog_revision:
         raise FrogLabelCliError(
             "ENTERPRISE_CATALOG_DRIFT", "Embedded catalog differs from local state"
@@ -468,18 +466,14 @@ def reconcile_enterprise_export(state: EnterpriseState, source: Path) -> dict[st
             continue
         for annotation in task.get("annotations", []):
             for result in annotation.get("result", []):
-                if not isinstance(result, dict) or result.get("type") != "reactcode":
+                if not isinstance(result, dict):
                     continue
-                if (
-                    result.get("from_name") != REACTCODE_NAME
-                    or result.get("to_name") != REACTCODE_NAME
-                ):
-                    conflicts.append({"type": "tagMismatch", "taskIndex": task_index})
+                if result.get("from_name", result.get("fromName")) != "froglabel":
                     continue
-                value = result.get("value", {}).get("reactcode")
                 try:
-                    document = FrogLabelDocument.model_validate(value)
-                except ValidationError as error:
+                    envelope = LabelStudioResult.model_validate(result)
+                    document = envelope.document()
+                except (ValidationError, ValueError) as error:
                     conflicts.append(
                         {"type": "invalidDocument", "taskIndex": task_index, "detail": str(error)}
                     )
@@ -566,124 +560,68 @@ def reconcile_enterprise_export(state: EnterpriseState, source: Path) -> dict[st
     }
 
 
-def enterprise_component(bundle: str, catalog: dict[str, Any]) -> str:
+def enterprise_interface(bundle: str, catalog: dict[str, Any]) -> str:
     catalog_json = json.dumps(catalog, ensure_ascii=False, separators=(",", ":"), sort_keys=True)
     return (
-        "function FrogLabelEnterprise(props){\n"
-        "  var __FROGLABEL_HOST_REACT__=props.React;\n"
-        "  if(!FrogLabelEnterprise.__bundle){\n"
+        "var __FROGLABEL_HOST_REACT__=React;\n"
         f"{bundle.strip()}\n"
-        "    FrogLabelEnterprise.__bundle=FrogLabelEnterpriseBundle;\n"
-        "  }\n"
-        f"  if(!FrogLabelEnterprise.__catalog) FrogLabelEnterprise.__catalog={catalog_json};\n"
-        "  return FrogLabelEnterprise.__bundle.renderEnterpriseFrogLabel("
-        "props,FrogLabelEnterprise.__catalog);\n"
-        "}"
+        f"var __FROGLABEL_CATALOG__={catalog_json};\n"
+        "function FrogLabelEnterpriseInterface(props){\n"
+        "  return FrogLabelEnterpriseBundle.renderEnterpriseFrogLabel("
+        "props,__FROGLABEL_CATALOG__);\n"
+        "}\n"
+        "function getResults(regions,relations){\n"
+        "  return FrogLabelEnterpriseBundle.getResults(regions,relations);\n"
+        "}\n"
+        "function parseResults(results){\n"
+        "  return FrogLabelEnterpriseBundle.parseResults(results);\n"
+        "}\n"
+        "({\n"
+        "  default:FrogLabelEnterpriseInterface,\n"
+        "  specVersion:1,\n"
+        "  paramsSchema:FrogLabelEnterpriseBundle.paramsSchema,\n"
+        "  inputSchema:FrogLabelEnterpriseBundle.inputSchema,\n"
+        "  outputSchema:FrogLabelEnterpriseBundle.outputSchema,\n"
+        "  getResults:getResults,\n"
+        "  parseResults:parseResults\n"
+        "});\n"
     )
 
 
-def enterprise_xml(code: str) -> str:
-    if "]]>" in code:
-        raise FrogLabelCliError("ENTERPRISE_CDATA_UNSAFE", "Generated component contains ]]>")
-    schema = json.dumps(
-        load_document_schema(), ensure_ascii=False, separators=(",", ":"), sort_keys=True
-    )
-    style = json.dumps(WORKSPACE_STYLE, ensure_ascii=False, separators=(",", ":"))
-    return (
-        '<View>\n  <View style="display:none">\n'
-        f'    <Text name="{DATA_KEY_NAME}" value="$froglabel" />\n'
-        "  </View>\n\n"
-        f'  <ReactCode name="{REACTCODE_NAME}" toName="{REACTCODE_NAME}" '
-        f'style="{html.escape(style, quote=True)}" '
-        f'outputs="{html.escape(schema, quote=True)}">\n'
-        "    <![CDATA[\n"
-        f"{code}\n"
-        "    ]]>\n"
-        "  </ReactCode>\n"
-        "</View>\n"
-    )
+def validate_enterprise_interface(source: str) -> None:
+    if "function FrogLabelEnterpriseInterface" not in source:
+        raise FrogLabelCliError("ENTERPRISE_INTERFACE_INVALID", "Generated component is absent")
+    required = [
+        "default:",
+        "paramsSchema:",
+        "inputSchema:",
+        "outputSchema:",
+        "getResults:",
+        "parseResults:",
+    ]
+    missing = [name for name in required if name not in source]
+    if missing:
+        raise FrogLabelCliError(
+            "ENTERPRISE_INTERFACE_INVALID",
+            f"Generated Interface exports are absent: {', '.join(missing)}",
+        )
+    if not source.rstrip().endswith(");"):
+        raise FrogLabelCliError(
+            "ENTERPRISE_INTERFACE_INVALID", "Interface must end with a parenthesized object"
+        )
+    scan_enterprise_interface(source)
 
 
-def minimal_canary_xml() -> str:
-    code = "\n".join(
-        [
-            "function FrogLabelEnterpriseCanary({React,addRegion,regions,data,viewState}){",
-            "  const count=regions.length;",
-            "  const value={kind:'froglabel.annotation-set',schemaVersion:1,",
-            "    catalogId:'canary',reviewStatus:'no_calls',boxes:[]};",
-            "  const add=()=>addRegion(value);",
-            "  const remove=()=>regions[0]?.delete();",
-            "  return React.createElement('div',{style:{padding:16,fontFamily:'system-ui'}},",
-            "    React.createElement('strong',null,'Inline ReactCode canary'),",
-            "    React.createElement('p',null,"
-            "`regions=${count}; data=${data?'present':'warm-up'}`),",
-            "    React.createElement('button',{type:'button',onClick:count?remove:add},",
-            "      count?'Delete region':'Add No calls region'));",
-            "}",
-        ]
-    )
-    return canary_xml("froglabel_canary", code)
-
-
-def capability_canary_xml() -> str:
-    code = "\n".join(
-        [
-            "function FrogLabelEnterpriseCapabilities({React,addRegion,regions,data,viewState}){",
-            "  const region=regions[0]||{};",
-            "  const keys=value=>value&&typeof value==='object'?Object.keys(value).sort():[];",
-            "  const report={propKeys:['React','addRegion','regions','data','viewState'],",
-            "    regionKeys:keys(region),viewStateKeys:keys(viewState),",
-            "    hasUpdate:typeof region.update==='function',",
-            "    hasDelete:typeof region.delete==='function'};",
-            "  return React.createElement('pre',",
-            "    {style:{whiteSpace:'pre-wrap',padding:16}},JSON.stringify(report,null,2));",
-            "}",
-        ]
-    )
-    return canary_xml("froglabel_capabilities", code)
-
-
-def canary_xml(name: str, code: str) -> str:
-    if "]]>" in code:
-        raise FrogLabelCliError("ENTERPRISE_CDATA_UNSAFE", "Canary contains ]]>")
-    return (
-        "<View>\n"
-        f'  <ReactCode name="{name}" toName="{name}">\n'
-        f"    <![CDATA[\n{code}\n    ]]>\n"
-        "  </ReactCode>\n"
-        "</View>\n"
-    )
-
-
-def validate_enterprise_xml(xml: str) -> None:
-    try:
-        root = ElementTree.fromstring(xml)
-    except ElementTree.ParseError as error:
-        raise FrogLabelCliError("ENTERPRISE_XML_INVALID", str(error)) from error
-    tags = [node for node in root.iter() if node.tag == "ReactCode"]
-    if len(tags) != 1:
-        raise FrogLabelCliError("ENTERPRISE_XML_INVALID", "Expected one ReactCode tag")
-    tag = tags[0]
-    if tag.attrib.get("name") != REACTCODE_NAME or tag.attrib.get("toName") != REACTCODE_NAME:
-        raise FrogLabelCliError("ENTERPRISE_XML_INVALID", "Stable FrogLabel tag identity changed")
-    if "src" in tag.attrib or "data" in tag.attrib:
-        raise FrogLabelCliError("ENTERPRISE_XML_INVALID", "Inline ReactCode must omit src and data")
-    if "FROGLABEL_ENTERPRISE_COMPONENT" in xml or "function FrogLabelEnterprise" not in xml:
-        raise FrogLabelCliError("ENTERPRISE_XML_INVALID", "Generated component is absent")
-    scan_enterprise_xml(xml)
-
-
-def scan_enterprise_xml(xml: str) -> dict[str, str]:
+def scan_enterprise_interface(source: str) -> dict[str, str]:
     checks = {
-        "srcAttribute": ' src="' not in xml,
-        "moduleImport": " import " not in xml and "import(" not in xml,
-        "moduleExport": " export " not in xml,
-        "commonJsRequire": "require(" not in xml,
-        "dynamicEvaluation": "eval(" not in xml and "new Function(" not in xml,
-        "reactDom": "ReactDOM" not in xml,
-        "runtimeFrogLabelEndpoint": "/froglabel/api/" not in xml,
-        "serviceWorker": "serviceWorker.register" not in xml,
-        "cdataSafe": "]]>" not in xml.replace("    ]]>\n", "", 1),
+        "moduleImport": " import " not in source and "import(" not in source,
+        "moduleExport": " export " not in source,
+        "commonJsRequire": "require(" not in source,
+        "dynamicEvaluation": "eval(" not in source and "new Function(" not in source,
+        "reactDom": "ReactDOM" not in source,
+        "parentDocument": "parent.document" not in source,
+        "runtimeFrogLabelEndpoint": "/froglabel/api/" not in source,
+        "serviceWorker": "serviceWorker.register" not in source,
     }
     failures = [name for name, passed in checks.items() if not passed]
     if failures:
@@ -810,6 +748,6 @@ def sha256_text(value: str) -> str:
 
 def enterprise_unchanged_message(output: Path) -> str:
     return (
-        f"Generated {output / FULL_XML_FILENAME}. The Enterprise project is unchanged. "
-        "Paste this file into Labeling Interface -> Code and save it."
+        f"Generated {output / FULL_INTERFACE_FILENAME}. The Enterprise project is unchanged. "
+        "Validate or publish it with `label-studio-sdk interface`."
     )

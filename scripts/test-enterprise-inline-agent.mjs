@@ -10,17 +10,16 @@ const repository = path.resolve(import.meta.dirname, '..');
 process.env.PLAYWRIGHT_BROWSERS_PATH = await prepareAgentPlaywrightTools(repository);
 const { chromium } = await import('@playwright/test');
 const enterpriseDirectory = path.resolve(
-  process.env.FROGLABEL_ENTERPRISE_ARTIFACTS ?? '.cache/enterprise-run-1',
+  process.env.FROGLABEL_ENTERPRISE_ARTIFACTS ?? 'dist/enterprise',
 );
 const output = path.resolve(
   process.env.FROGLABEL_ENTERPRISE_EVIDENCE ??
-    'test-results/playwright-reactcode-inline-harness/run-1',
+    'test-results/playwright-enterprise-interface-harness/run-1',
 );
 const port = Number(process.env.FROGLABEL_ENTERPRISE_PORT ?? '8130');
 const origin = `http://127.0.0.1:${port}`;
-const xmlPath = path.join(enterpriseDirectory, 'froglabel.enterprise.xml');
-const xml = await readFile(xmlPath, 'utf8');
-const component = extractComponent(xml);
+const interfacePath = path.join(enterpriseDirectory, 'froglabel.enterprise.jsx');
+const interfaceSource = await readFile(interfacePath, 'utf8');
 const hostBuild = path.join(repository, '.cache', 'enterprise-inline-host-build');
 const browserEvents = [];
 const network = [];
@@ -46,7 +45,7 @@ await build({
     emptyOutDir: true,
     minify: true,
     sourcemap: false,
-    target: 'es2022',
+    target: 'es2020',
     lib: {
       entry: path.join(repository, 'scripts', 'enterprise-inline-harness-entry.tsx'),
       formats: ['iife'],
@@ -76,11 +75,6 @@ const html = `<!doctype html>
         );
       });
     </script>
-    <script>${component}</script>
-    <script>
-      window.__froglabelBootstrap.afterComponent = true;
-      window.__froglabelBootstrap.componentType = typeof FrogLabelEnterprise;
-    </script>
     <script
       src="/host.js"
       onload="window.__froglabelBootstrap.hostLoaded = true"
@@ -88,18 +82,6 @@ const html = `<!doctype html>
     ></script>
   </body>
 </html>`;
-
-function extractComponent(value) {
-  const match = value.match(/<!\[CDATA\[\s*([\s\S]*?)\s*\]\]>/u);
-  if (!match) throw new Error('Generated Enterprise XML has no CDATA component');
-  if (/\ssrc\s*=/u.test(value)) throw new Error('Generated Enterprise XML unexpectedly has src');
-  if (match[1].includes('</script')) {
-    throw new Error(
-      'Generated Enterprise component cannot be injected as a literal browser script',
-    );
-  }
-  return match[1];
-}
 
 function respond(response, status, contentType, body) {
   response.writeHead(status, {
@@ -146,6 +128,8 @@ async function listen() {
       respond(response, 200, 'text/html; charset=utf-8', html);
     } else if (pathname === '/host.js') {
       respond(response, 200, 'text/javascript; charset=utf-8', hostJavaScript);
+    } else if (pathname === '/froglabel.enterprise.jsx') {
+      respond(response, 200, 'text/plain; charset=utf-8', interfaceSource);
     } else if (pathname === '/audio.wav') {
       respond(response, 200, 'audio/wav', audio);
     } else {
@@ -163,7 +147,7 @@ async function drawBox(page) {
   await page.getByRole('option', { name: 'GRE Green Tree Frog' }).click();
   await page.getByRole('button', { name: /Draw Box/ }).click();
   const rectangle = await page.locator('canvas.spectrogram-canvas').boundingBox();
-  if (!rectangle) throw new Error('Enterprise exact-code spectrogram has no bounding box');
+  if (!rectangle) throw new Error('Enterprise Interface spectrogram has no bounding box');
   await page.mouse.move(rectangle.x + rectangle.width * 0.2, rectangle.y + rectangle.height * 0.2);
   await page.mouse.down();
   await page.mouse.move(
@@ -255,7 +239,7 @@ try {
   await page.goto(origin, { waitUntil: 'domcontentloaded' });
   await page.getByRole('option', { name: 'GRE Green Tree Frog' }).waitFor({ timeout: 180_000 });
   const startupMilliseconds = Date.now() - startedAt;
-  recordAction('execute exact XML component', 'inline workspace reached ready state');
+  recordAction('execute exact Interface source', 'shared workspace reached ready state');
 
   if (audioProfile === 'maximum') {
     await page.keyboard.press('3');
@@ -328,7 +312,7 @@ try {
     'practice left host regions unchanged',
   );
   await page.screenshot({
-    path: path.join(output, 'enterprise-inline-annotated.png'),
+    path: path.join(output, 'enterprise-interface-annotated.png'),
     fullPage: true,
   });
 
@@ -390,12 +374,11 @@ try {
     audioBytes: audio.length,
     audioProfile,
     browser: await browser.version(),
-    componentBytes: Buffer.byteLength(component),
-    exactExtractedComponent: true,
+    exactInterfaceSource: true,
+    interfaceBytes: Buffer.byteLength(interfaceSource),
     networkRequests: network.filter((entry) => entry.event === 'request').length,
     startupMilliseconds,
     usedJsHeapBytes: await page.evaluate(() => performance.memory?.usedJSHeapSize ?? null),
-    xmlBytes: Buffer.byteLength(xml),
   };
   await writeFile(
     path.join(output, 'raw-region-lifecycle.json'),
@@ -413,7 +396,7 @@ try {
       {
         schemaVersion: 1,
         seed: explorerSeed,
-        target: 'enterprise-exact-inline-xml-local-harness',
+        target: 'enterprise-exact-interface-local-harness',
         actions: explorerActions,
         browserProblems: fatal,
       },

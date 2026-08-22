@@ -1,5 +1,5 @@
-import { describe, expect, it } from 'vitest';
-import { detectSourceSampleRateHz } from '../../src/audio/AudioResource';
+import { describe, expect, it, vi } from 'vitest';
+import { detectSourceSampleRateHz, loadAudioResource } from '../../src/audio/AudioResource';
 import { computeSpectrogramPixels, overlapSamples } from '../../src/audio/spectrogram';
 
 describe('source sample-rate detection', () => {
@@ -25,6 +25,39 @@ describe('source sample-rate detection', () => {
   it('reads an MPEG-1 Layer III frame sample rate', () => {
     const bytes = Uint8Array.from([0xff, 0xfb, 0x90, 0x64]).buffer;
     expect(detectSourceSampleRateHz(bytes, 'call.mp3')).toBe(44_100);
+  });
+
+  it('loads SDK-embedded base64 audio without a CSP-governed fetch', async () => {
+    const bytes = new Uint8Array(46);
+    const view = new DataView(bytes.buffer);
+    writeAscii(view, 0, 'RIFF');
+    view.setUint32(4, 38, true);
+    writeAscii(view, 8, 'WAVE');
+    writeAscii(view, 12, 'fmt ');
+    view.setUint32(16, 16, true);
+    view.setUint16(20, 1, true);
+    view.setUint16(22, 1, true);
+    view.setUint32(24, 8_000, true);
+    view.setUint32(28, 16_000, true);
+    view.setUint16(32, 2, true);
+    view.setUint16(34, 16, true);
+    writeAscii(view, 36, 'data');
+    view.setUint32(40, 2, true);
+    const binary = String.fromCharCode(...bytes);
+    const fetch = vi.spyOn(globalThis, 'fetch');
+    const loaded = await loadAudioResource({
+      url: `data:audio/wav;base64,${btoa(binary)}`,
+      filename: 'embedded.wav',
+    });
+    expect(fetch).not.toHaveBeenCalled();
+    expect(loaded).toMatchObject({
+      durationSeconds: 1 / 8_000,
+      decodedSampleRateHz: 8_000,
+      channelCount: 1,
+      decoder: 'source-faithful-wav',
+    });
+    loaded.dispose();
+    fetch.mockRestore();
   });
 });
 

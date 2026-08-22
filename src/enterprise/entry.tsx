@@ -2,9 +2,14 @@ import { useEffect, useLayoutEffect, useMemo, useRef } from 'react';
 import appCss from '../App.css?inline';
 import { EmbeddedCatalogPort } from '../adapters/enterprise/EmbeddedCatalogPort';
 import {
-  EnterpriseInlineReactCodePort,
-  type EnterpriseInlineHostProps,
-} from '../adapters/enterprise/EnterpriseInlineReactCodePort';
+  EnterpriseInterfacePort,
+  enterpriseInputSchema,
+  enterpriseOutputSchema,
+  enterpriseParamsSchema,
+  getEnterpriseInterfaceResults,
+  parseEnterpriseInterfaceResults,
+  type EnterpriseInterfaceHostProps,
+} from '../adapters/enterprise/EnterpriseInterfacePort';
 import { HostAudioSourcePort } from '../adapters/reactcode/HostAudioSourcePort';
 import { FrogLabelWorkspace } from '../components/workspace/FrogLabelWorkspace';
 import type { SpeciesCatalogV1 } from '../domain/types';
@@ -13,13 +18,13 @@ import { embeddedTutorialAudioUrl } from './tutorialAudio';
 declare const __FROGLABEL_BUILD_VERSION__: string;
 
 interface EnterpriseApplicationProps {
-  host: EnterpriseInlineHostProps;
+  host: EnterpriseInterfaceHostProps;
   catalog: SpeciesCatalogV1;
 }
 
 function EnterpriseApplication({ host, catalog }: EnterpriseApplicationProps) {
-  const annotationRef = useRef<EnterpriseInlineReactCodePort | null>(null);
-  if (!annotationRef.current) annotationRef.current = new EnterpriseInlineReactCodePort(host);
+  const annotationRef = useRef<EnterpriseInterfacePort | null>(null);
+  if (!annotationRef.current) annotationRef.current = new EnterpriseInterfacePort(host);
   const annotation = annotationRef.current;
   const dependencies = useMemo(() => {
     const species = new EmbeddedCatalogPort(catalog, annotation);
@@ -49,7 +54,11 @@ function EnterpriseApplication({ host, catalog }: EnterpriseApplicationProps) {
   );
 
   return (
-    <div className="froglabel-enterprise-root" data-froglabel-build={__FROGLABEL_BUILD_VERSION__}>
+    <div
+      className="froglabel-enterprise-root"
+      data-froglabel-build={__FROGLABEL_BUILD_VERSION__}
+      data-region-id={annotation.getSnapshot().regionId ?? undefined}
+    >
       <style>{appCss}</style>
       <FrogLabelWorkspace
         annotationPort={annotation}
@@ -68,8 +77,14 @@ function EnterpriseApplication({ host, catalog }: EnterpriseApplicationProps) {
 }
 
 export function renderEnterpriseFrogLabel(
-  host: EnterpriseInlineHostProps,
+  host: EnterpriseInterfaceHostProps,
   catalog: SpeciesCatalogV1,
 ) {
   return <EnterpriseApplication host={host} catalog={catalog} />;
 }
+
+export const paramsSchema = enterpriseParamsSchema;
+export const inputSchema = enterpriseInputSchema;
+export const outputSchema = enterpriseOutputSchema;
+export const getResults = getEnterpriseInterfaceResults;
+export const parseResults = parseEnterpriseInterfaceResults;

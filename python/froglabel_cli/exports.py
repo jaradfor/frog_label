@@ -107,11 +107,20 @@ def parse_label_studio_export(path: Path) -> list[dict[str, Any]]:
                     f"Task {task_id!r}, annotation {annotation_id!r}: {error}",
                     context=ErrorContext(source=str(resolved), record=task_index + 1),
                 ) from error
-            if envelope.from_name != "froglabel" or envelope.to_name != "froglabel":
+            expected_target = "froglabel" if envelope.type == "reactcode" else "audio"
+            if envelope.from_name != "froglabel" or envelope.to_name != expected_target:
                 raise _shape_error(
-                    task_index, "FrogLabel result must use from_name/to_name froglabel"
+                    task_index,
+                    f"FrogLabel {envelope.type} result must target {expected_target}",
                 )
-            document = envelope.value["reactcode"]
+            try:
+                document = envelope.document()
+            except (ValidationError, ValueError) as error:
+                raise FrogLabelCliError(
+                    "EXPORT_RESULT_INVALID",
+                    f"Task {task_id!r}, annotation {annotation_id!r}: {error}",
+                    context=ErrorContext(source=str(resolved), record=task_index + 1),
+                ) from error
             parsed.append(
                 {
                     "taskId": task_id,

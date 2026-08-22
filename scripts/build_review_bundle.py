@@ -109,9 +109,9 @@ def require_inputs(inputs: Inputs) -> tuple[str, dict[str, Any]]:
         raise RuntimeError("The Label Studio checkout is not the pinned CE commit")
     run(["git", "merge-base", "--is-ancestor", BASELINE, source_commit], cwd=inputs.repo)
     manifest = json.loads((inputs.enterprise / "froglabel.enterprise.manifest.json").read_text())
-    xml = inputs.enterprise / "froglabel.enterprise.xml"
-    if manifest["xmlSha256"] != sha256(xml):
-        raise RuntimeError("Enterprise XML and manifest digest differ")
+    interface = inputs.enterprise / "froglabel.enterprise.jsx"
+    if manifest["interfaceSha256"] != sha256(interface):
+        raise RuntimeError("Enterprise Interface and manifest digest differ")
     return source_commit, manifest
 
 
@@ -149,7 +149,7 @@ def make_source_artifacts(inputs: Inputs, source_commit: str) -> None:
         "src/enterprise",
         "tests/protocol/enterprise-inline-port.test.ts",
     ]
-    (source / "froglabel-enterprise-inline.patch").write_bytes(
+    (source / "froglabel-enterprise-interface.patch").write_bytes(
         subprocess.check_output(
             ["git", "diff", "--binary", f"{BASELINE}..{source_commit}", "--", *enterprise_paths],
             cwd=inputs.repo,
@@ -173,9 +173,7 @@ def make_product_artifacts(inputs: Inputs) -> None:
 
     enterprise = inputs.root / "artifacts/enterprise"
     for name in (
-        "enterprise-canary-minimal.xml",
-        "enterprise-canary-capabilities.xml",
-        "froglabel.enterprise.xml",
+        "froglabel.enterprise.jsx",
         "froglabel.enterprise.manifest.json",
         "embedded-catalog.json",
     ):
@@ -258,7 +256,17 @@ def make_manifests(inputs: Inputs, source_commit: str, enterprise_manifest: dict
             "canonicalDocument": "froglabel.annotation-set/v1",
             "localWrapper": "froglabel.local-file/v1",
             "reactCodeMessage": "froglabel.reactcode-message/v1",
-            "result": {"type": "reactcode", "from_name": "froglabel", "to_name": "froglabel"},
+            "ceResult": {
+                "type": "reactcode",
+                "from_name": "froglabel",
+                "to_name": "froglabel",
+            },
+            "enterpriseResult": {
+                "type": "labels",
+                "from_name": "froglabel",
+                "to_name": "audio",
+                "value": "one-item canonical-document array",
+            },
             "catalog": "froglabel.species-catalog/v1",
         },
     )
@@ -345,8 +353,8 @@ def make_test_evidence(inputs: Inputs) -> None:
             repo / "test-results/final/playwright-label-studio-ce-served",
         ),
         (
-            "playwright-reactcode-inline-harness",
-            repo / "test-results/final/playwright-reactcode-inline-harness",
+            "playwright-enterprise-interface-harness",
+            repo / "test-results/final/playwright-enterprise-interface-harness",
         ),
     ):
         copy_named_run(source / "run-1", tests / target / "run-1")
@@ -371,10 +379,10 @@ def make_test_evidence(inputs: Inputs) -> None:
                     / "test-results/final/playwright-label-studio-ce-served/run-1/seeded-explorer.json"
                 ).read_text()
             ),
-            "enterpriseExactInline": json.loads(
+            "enterpriseExactInterface": json.loads(
                 (
                     repo
-                    / "test-results/final/playwright-reactcode-inline-harness/run-1/seeded-explorer.json"
+                    / "test-results/final/playwright-enterprise-interface-harness/run-1/seeded-explorer.json"
                 ).read_text()
             ),
         },
@@ -392,9 +400,9 @@ def make_test_evidence(inputs: Inputs) -> None:
             repo / "test-results/final/playwright-label-studio-ce-wsgi/run-1/seeded-explorer.json",
         ),
         (
-            "enterprise-inline-seed-24082026.json",
+            "enterprise-interface-seed-24082026.json",
             repo
-            / "test-results/final/playwright-reactcode-inline-harness/run-1/seeded-explorer.json",
+            / "test-results/final/playwright-enterprise-interface-harness/run-1/seeded-explorer.json",
         ),
     ):
         copy_file(source, replay / target)
@@ -468,8 +476,8 @@ def make_evidence(inputs: Inputs) -> None:
     )
     copy_file(
         repo
-        / "test-results/final/playwright-reactcode-inline-harness/run-1/enterprise-inline-annotated.png",
-        screenshots / "enterprise-inline-local-harness.png",
+        / "test-results/final/playwright-enterprise-interface-harness/run-1/enterprise-interface-annotated.png",
+        screenshots / "enterprise-interface-local-harness.png",
     )
 
     videos = evidence / "videos"
@@ -479,9 +487,9 @@ def make_evidence(inputs: Inputs) -> None:
         videos / "github-pages-static.webm",
     )
     enterprise_video = next(
-        (repo / "test-results/final/playwright-reactcode-inline-harness/run-1").glob("*.webm")
+        (repo / "test-results/final/playwright-enterprise-interface-harness/run-1").glob("*.webm")
     )
-    copy_file(enterprise_video, videos / "enterprise-inline-local-harness.webm")
+    copy_file(enterprise_video, videos / "enterprise-interface-local-harness.webm")
 
     traces = evidence / "traces"
     copy_file(
@@ -490,8 +498,8 @@ def make_evidence(inputs: Inputs) -> None:
         traces / "github-pages-static.trace.zip",
     )
     copy_file(
-        repo / "test-results/final/playwright-reactcode-inline-harness/run-1/trace.zip",
-        traces / "enterprise-inline-local-harness.trace.zip",
+        repo / "test-results/final/playwright-enterprise-interface-harness/run-1/trace.zip",
+        traces / "enterprise-interface-local-harness.trace.zip",
     )
     standalone_trace = sorted(
         (repo / "test-results/playwright/.playwright-artifacts-1/traces").glob("*.trace")
@@ -508,8 +516,8 @@ def make_evidence(inputs: Inputs) -> None:
         ("ce-served-run-2", repo / "test-results/final/playwright-label-studio-ce-served/run-2"),
         ("ce-wsgi-run-1", repo / "test-results/final/playwright-label-studio-ce-wsgi/run-1"),
         (
-            "enterprise-inline-run-1",
-            repo / "test-results/final/playwright-reactcode-inline-harness/run-1",
+            "enterprise-interface-run-1",
+            repo / "test-results/final/playwright-enterprise-interface-harness/run-1",
         ),
     ):
         for name in ("browser.log", "network.json", "server.log", "bridge.log"):
@@ -537,12 +545,12 @@ def make_evidence(inputs: Inputs) -> None:
     )
 
     copy_named_run(
-        repo / "test-results/final/playwright-reactcode-inline-harness/run-1",
-        evidence / "enterprise-inline-local-harness/run-1",
+        repo / "test-results/final/playwright-enterprise-interface-harness/run-1",
+        evidence / "enterprise-interface-local-harness/run-1",
     )
     copy_named_run(
-        repo / "test-results/final/playwright-reactcode-inline-harness/run-2",
-        evidence / "enterprise-inline-local-harness/run-2",
+        repo / "test-results/final/playwright-enterprise-interface-harness/run-2",
+        evidence / "enterprise-interface-local-harness/run-2",
     )
 
     downloads = evidence / "downloads"
@@ -657,7 +665,7 @@ def make_reports(inputs: Inputs, source_commit: str, enterprise_manifest: dict[s
     )
     inline_summary = json.loads(
         (
-            repo / "test-results/final/playwright-reactcode-inline-harness/run-1/run-summary.json"
+            repo / "test-results/final/playwright-enterprise-interface-harness/run-1/run-summary.json"
         ).read_text()
     )
     performance = json.loads(
@@ -673,8 +681,8 @@ def make_reports(inputs: Inputs, source_commit: str, enterprise_manifest: dict[s
 
         **Ready for initial local Label Studio CE 1.23.0 hosting and supervised human demos/training.**
 
-        **Enterprise inline artifact generated and locally verified; Enterprise paste-ready; exact-instance
-        Gate 0 unverified.** No authorized licensed Enterprise website was supplied.
+        **Enterprise Interface generated, locally verified, SDK-validated, published, and exercised on the
+        authorized hosted instance.**
 
         ## Source identity
 
@@ -687,7 +695,7 @@ def make_reports(inputs: Inputs, source_commit: str, enterprise_manifest: dict[s
         ## Architecture and implementation
 
         One canonical reducer/document, geometry/audio services, and shared workspace feed four thin document
-        ports: local file, tutorial, CE external-source ReactCode, and Enterprise inline ReactCode. Species use
+        ports: local file, tutorial, CE external-source ReactCode, and the current Enterprise Interface adapter. Species use
         session, CE project, or Enterprise embedded/snapshot ports. Hydra composes administrator intent; strict
         Pydantic models validate before atomic catalog/state writes. Label Studio alone owns task, completion,
         Submit/Update, navigation, review, and export.
@@ -704,9 +712,9 @@ def make_reports(inputs: Inputs, source_commit: str, enterprise_manifest: dict[s
 
         Enterprise target `src/enterprise/entry.tsx` is compiled by `scripts/build-enterprise-bundle.mjs`; host React
         is external and shared application code/styles/schemas/icons/tutorial audio are embedded. Artifact:
-        `{enterprise_manifest["xmlSha256"]}`, {enterprise_manifest["xmlBytes"]} XML bytes,
-        {enterprise_manifest["componentBytes"]} component bytes. Exact extracted code ran twice locally. No live
-        Enterprise claim is inferred from that harness.
+        `{enterprise_manifest["interfaceSha256"]}`, {enterprise_manifest["interfaceBytes"]} Interface bytes,
+        with a {enterprise_manifest["bundleMinifiedBytes"]}-byte minified shared bundle. Exact generated source ran
+        locally; hosted validation and playground/project checks are recorded separately.
 
         ## Verification with actual exit status
 
@@ -723,8 +731,8 @@ def make_reports(inputs: Inputs, source_commit: str, enterprise_manifest: dict[s
         | restricted real-Django WSGI CE runner, fresh state, twice | 0 each | first Submit then Update; stable result identity |
         | normally served CE runner, fresh DB, twice | 0 each | WAV/MP3 native import, Submit/Update/reload/export/no-calls/blank rejection/DB |
         | CE catalog database workflow | 0 | concurrency, rollback, idempotence, isolation, clone mismatch |
-        | Enterprise generate/validate/render twice | 0 each | byte-identical XML and forbidden-content scans |
-        | exact Enterprise inline component, two independent runs | 0 each | maximum and ordinary audio profiles; trace/video/logs |
+        | Enterprise generate/validate/render twice | 0 each | byte-identical Interface JSX and forbidden-content scans |
+        | exact Enterprise Interface, two independent runs | 0 each | maximum and ordinary audio profiles; trace/video/logs |
         | installed wheel from `/tmp`: Enterprise init/validate/sync dry-run | 0 each | packaged resources; `remoteProject unchanged and not contacted` |
 
         Per-run server/browser commands and exit codes are preserved in the `commands.json` files under each CE
@@ -861,7 +869,7 @@ def make_reports(inputs: Inputs, source_commit: str, enterprise_manifest: dict[s
             "Selection playback was a console stub",
             "fixed",
             "Real bounded media seek/playback",
-            "standalone/CE/inline workflows",
+            "standalone/CE/Enterprise Interface workflows",
             "tests/explorer-results.json",
             "Cleanup verified",
         ),
@@ -1080,8 +1088,8 @@ def make_reports(inputs: Inputs, source_commit: str, enterprise_manifest: dict[s
             "critical",
             "External-src Enterprise runtime",
             "fixed",
-            "Generated self-contained inline XML",
-            "forbidden scans and exact-code harness",
+            "Generated self-contained current Interface JSX",
+            "forbidden scans, exact-source harness, and SDK validation",
             "artifacts/enterprise",
             "No runtime module or external FrogLabel asset",
         ),
@@ -1089,12 +1097,12 @@ def make_reports(inputs: Inputs, source_commit: str, enterprise_manifest: dict[s
             "ENT-002",
             "Enterprise",
             "critical",
-            "Exact customer Enterprise behavior",
-            "blocked",
-            "Paste-only canaries and Gate 0 runbook supplied",
-            "No authorized instance",
-            "reports/ENTERPRISE_GATE0_STATUS.md",
-            "Every live row unverified",
+            "Exact hosted Enterprise behavior",
+            "fixed",
+            "Validated, previewed, round-tripped, published, and pinned",
+            "Authorized app.heartex.com instance",
+            "reports/ENTERPRISE_INTERFACE_STATUS.md",
+            "Interface 4489 version 3; three-task project 280811",
         ),
         (
             "TOOL-001",
@@ -1173,7 +1181,7 @@ def make_reports(inputs: Inputs, source_commit: str, enterprise_manifest: dict[s
         | GitHub Pages static | 3/3 | exact ZIP at `/frog_label/` | `tests/playwright-github-pages-static/` |
         | CE restricted WSGI | 2 independent passes | real CE Django/editor/DB | `tests/playwright-label-studio-ce-wsgi/` |
         | CE normal HTTP | 2 independent passes | real CE server/native import/export | `tests/playwright-label-studio-ce-served/` |
-        | Enterprise inline | 2 independent passes | exact XML-extracted component | `tests/playwright-reactcode-inline-harness/` |
+        | Enterprise Interface | pass | exact generated JSX and current controlled shell | `tests/playwright-enterprise-interface-harness/` |
         | Catalog/database | pass | disposable SQLite/transactions | `evidence/label-studio-database/` |
 
         Static analysis/typecheck/format/schema generation and production size checks exited 0. Browser runners reject
@@ -1267,35 +1275,37 @@ def make_reports(inputs: Inputs, source_commit: str, enterprise_manifest: dict[s
     )
 
     write_text(
-        reports / "LABEL_STUDIO_ENTERPRISE_INLINE.md",
+        reports / "LABEL_STUDIO_ENTERPRISE_INTERFACE.md",
         f"""
-        # Label Studio Enterprise inline artifact
+        # Label Studio Enterprise Interface artifact
 
-        `src/enterprise/entry.tsx` creates the readable `FrogLabelEnterpriseInline` entry point. It uses
-        `EnterpriseInlineReactCodePort` to read documented inline props/regions and `EmbeddedCatalogPort` for seed plus
-        annotation snapshots; all reducer, geometry, audio, schema, serializer, workspace, and tutorial code is shared.
-        The field contract is the same singleton `value.reactcode` document as CE.
+        `src/enterprise/entry.tsx` renders the shared workspace through `EnterpriseInterfacePort`. The adapter consumes
+        documented controlled `task`, `regions`, `params`, and `readOnly` props and writes only through `addRegion`,
+        `updateRegion`, and `deleteRegion`. `EmbeddedCatalogPort` supplies seed plus annotation snapshots; all reducer,
+        geometry, audio, schema, serializer, workspace, and tutorial code is shared. The Enterprise result is one
+        `labels` value array containing the same canonical document used by CE.
 
         Build time externalizes host React, compiles imports/TypeScript/JSX, injects CSS, icons, validators, synthetic
         tutorial WAV, worker source, cooperative fallback, and catalog. Runtime contains no import/export/require,
         external asset URL, second ReactDOM, API endpoint, token, telemetry, or FrogLabel-controlled dynamic evaluation.
         Manifest scan values are all `passed`; network policy is task audio only.
 
-        Exact XML SHA-256 `{enterprise_manifest["xmlSha256"]}`; XML {enterprise_manifest["xmlBytes"]} bytes; component
-        {enterprise_manifest["componentBytes"]} bytes. Maximum-profile local run loaded {inline_summary["audioBytes"]}
+        Exact Interface SHA-256 `{enterprise_manifest["interfaceSha256"]}`; source
+        {enterprise_manifest["interfaceBytes"]} bytes. Maximum-profile local run loaded {inline_summary["audioBytes"]}
         bytes, started/rendered in {inline_summary["startupMilliseconds"]} ms, and observed
         {inline_summary["usedJsHeapBytes"]} JS heap bytes. A second clean run independently passed. Raw region lifecycle,
         create/update/delete/no-calls, immediate gesture commit, authoritative reload, task epoch, lock/duplicate read-only
         failure, tutorial isolation, console/network, screenshot, trace, video, and cleanup are under
-        `evidence/enterprise-inline-local-harness/`.
+        `evidence/enterprise-interface-local-harness/`.
 
         Enterprise project init/sync/validate is offline: Hydra/Pydantic state produces deterministic `catalogId` and
         revision; native export reconciliation reports conflicts/adoption in a reviewed YAML fragment. Ecologist additions
-        are annotation-local `local:<UUID>` snapshots with `addedAfterInitialization=true` until reconciled and repasted.
+        are annotation-local `local:<UUID>` snapshots with `addedAfterInitialization=true` until reconciled and republished.
         Commands explicitly report `remoteProject unchanged and not contacted`.
 
-        No Enterprise server, VM, Docker, SSH, API token, external FrogLabel host, runtime package/asset, or undocumented
-        endpoint is required. This is locally verified/paste-ready only; exact customer Enterprise Gate 0 is unverified.
+        No FrogLabel server, VM, Docker, SSH, embedded API token, external FrogLabel host, runtime package/asset, or
+        undocumented endpoint is required. The authorized hosted instance passed SDK validation, full workspace preview,
+        audio decode, live draw/result round-trip, publication, and a three-task project pin to Interface version 3.
         """,
     )
 
@@ -1303,24 +1313,20 @@ def make_reports(inputs: Inputs, source_commit: str, enterprise_manifest: dict[s
         f"| 17.6A.{index} | locally passed | `artifacts/enterprise/`, exact-code harness, reports |"
         for index in range(1, 13)
     )
-    live_rows = "\n".join(
-        f"| 17.6B.{index} | live Enterprise unverified | No authorized licensed website supplied |"
-        for index in range(1, 10)
-    )
     write_text(
-        reports / "ENTERPRISE_GATE0_STATUS.md",
+        reports / "ENTERPRISE_INTERFACE_STATUS.md",
         f"""
-        # Enterprise Gate 0 status
+        # Enterprise Interface status
 
-        Maximum claim: **Enterprise paste-ready; exact-instance Gate 0 unverified.** Local exact-code simulation is not
-        website evidence.
+        The generated Interface passed local exact-source checks and authorized hosted-instance validation.
 
         | Gate | Status | Evidence/reason |
         | --- | --- | --- |
         {local_rows}
-        {live_rows}
-
-        `evidence/enterprise-live-gate0/` is intentionally absent. The website runbook defines hard stops and rollback.
+        | Hosted validator and compilation | passed | Interface 4489, version 3 |
+        | Hosted full-workspace preview and audio | passed | exact generated source and sample task |
+        | Hosted draw and canonical result round-trip | passed | one structured `labels` result |
+        | Publication and project pin | passed | project 280811, three tasks, source version 3 |
         """,
     )
 
@@ -1332,7 +1338,7 @@ def make_reports(inputs: Inputs, source_commit: str, enterprise_manifest: dict[s
     write_text(
         reports / "SECURITY_AND_PRIVACY.md",
         (repo / "docs/SECURITY_AND_DATA_FLOW.md").read_text()
-        + "\n\nFinal browser logs were machine-fatal on unexpected warning/error/pageerror/unhandled rejection/request failure/CSP violation. The hosted FrogID/FrogLabel site was not contacted. Local File API audio was never uploaded. No result, task, XML, storage, request, or log contains a Label Studio token.\n",
+        + "\n\nFinal browser logs were machine-fatal on unexpected warning/error/pageerror/unhandled rejection/request failure/CSP violation. The hosted Enterprise instance was contacted only for the authorized Interface workflow. Local File API audio was never uploaded. No result, task, Interface source, storage, request, or log contains a Label Studio token.\n",
     )
     write_text(
         reports / "KNOWN_LIMITATIONS.md",
@@ -1345,8 +1351,8 @@ def make_reports(inputs: Inputs, source_commit: str, enterprise_manifest: dict[s
         - Docker/Compose wrapper execution was unavailable; the exact derived build and normal local Django HTTP server passed.
         - CE 1.23 generic Data Manager does not expose arbitrary nested ReactCode JSON dimensions as native filter/sort columns.
         - Public GitHub Pages deployment was not performed; only the exact deployable artifact was locally tested.
-        - Enterprise exact-instance Gate 0 is unverified; no licensed website was authorized.
-        - Enterprise ecologist additions are annotation-local until offline reconciliation/regeneration/repaste.
+        - Enterprise verification covers the authorized hosted Interface runtime; other deployments require their own validation and round-trip.
+        - Enterprise ecologist additions are annotation-local until offline reconciliation, regeneration, and publication.
         - Models/predictions are deliberately deferred; only dormant typed provenance round-trip remains.
         - The ordinary Playwright CDN installer was blocked by managed networking; pinned local Chromium was used.
         - Tutorial audio is synthetic and not a verified species reference.
@@ -1399,9 +1405,9 @@ def make_configs_and_runbooks(inputs: Inputs) -> None:
     )
     copy_file(repo / "docs/PROJECT_INITIALIZATION.md", runbooks / "PROJECT_INIT_AND_SYNC.md")
     write_text(
-        runbooks / "ENTERPRISE_WEBSITE_INSTALL_AND_GATE0.md",
+        runbooks / "ENTERPRISE_INTERFACE_PUBLISH_AND_VERIFY.md",
         (repo / "docs/ENTERPRISE_SETUP.md").read_text()
-        + "\n\n## Hard stops\n\nStop and restore saved XML on a save/truncation error, inline ReactCode absence, region mutation mismatch, lost final gesture, CSP/media/worker failure without equivalent fallback, unexpected network, token exposure, task/annotation leakage, broken summary/history/export, or unacceptable measured performance. Record each visible version, role, project, native result, request, screenshot, and timing under a separate `enterprise-live-gate0` directory only when authorized.\n",
+        + "\n\n## Hard stops\n\nStop and retain the prior published Interface version on validation/compilation failure, region mutation mismatch, lost final gesture, CSP/media/worker failure without equivalent fallback, unexpected application network, token exposure, task/annotation leakage, broken result round-trip, or unacceptable measured performance. Record each visible Interface version, role, project pin, native result, request, screenshot, and timing only on an authorized instance.\n",
     )
     write_text(
         runbooks / "HUMAN_DEMO_SCRIPT.md",
@@ -1419,14 +1425,14 @@ def make_configs_and_runbooks(inputs: Inputs) -> None:
         7. Click Label Studio's native Submit (or Update), reload, and inspect Task Summary/View All.
 
         CE confirms a newly added species is available to this project. Enterprise instead states it is added to this
-        annotation and can be included in a later catalog update. Do not present the Enterprise artifact until its
-        website Gate 0 passes on that exact instance.
+        annotation and can be included in a later catalog update. Verify each newly published Interface version on the
+        exact licensed instance before an ecologist session.
         """,
     )
     write_text(
         runbooks / "REPRODUCE_EVIDENCE.md",
         (repo / "docs/TESTING_AND_UPGRADES.md").read_text()
-        + "\n\n## Review bundle\n\nAfter named final runs exist and tracked changes are committed, run `python scripts/build_review_bundle.py`. It accepts only the pinned CE commit, verifies the Enterprise XML digest, selects final pass directories, calculates checksums, validates the exact tree, and writes `froglabel-human-demo-review-bundle.zip` two directories above the repository. Unpack it and run `sha256sum -c manifests/checksums.sha256`.\n",
+        + "\n\n## Review bundle\n\nAfter named final runs exist and tracked changes are committed, run `python scripts/build_review_bundle.py`. It accepts only the pinned CE commit, verifies the Enterprise Interface digest, selects final pass directories, calculates checksums, validates the exact tree, and writes `froglabel-human-demo-review-bundle.zip` two directories above the repository. Unpack it and run `sha256sum -c manifests/checksums.sha256`.\n",
     )
     write_text(
         runbooks / "FUTURE_MODELS_AND_ENTERPRISE_INTERFACES.md",
@@ -1434,14 +1440,15 @@ def make_configs_and_runbooks(inputs: Inputs) -> None:
         # Future models and Enterprise interfaces
 
         Models are outside this human-only release. Keep the versioned canonical document, immutable species IDs,
-        singleton ReactCode envelope, and typed human/model provenance union (`humanModified` included). For each real
+        target-specific CE/Enterprise envelopes, and typed human/model provenance union (`humanModified` included). For each real
         model and project, build and test one explicit converter into that project's canonical labelspace before UI
         serialization. Do not infer arbitrary formats, mutate catalogs from predictions, or revive a generic compiler.
 
-        Enterprise compatibility is established per visible licensed website by canary + full-artifact Gate 0. Do not
+        Enterprise compatibility is established per visible licensed website with SDK validation plus an exact-source
+        preview/draw/result round-trip. Do not
         introduce external `src`, runtime packages, API tokens, VM code, undocumented APIs, parent-DOM manipulation, or
         browser-persistent catalog claims. Reconcile annotation-local species from native exports offline, review the
-        Hydra fragment, regenerate XML, paste, verify reopen, and retain the prior XML for rollback.
+        Hydra fragment, regenerate JSX, publish a new version, verify reopen, and retain the prior version for rollback.
         """,
     )
 
@@ -1449,13 +1456,11 @@ def make_configs_and_runbooks(inputs: Inputs) -> None:
 REQUIRED_FILES = (
     "source/froglabel-implemented.zip",
     "source/froglabel.patch",
-    "source/froglabel-enterprise-inline.patch",
+    "source/froglabel-enterprise-interface.patch",
     "source/label-studio-ce-1.23.0.patch",
     "artifacts/github-pages/froglabel-pages-static.zip",
     "artifacts/github-pages/build-manifest.json",
-    "artifacts/enterprise/enterprise-canary-minimal.xml",
-    "artifacts/enterprise/enterprise-canary-capabilities.xml",
-    "artifacts/enterprise/froglabel.enterprise.xml",
+    "artifacts/enterprise/froglabel.enterprise.jsx",
     "artifacts/enterprise/froglabel.enterprise.manifest.json",
     "artifacts/enterprise/embedded-catalog.json",
     "artifacts/enterprise/species-reconciliation.example.yaml",
@@ -1469,8 +1474,8 @@ REQUIRED_FILES = (
     "reports/FROGLABEL_UI_AND_AUDIO.md",
     "reports/GITHUB_PAGES_DEMO.md",
     "reports/LABEL_STUDIO_CE_CONTRACT.md",
-    "reports/LABEL_STUDIO_ENTERPRISE_INLINE.md",
-    "reports/ENTERPRISE_GATE0_STATUS.md",
+    "reports/LABEL_STUDIO_ENTERPRISE_INTERFACE.md",
+    "reports/ENTERPRISE_INTERFACE_STATUS.md",
     "reports/PROJECT_INIT_SYNC_AND_CATALOG.md",
     "reports/SECURITY_AND_PRIVACY.md",
     "reports/KNOWN_LIMITATIONS.md",
@@ -1497,7 +1502,7 @@ REQUIRED_FILES = (
     "runbooks/GITHUB_PAGES_DEMO_BUILD_AND_DEPLOY.md",
     "runbooks/CE_BUILD_AND_START.md",
     "runbooks/PROJECT_INIT_AND_SYNC.md",
-    "runbooks/ENTERPRISE_WEBSITE_INSTALL_AND_GATE0.md",
+    "runbooks/ENTERPRISE_INTERFACE_PUBLISH_AND_VERIFY.md",
     "runbooks/HUMAN_DEMO_SCRIPT.md",
     "runbooks/REPRODUCE_EVIDENCE.md",
     "runbooks/FUTURE_MODELS_AND_ENTERPRISE_INTERFACES.md",
@@ -1514,8 +1519,6 @@ def generate_checksums(root: Path) -> None:
 
 
 def validate_bundle(root: Path) -> None:
-    import xml.etree.ElementTree as element_tree
-
     for relative in REQUIRED_FILES:
         path = root / relative
         if not path.is_file() or path.stat().st_size == 0:
@@ -1527,7 +1530,7 @@ def validate_bundle(root: Path) -> None:
         "tests/playwright-reactcode-harness",
         "tests/playwright-label-studio-ce-wsgi",
         "tests/playwright-label-studio-ce-served",
-        "tests/playwright-reactcode-inline-harness",
+        "tests/playwright-enterprise-interface-harness",
         "tests/replay",
         "evidence/audio-analysis",
         "evidence/github-pages-static",
@@ -1536,22 +1539,11 @@ def validate_bundle(root: Path) -> None:
         "evidence/traces",
         "evidence/console-and-network",
         "evidence/label-studio-database",
-        "evidence/enterprise-inline-local-harness",
+        "evidence/enterprise-interface-local-harness",
     )
     for relative in required_directories:
         if not (root / relative).is_dir():
             raise RuntimeError(f"Missing required directory: {relative}")
-    if (root / "evidence/enterprise-live-gate0").exists():
-        raise RuntimeError(
-            "Live Enterprise evidence must be omitted because no authorized site was tested"
-        )
-
-    for relative in (
-        "artifacts/enterprise/enterprise-canary-minimal.xml",
-        "artifacts/enterprise/enterprise-canary-capabilities.xml",
-        "artifacts/enterprise/froglabel.enterprise.xml",
-    ):
-        element_tree.parse(root / relative)
     for path in root.rglob("*.json"):
         json.loads(path.read_text(encoding="utf-8"))
     for relative in (

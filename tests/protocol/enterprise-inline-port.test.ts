@@ -1,53 +1,61 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
-  EnterpriseInlineReactCodePort,
-  type EnterpriseInlineHostProps,
-  type EnterpriseInlineRegion,
-} from '../../src/adapters/enterprise/EnterpriseInlineReactCodePort';
+  EnterpriseInterfacePort,
+  getEnterpriseInterfaceResults,
+  parseEnterpriseInterfaceResults,
+  type EnterpriseInterfaceHostProps,
+  type EnterpriseInterfaceScreenRegion,
+} from '../../src/adapters/enterprise/EnterpriseInterfacePort';
 import { document } from '../fixtures';
 
 class MutableHost {
-  readonly regions: EnterpriseInlineRegion[] = [];
+  readonly regions: EnterpriseInterfaceScreenRegion[] = [];
   nextId = 1;
   reject = false;
   echo = true;
-  props: EnterpriseInlineHostProps = {
-    React: {},
-    data: { froglabel: '/audio/task-one.wav' },
-    viewState: { locked: false, editable: true },
+  props: EnterpriseInterfaceHostProps = {
+    task: { id: 1, data: { audio: '/audio/task-one.wav' } },
+    readOnly: false,
     regions: this.regions,
-    addRegion: (value) => {
+    addRegion: (region) => {
       if (this.reject) throw new Error('host rejected add');
-      const region = this.region(`host:${this.nextId++}`, value);
-      if (this.echo) this.regions.push(region);
-      return region;
+      const added = this.region(`host:${this.nextId++}`, region._froglabelDocument);
+      if (this.echo) this.regions.push(added);
+      return added;
+    },
+    updateRegion: (id, patch) => {
+      if (this.reject) throw new Error('host rejected update');
+      const region = this.regions.find((candidate) => candidate.id === id);
+      if (this.echo && region) Object.assign(region, structuredClone(patch));
+    },
+    deleteRegion: (id) => {
+      if (this.reject) throw new Error('host rejected delete');
+      const index = this.regions.findIndex((candidate) => candidate.id === id);
+      if (this.echo && index >= 0) this.regions.splice(index, 1);
     },
   };
 
-  region(id: string, value: unknown): EnterpriseInlineRegion {
-    const region: EnterpriseInlineRegion = {
+  region(id: string, value: unknown): EnterpriseInterfaceScreenRegion {
+    return {
       id,
-      value,
+      type: 'textarea',
+      labels: [],
+      colors: [],
+      score: null,
       selected: false,
       hidden: false,
       locked: false,
-      update: (next) => {
-        if (this.reject) throw new Error('host rejected update');
-        if (this.echo) region.value = next;
-      },
-      delete: () => {
-        if (this.reject) throw new Error('host rejected delete');
-        if (this.echo) this.regions.splice(this.regions.indexOf(region), 1);
-      },
+      parentId: null,
+      text: 'FrogLabel',
+      _froglabelDocument: structuredClone(value),
     };
-    return region;
   }
 }
 
-describe('EnterpriseInlineReactCodePort documented-props boundary', () => {
+describe('EnterpriseInterfacePort controlled-runtime boundary', () => {
   it('creates, updates, and deletes one stable outer region after authoritative echoes', async () => {
     const host = new MutableHost();
-    const port = new EnterpriseInlineReactCodePort(host.props);
+    const port = new EnterpriseInterfacePort(host.props);
     await port.replaceDocument(document, 'box/createCommitted');
     expect(host.regions).toHaveLength(1);
     expect(port.getSnapshot()).toMatchObject({ regionId: 'host:1', document });
@@ -68,7 +76,7 @@ describe('EnterpriseInlineReactCodePort documented-props boundary', () => {
     vi.useFakeTimers();
     const host = new MutableHost();
     host.echo = false;
-    const port = new EnterpriseInlineReactCodePort(host.props, {
+    const port = new EnterpriseInterfacePort(host.props, {
       mutationTimeoutMilliseconds: 100,
     });
     const pending = port.replaceDocument(document, 'box/createCommitted');
@@ -99,14 +107,18 @@ describe('EnterpriseInlineReactCodePort documented-props boundary', () => {
 
   it('fails read-only for duplicates/malformed regions and rejects on epoch change', async () => {
     const host = new MutableHost();
-    const port = new EnterpriseInlineReactCodePort(host.props);
+    const port = new EnterpriseInterfacePort(host.props);
     host.echo = false;
     const pending = port.replaceDocument(document, 'box/createCommitted');
     const epochAssertion = expect(pending).rejects.toMatchObject({
       code: 'ENTERPRISE_EPOCH_CHANGED',
     });
     await Promise.resolve();
-    host.props = { ...host.props, data: { froglabel: '/audio/task-two.wav' }, regions: [] };
+    host.props = {
+      ...host.props,
+      task: { id: 2, data: { audio: '/audio/task-two.wav' } },
+      regions: [],
+    };
     port.updateContext(host.props);
     await epochAssertion;
 
@@ -126,9 +138,9 @@ describe('EnterpriseInlineReactCodePort documented-props boundary', () => {
 
   it('honors viewState locks and performs complete cleanup', async () => {
     const host = new MutableHost();
-    const port = new EnterpriseInlineReactCodePort({
+    const port = new EnterpriseInterfacePort({
       ...host.props,
-      viewState: { locked: true, editable: false, currentScreen: 'review_stream' },
+      readOnly: true,
     });
     expect(port.getStatus()).toMatchObject({ phase: 'read-only', locked: true });
     await expect(port.replaceDocument(document, 'box/createCommitted')).rejects.toMatchObject({
@@ -136,5 +148,34 @@ describe('EnterpriseInlineReactCodePort documented-props boundary', () => {
     });
     port.destroy();
     expect(() => port.updateContext(host.props)).toThrowError(/closed/u);
+  });
+
+  it('round-trips canonical Interface textarea results and loads legacy ReactCode results', () => {
+    const region = new MutableHost().region('host:stable', document);
+    const serialized = getEnterpriseInterfaceResults([region], []);
+    expect(serialized).toHaveLength(1);
+    expect(serialized[0]).toMatchObject({
+      id: 'host:stable',
+      from_name: 'froglabel',
+      to_name: 'audio',
+      type: 'labels',
+    });
+    expect(parseEnterpriseInterfaceResults(serialized).regions[0]._froglabelDocument).toEqual(
+      document,
+    );
+
+    const legacy = parseEnterpriseInterfaceResults([
+      {
+        id: 'legacy:stable',
+        from_name: 'froglabel',
+        to_name: 'froglabel',
+        type: 'reactcode',
+        value: { reactcode: document },
+      },
+    ]);
+    expect(legacy.regions[0]).toMatchObject({
+      id: 'legacy:stable',
+      _froglabelDocument: document,
+    });
   });
 });

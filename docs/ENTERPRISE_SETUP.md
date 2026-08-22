@@ -1,10 +1,14 @@
-# Label Studio Enterprise website-only setup
+# Label Studio Enterprise Interface setup
 
-FrogLabel Enterprise is one deterministic self-contained inline ReactCode XML. It uses no external `src`, FrogLabel server, CDN, API token, VM access, SSH, Docker action, hidden endpoint, or parent-DOM manipulation.
+FrogLabel Enterprise is one deterministic, self-contained HumanSignal Interface JSX file. It renders the same `FrogLabelWorkspace` used by the standalone and CE targets; only the host adapter differs. The Interface exports `specVersion`, parameter/input/output schemas, and lossless `getResults`/`parseResults` serializers. It has no external `src`, FrogLabel server, CDN, embedded API token, parent-DOM manipulation, or task/annotation REST client.
 
-## Generate offline
+## Build and validate locally
+
+Rebuild the shared application bundle whenever TypeScript, CSS, schemas, icons, or tutorial audio change, then render the project-specific embedded catalog:
 
 ```bash
+npm run build:enterprise-bundle
+
 froglabel project init --target enterprise \
   --config-dir examples/configs --config-name enterprise-seeded \
   --output-dir dist/enterprise
@@ -12,21 +16,68 @@ froglabel project init --target enterprise \
 froglabel project validate --target enterprise \
   --config-dir examples/configs --config-name enterprise-seeded \
   --output-dir dist/enterprise
+
+label-studio-sdk interface validate dist/enterprise/froglabel.enterprise.jsx
 ```
 
-These commands mutate only local files and explicitly report that the remote project was unchanged/not contacted. They generate minimal and capability canaries, `froglabel.enterprise.xml`, a manifest, and embedded catalog.
+The FrogLabel CLI commands above mutate only local files and explicitly report that Enterprise was not contacted. They generate:
 
-## Website Gate 0
+- `froglabel.enterprise.jsx` — the publishable single-file Interface;
+- `froglabel.enterprise.manifest.json` — source/build identity, checksum, size, and policy scans;
+- `embedded-catalog.json` — the catalog compiled into the Interface;
+- `.froglabel-enterprise-state.json` — stable local catalog administration state.
 
-Only with explicit authorization and a disposable synthetic-data project:
+## Preview the exact artifact
 
-1. Sign in as a Manager, Administrator, or Owner.
-2. Open Project Settings → Labeling Interface → Code and save the current XML for rollback.
-3. Paste/save the minimal canary, then prove native add/update/delete/no-calls, Submit/Update, reload, and export.
-4. Paste/save the capability canary and verify canvas, pointer, CSS/SVG, Web Audio, object URL, Blob worker or cooperative fallback, cleanup, CSP, and network behavior.
-5. Paste/save `froglabel.enterprise.xml` and complete the full audio, task/annotation switch, lock/hide/review, Task Summary, history, export, and rapid edit→Submit checks.
-6. Record the visible version, role, timings, artifact size, logs, and exact export. Roll back immediately on any hard stop.
+Set credentials in the shell without committing them:
 
-Ecologist-added species are annotation-local snapshots. To promote them, export native JSON, run `project sync --target enterprise --dry-run --label-studio-export ... --reconciliation-output ...`, review the proposed Hydra fragment, then apply, regenerate, paste, and reopen an existing annotation. A cloned project needs a separate local state/catalog ID. Replacing the XML never rewrites existing annotation documents; rollback is restoring the saved prior XML.
+```bash
+export LABEL_STUDIO_URL="https://app.heartex.com"
+export LABEL_STUDIO_API_KEY="<your token>"
 
-Until those website checks pass, the only valid label is: **Enterprise paste-ready; exact-instance Gate 0 unverified.**
+label-studio-sdk interface preview \
+  dist/enterprise/froglabel.enterprise.jsx \
+  --task examples/enterprise-interface-task.json
+```
+
+The sample task references checked-in audio. The SDK embeds it for preview, and FrogLabel decodes that `data:` URL directly so the hosted editor CSP does not need to allow a `fetch(data:...)` request.
+
+Verify the full workspace—not a reduced mockup—including the toolbar, species/details/display/dataset panels, spectrogram, waveform, playback, tutorial, drawing, resize, delete, explicit No calls, read-only state, and task switch. After a draw, the shell result must be one `labels` result with `from_name: "froglabel"`, `to_name: "audio"`, and a one-item value containing the canonical `froglabel.annotation-set` document.
+
+## Publish without creating duplicates
+
+For the first publication, create one saved Interface:
+
+```bash
+label-studio-sdk interface sync \
+  dist/enterprise/froglabel.enterprise.jsx \
+  --title "FrogLabel Enterprise" \
+  --workspace <workspace-id> \
+  --publish
+```
+
+The SDK writes `froglabel.enterprise.jsx.ls-interface.json`. Keep that sidecar with the generated artifact. Subsequent publications should update the same saved Interface by sidecar lookup, or explicitly pass its existing ID:
+
+```bash
+label-studio-sdk interface sync \
+  dist/enterprise/froglabel.enterprise.jsx \
+  --id <interface-id> \
+  --publish \
+  --message "Describe the verified change"
+```
+
+Pin projects to the newly published stable version only after preview and result round-trip checks. Rollback is changing the project pin to its prior Interface version; it does not rewrite existing annotation documents.
+
+## Catalog reconciliation
+
+Ecologist-added species are annotation-local snapshots. To promote them, export native JSON and run:
+
+```bash
+froglabel project sync --target enterprise --dry-run \
+  --config-dir examples/configs --config-name enterprise-seeded \
+  --output-dir dist/enterprise \
+  --label-studio-export <export.json> \
+  --reconciliation-output <proposed-species.yaml>
+```
+
+Review and adopt the proposed Hydra fragment explicitly, apply the catalog change, rebuild the Interface, preview it, and publish a new version of the same saved Interface. A cloned project needs a distinct local state/catalog ID. Existing annotations remain readable, including exports created by the retired ReactCode envelope.

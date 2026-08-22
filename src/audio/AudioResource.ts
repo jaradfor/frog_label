@@ -29,24 +29,9 @@ export async function loadAudioResource(
   source: AudioSourceSnapshot,
   signal?: AbortSignal,
 ): Promise<LoadedAudio> {
-  const response = await fetch(source.url, {
-    credentials: sameOrigin(source.url) ? 'same-origin' : 'omit',
-    signal,
-  });
-  if (!response.ok) throw audioResponseError(response.status);
-  const length = Number(response.headers.get('content-length') ?? 0);
-  if (length > AUDIO_LIMITS.maximumFileBytes) {
-    throw new ValidationError('Audio exceeds the 128 MiB file-size limit');
-  }
-  let bytes: ArrayBuffer;
-  try {
-    bytes = await response.arrayBuffer();
-  } catch (error) {
-    if (signal?.aborted) throw new DOMException('Audio load was cancelled', 'AbortError');
-    throw new IntegrationError('AUDIO_DOWNLOAD_FAILED', 'Audio bytes could not be read.', {
-      detail: error instanceof Error ? error.message : undefined,
-    });
-  }
+  const bytes = source.url.startsWith('data:')
+    ? decodeBase64DataUrl(source.url, signal)
+    : await downloadAudioBytes(source.url, signal);
   if (bytes.byteLength > AUDIO_LIMITS.maximumFileBytes) {
     throw new ValidationError('Audio exceeds the 128 MiB file-size limit');
   }
@@ -118,6 +103,54 @@ export async function loadAudioResource(
       element.dispose();
     },
   };
+}
+
+async function downloadAudioBytes(url: string, signal?: AbortSignal): Promise<ArrayBuffer> {
+  const response = await fetch(url, {
+    credentials: sameOrigin(url) ? 'same-origin' : 'omit',
+    signal,
+  });
+  if (!response.ok) throw audioResponseError(response.status);
+  const length = Number(response.headers.get('content-length') ?? 0);
+  if (length > AUDIO_LIMITS.maximumFileBytes) {
+    throw new ValidationError('Audio exceeds the 128 MiB file-size limit');
+  }
+  try {
+    return await response.arrayBuffer();
+  } catch (error) {
+    if (signal?.aborted) throw new DOMException('Audio load was cancelled', 'AbortError');
+    throw new IntegrationError('AUDIO_DOWNLOAD_FAILED', 'Audio bytes could not be read.', {
+      detail: error instanceof Error ? error.message : undefined,
+    });
+  }
+}
+
+function decodeBase64DataUrl(url: string, signal?: AbortSignal): ArrayBuffer {
+  if (signal?.aborted) throw new DOMException('Audio load was cancelled', 'AbortError');
+  const comma = url.indexOf(',');
+  if (comma < 5 || !/;base64$/iu.test(url.slice(5, comma))) {
+    throw new ValidationError('Embedded audio must use a base64 data URL');
+  }
+  const encoded = url.slice(comma + 1);
+  const maximumEncodedBytes = Math.ceil((AUDIO_LIMITS.maximumFileBytes * 4) / 3) + 4;
+  if (encoded.length > maximumEncodedBytes) {
+    throw new ValidationError('Audio exceeds the 128 MiB file-size limit');
+  }
+  let binary: string;
+  try {
+    binary = atob(encoded);
+  } catch {
+    throw new ValidationError('Embedded audio data is not valid base64');
+  }
+  if (binary.length > AUDIO_LIMITS.maximumFileBytes) {
+    throw new ValidationError('Audio exceeds the 128 MiB file-size limit');
+  }
+  const bytes = new Uint8Array(binary.length);
+  for (let index = 0; index < binary.length; index += 1) {
+    bytes[index] = binary.charCodeAt(index);
+  }
+  if (signal?.aborted) throw new DOMException('Audio load was cancelled', 'AbortError');
+  return bytes.buffer;
 }
 
 /**

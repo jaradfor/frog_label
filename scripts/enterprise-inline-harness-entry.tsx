@@ -1,4 +1,4 @@
-import React, { useCallback, useLayoutEffect, useRef, useState } from 'react';
+import React, { useCallback, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 
 type CanonicalDocument = Record<string, unknown> & {
@@ -6,21 +6,45 @@ type CanonicalDocument = Record<string, unknown> & {
   reviewStatus?: string;
 };
 
-type HarnessRegion = {
+type HarnessRegion = Record<string, unknown> & {
   id: string;
-  value: CanonicalDocument;
-  selected: boolean;
-  hidden: boolean;
-  locked: boolean;
-  update(value: CanonicalDocument): void;
-  delete(): void;
+  _froglabelDocument?: CanonicalDocument;
+};
+
+type InterfaceHostProps = {
+  task: { id: number; data: Record<string, unknown> };
+  regions: HarnessRegion[];
+  relations: Record<string, unknown>[];
+  params: Record<string, unknown>;
+  readOnly: boolean;
+  addRegion(region: HarnessRegion): unknown;
+  updateRegion(id: string, patch: Partial<HarnessRegion>): unknown;
+  deleteRegion(id: string): unknown;
+};
+
+type InterfaceSpec = {
+  default: React.ComponentType<InterfaceHostProps>;
+  specVersion: number;
+  getResults(regions: readonly unknown[], relations: readonly unknown[]): Record<string, unknown>[];
+  parseResults(results: readonly unknown[]): {
+    regions: HarnessRegion[];
+    relations: Record<string, unknown>[];
+  };
+};
+
+type SubmittedAnnotation = {
+  document: CanonicalDocument | null;
+  results: Record<string, unknown>[];
 };
 
 declare global {
   interface Window {
-    FrogLabelEnterprise: (props: Record<string, unknown>) => React.ReactNode;
+    React: typeof React;
+    __froglabelBootstrap: Record<string, unknown>;
+    __froglabelInterfaceSpec: InterfaceSpec;
     __enterpriseHarness: {
       annotations: () => Array<{ id: string; value: CanonicalDocument }>;
+      lastResults: () => Record<string, unknown>[];
       lastSubmit: () => CanonicalDocument | null;
       reload(): void;
       reset(): void;
@@ -32,109 +56,115 @@ declare global {
   }
 }
 
-export function InlineHost() {
-  const regions = useRef<HarnessRegion[]>([]);
-  const nextId = useRef(1);
-  const submitted = useRef<CanonicalDocument | null>(null);
-  const [revision, setRevision] = useState(0);
-  const [task, setTask] = useState(1);
+function documentRegions(
+  regions: HarnessRegion[],
+): Array<{ id: string; value: CanonicalDocument }> {
+  return regions.flatMap((region) =>
+    region._froglabelDocument
+      ? [{ id: region.id, value: structuredClone(region._froglabelDocument) }]
+      : [],
+  );
+}
+
+function firstDocument(regions: HarnessRegion[]): CanonicalDocument | null {
+  return regions.find((region) => region._froglabelDocument)?._froglabelDocument ?? null;
+}
+
+export function InterfaceHost({ spec }: { spec: InterfaceSpec }) {
+  const submitted = useRef<SubmittedAnnotation | null>(null);
+  const [regions, setRegions] = useState<HarnessRegion[]>([]);
+  const [taskId, setTaskId] = useState(1);
   const [locked, setLocked] = useState(false);
+  const Component = spec.default;
 
-  const makeRegion = useCallback(
-    (id: string, initial: CanonicalDocument): HarnessRegion => {
-      const region: HarnessRegion = {
-        id,
-        value: structuredClone(initial),
-        selected: false,
-        hidden: false,
-        locked,
-        update(value) {
-          region.value = structuredClone(value);
-          setRevision((value) => value + 1);
-        },
-        delete() {
-          const index = regions.current.indexOf(region);
-          if (index >= 0) regions.current.splice(index, 1);
-          setRevision((value) => value + 1);
-        },
-      };
-      return region;
-    },
-    [locked],
-  );
+  const addRegion = useCallback((region: HarnessRegion) => {
+    const next = structuredClone(region);
+    setRegions((current) => [...current, next]);
+    return next;
+  }, []);
 
-  const addRegion = useCallback(
-    (value: CanonicalDocument) => {
-      const region = makeRegion(`inline:${nextId.current++}`, value);
-      regions.current.push(region);
-      setRevision((value) => value + 1);
-      return region;
-    },
-    [makeRegion],
-  );
+  const updateRegion = useCallback((id: string, patch: Partial<HarnessRegion>) => {
+    setRegions((current) =>
+      current.map((region) =>
+        region.id === id ? { ...region, ...structuredClone(patch) } : region,
+      ),
+    );
+  }, []);
 
-  const host = {
-    React,
-    addRegion,
-    regions: regions.current,
-    data: {
-      froglabel: `${window.location.origin}/audio.wav?task=${task}`,
-      froglabelConfig: {
-        schemaVersion: 1,
-        audio: { filename: 'enterprise-inline-synthetic.wav', mimeType: 'audio/wav' },
+  const deleteRegion = useCallback((id: string) => {
+    setRegions((current) => current.filter((region) => region.id !== id));
+  }, []);
+
+  const task = useMemo(
+    () => ({
+      id: taskId,
+      data: {
+        audio: `${window.location.origin}/audio.wav?task=${taskId}`,
+        filename: 'enterprise-interface-synthetic.wav',
+        mime_type: 'audio/wav',
+        sample_rate_hz: 8_000,
       },
-    },
-    viewState: {
-      currentScreen: 'quick_view',
-      darkMode: true,
-      editable: !locked,
-      locked,
-    },
-  };
+    }),
+    [taskId],
+  );
+
+  const params = useMemo(
+    () => ({
+      audioField: 'audio',
+      filenameField: 'filename',
+      mimeTypeField: 'mime_type',
+      sampleRateField: 'sample_rate_hz',
+    }),
+    [],
+  );
 
   useLayoutEffect(() => {
     window.__enterpriseHarness = {
-      annotations: () =>
-        regions.current.map((region) => ({
-          id: region.id,
-          value: structuredClone(region.value),
-        })),
-      lastSubmit: () => structuredClone(submitted.current),
+      annotations: () => documentRegions(regions),
+      lastResults: () => structuredClone(submitted.current?.results ?? []),
+      lastSubmit: () => structuredClone(submitted.current?.document ?? null),
       reset() {
-        regions.current.splice(0);
         submitted.current = null;
-        setRevision((value) => value + 1);
+        setRegions([]);
       },
       reload() {
-        const value = submitted.current;
-        if (!value) return;
-        const stableId = regions.current[0]?.id ?? `inline:${nextId.current++}`;
-        regions.current.splice(0, regions.current.length, makeRegion(stableId, value));
-        setRevision((value) => value + 1);
+        if (!submitted.current) return;
+        setRegions(structuredClone(spec.parseResults(submitted.current.results).regions));
       },
       setDuplicate() {
-        const first = regions.current[0];
-        if (first) regions.current.push(makeRegion(`inline:${nextId.current++}`, first.value));
-        setRevision((value) => value + 1);
+        setRegions((current) => {
+          const first = current.find((region) => region._froglabelDocument);
+          if (!first) return current;
+          return [
+            ...current,
+            {
+              ...structuredClone(first),
+              id: `interface:duplicate:${crypto.randomUUID()}`,
+            },
+          ];
+        });
       },
       setLocked,
       submit() {
-        submitted.current = regions.current[0] ? structuredClone(regions.current[0].value) : null;
-        setRevision((value) => value + 1);
+        const results = spec.getResults(regions, []);
+        const parsed = spec.parseResults(results);
+        submitted.current = {
+          document: structuredClone(firstDocument(parsed.regions)),
+          results: structuredClone(results),
+        };
       },
       switchTask() {
-        regions.current.splice(0);
         submitted.current = null;
-        setTask((value) => value + 1);
-        setRevision((value) => value + 1);
+        setRegions([]);
+        setTaskId((value) => value + 1);
       },
     };
-  }, [makeRegion, revision]);
+  }, [regions, spec]);
 
   return (
     <>
       <nav
-        aria-label="Enterprise inline host controls"
+        aria-label="Enterprise Interface host controls"
         style={{
           alignItems: 'center',
           background: '#111827',
@@ -144,7 +174,7 @@ export function InlineHost() {
           padding: 8,
         }}
       >
-        <strong>Exact XML host · task {task}</strong>
+        <strong>Exact Interface host · task {taskId}</strong>
         <button
           type="button"
           data-testid="host-submit"
@@ -169,15 +199,47 @@ export function InlineHost() {
         <button type="button" data-testid="host-lock" onClick={() => setLocked((value) => !value)}>
           {locked ? 'Unlock' : 'Lock'}
         </button>
-        <output data-testid="host-region-count">{regions.current.length} region(s)</output>
+        <output data-testid="host-region-count">{regions.length} region(s)</output>
       </nav>
-      <section data-testid="exact-inline-application">
-        {React.createElement(window.FrogLabelEnterprise, host)}
+      <section data-testid="exact-interface-application">
+        <Component
+          task={task}
+          regions={regions}
+          relations={[]}
+          params={params}
+          readOnly={locked}
+          addRegion={addRegion}
+          updateRegion={updateRegion}
+          deleteRegion={deleteRegion}
+        />
       </section>
     </>
   );
 }
 
-const root = document.getElementById('root');
-if (!root) throw new Error('Enterprise inline harness root is missing');
-createRoot(root).render(<InlineHost />);
+async function bootstrap() {
+  window.React = React;
+  const response = await fetch('/froglabel.enterprise.jsx');
+  if (!response.ok) throw new Error(`Interface source request failed (${response.status})`);
+  const source = await response.text();
+  // The generated file is the exact single-expression format consumed by the
+  // HumanSignal Interface editor. Browser eval returns its final spec object.
+  const spec = window.eval(source) as InterfaceSpec;
+  if (spec?.specVersion !== 1 || typeof spec.default !== 'function') {
+    throw new Error('Generated Enterprise Interface did not evaluate to a v1 Interface spec');
+  }
+  window.__froglabelInterfaceSpec = spec;
+  window.__froglabelBootstrap.interfaceFetched = true;
+  window.__froglabelBootstrap.interfaceType = typeof spec.default;
+  const root = document.getElementById('root');
+  if (!root) throw new Error('Enterprise Interface harness root is missing');
+  createRoot(root).render(<InterfaceHost spec={spec} />);
+}
+
+void bootstrap().catch((error: unknown) => {
+  window.__froglabelBootstrap.bootstrapError =
+    error instanceof Error ? (error.stack ?? error.message) : String(error);
+  queueMicrotask(() => {
+    throw error;
+  });
+});

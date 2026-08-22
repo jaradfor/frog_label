@@ -23,7 +23,7 @@ The standalone agent runner and Pages runner use real Chromium, real pointer/key
 
 `scripts/test-ce-browser-agent.mjs` is the restricted real-Django WSGI lane. `scripts/test-ce-served-agent.mjs` provisions a fresh database, migrates it, collects static assets, imports WAV/MP3 through native Label Studio, starts ordinary HTTP with service worker/CSP/static middleware, and exercises Submit, reload, Update, Task Summary, no-calls, blank rejection, export parsing, and direct ORM inspection.
 
-`scripts/test-enterprise-inline-agent.mjs` extracts and executes the exact JavaScript CDATA from the generated Enterprise XML. This is local artifact evidence only, never evidence for a licensed website.
+`scripts/test-enterprise-inline-agent.mjs` executes the exact generated Enterprise JSX spec in a controlled local shell. It exercises current task/region/read-only props, add/update/delete echoes, `getResults`/`parseResults`, immediate edit→Submit, reload, task switch, locking, duplicate detection, and audio rendering. Hosted validation and playground evidence remain separate checks.
 
 ## CE 1.23.0 evidence
 
@@ -40,4 +40,4 @@ The WSGI lane uses a disposable database copy and disables service-worker regist
 
 ## Adding a host version
 
-Do not widen the CE allowlist from exact `1.23.0` without a clean upstream source audit, production Nx build, all fixed tests, two fresh normal-HTTP flows, direct database inspection, and export comparison. Unknown versions must fail before mutation. Enterprise compatibility is established per visible licensed website with the supplied Gate 0 canaries; a local harness cannot widen that claim.
+Do not widen the CE allowlist from exact `1.23.0` without a clean upstream source audit, production Nx build, all fixed tests, two fresh normal-HTTP flows, direct database inspection, and export comparison. Unknown versions must fail before mutation. Enterprise compatibility is established per licensed website with the SDK validator plus an exact-source preview/draw/result round-trip; a local harness alone cannot widen that claim.

@@ -1,6 +1,6 @@
 # FrogLabel
 
-FrogLabel is a spectrogram-first human annotation workspace for frog-call recordings. One React/TypeScript application supplies a browser demo, a private local-file workflow, Label Studio Community Edition 1.23.0, and a generated inline Label Studio Enterprise artifact.
+FrogLabel is a spectrogram-first human annotation workspace for frog-call recordings. One React/TypeScript application supplies a browser demo, a private local-file workflow, Label Studio Community Edition 1.23.0, and a generated Label Studio Enterprise Interface.
 
 ## Try the demo
 
@@ -48,7 +48,7 @@ froglabel project init --target enterprise \
 Integration targets:
 
 - Label Studio CE: exact version 1.23.0 at commit `2a9bfbcbf0a844b999de97e601d16050a893f5fb`, derived at build time with an owned custom-tag import, same-origin assets, native region summaries, and a project-catalog overlay.
-- Label Studio Enterprise: deterministic, self-contained inline ReactCode XML generated from the shared source. It requires website Gate 0 on the exact licensed instance before an Enterprise demo claim.
+- Label Studio Enterprise: deterministic, self-contained `specVersion: 1` Interface JSX generated from the same workspace, with current input/output schemas and `getResults`/`parseResults` serializers.
 - GitHub Pages: deterministic static artifact built for `/frog_label/`; it has no Label Studio runtime dependency and auto-loads the GRE demo recording.
 
 Start with [Architecture](docs/ARCHITECTURE.md), [CE installation](docs/CE_INSTALLATION.md), [Enterprise setup](docs/ENTERPRISE_SETUP.md), [project initialization](docs/PROJECT_INITIALIZATION.md), and [the ecologist guide](docs/ECOLOGIST_GUIDE.md).
@@ -76,6 +76,6 @@ All checked-in browser tests reject unexpected external requests. The pinned age
 
 ## Scientific and privacy boundary
 
-One singleton `reactcode` result contains a versioned canonical FrogLabel document. Geometry remains full-precision seconds/hertz; view and playback state never enter scientific data. Species boxes snapshot immutable identity, current code, and full name.
+CE stores one singleton `reactcode` result. The Enterprise Interface stores one `labels` result from `froglabel` to `audio`, whose one-item value contains the same versioned canonical FrogLabel document. Geometry remains full-precision seconds/hertz; view and playback state never enter scientific data. Species boxes snapshot immutable identity, current code, and full name. Enterprise export parsing remains backward-compatible with the former ReactCode envelope.
 
 Runtime assets are self-hosted. Private local audio never uploads, and the checked-in application contains no analytics or telemetry client. Host messages are source/origin/tag checked and runtime validated. See [Security and data flow](docs/SECURITY_AND_DATA_FLOW.md).
