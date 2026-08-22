@@ -25,6 +25,14 @@ jobs:
           node-version: 22.22.0
           cache: npm
 
+      - name: Configure GitHub Pages
+        uses: actions/configure-pages@v5
+
+      - name: Install FFmpeg for browser tests
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes ffmpeg
+
       - run: npm ci
       - run: npm run check:validators
       - run: npm run typecheck
@@ -37,7 +45,7 @@ jobs:
       - run: npm run test:e2e:pages:agent
       - run: npm run package:pages
 
-      - uses: actions/upload-pages-artifact@v3
+      - uses: actions/upload-pages-artifact@v4
         with:
           path: build/pages
 

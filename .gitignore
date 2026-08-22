@@ -55,6 +55,7 @@ coverage/
 .yarn-cache/
 .coverage
 .playwright-browsers/
+.tools/
 vendor/
 playwright-report/
 playwright-report-pages/
