@@ -35,14 +35,14 @@ test('opens the seeded root, locks early drawing, and preserves one UUID through
   }
 
   const shell = page.locator('.spectrogram-shell');
-  const tool = page.getByRole('button', { name: 'Toggle Select and Draw tools (T)' });
+  const drawTool = page.getByRole('button', { name: 'Draw tool (T)' });
+  const selectTool = page.getByRole('button', { name: 'Select tool (G)' });
   const earlyGate = await shell.evaluate((element) => ({
     phase: element.getAttribute('data-spectrogram-state'),
     toolDisabled:
       element
         .closest('.froglabel-app')
-        ?.querySelector<HTMLButtonElement>('button[aria-label="Toggle Select and Draw tools (T)"]')
-        ?.disabled ?? false,
+        ?.querySelector<HTMLButtonElement>('button[aria-label="Draw tool (T)"]')?.disabled ?? false,
   }));
   if (earlyGate.phase === 'analyzing') expect(earlyGate.toolDisabled).toBe(true);
   await page.keyboard.press('KeyD');
@@ -59,8 +59,8 @@ test('opens the seeded root, locks early drawing, and preserves one UUID through
     timeout: 15_000,
   });
   await page.getByRole('option', { name: 'GRE Green Tree Frog' }).click();
-  await tool.click();
-  await expect(tool).toHaveAttribute('aria-pressed', 'true');
+  await drawTool.click();
+  await expect(drawTool).toHaveAttribute('aria-pressed', 'true');
   const ready = await stage.boundingBox();
   expect(ready).not.toBeNull();
   await page.mouse.move(ready!.x + ready!.width * 0.35, ready!.y + ready!.height * 0.45);
@@ -75,8 +75,9 @@ test('opens the seeded root, locks early drawing, and preserves one UUID through
   const boxId = await selected.getAttribute('data-box-id');
   expect(boxId).toBeTruthy();
   await expect(selected.locator('.resize-handle')).toHaveCount(0);
-  await tool.click();
-  await expect(tool).toHaveAttribute('aria-pressed', 'false');
+  await selectTool.click();
+  await expect(drawTool).toHaveAttribute('aria-pressed', 'false');
+  await expect(selectTool).toHaveAttribute('aria-pressed', 'true');
   await page.keyboard.press('Escape');
   await expect(stage).toHaveAttribute('data-selected-box-id', '');
   await page.getByRole('button', { name: /Select GRE, Green Tree Frog box/ }).press('Enter');
@@ -216,8 +217,7 @@ test('runs the complete private WAV/MP3, JSON/CSV, tutorial, and dirty-state flo
     toolDisabled:
       element
         .closest('.froglabel-app')
-        ?.querySelector<HTMLButtonElement>('button[aria-label="Toggle Select and Draw tools (T)"]')
-        ?.disabled ?? false,
+        ?.querySelector<HTMLButtonElement>('button[aria-label="Draw tool (T)"]')?.disabled ?? false,
   }));
   if (mp3EarlyGate.phase === 'analyzing') expect(mp3EarlyGate.toolDisabled).toBe(true);
   await page.keyboard.press('KeyD');
@@ -236,7 +236,7 @@ test('runs the complete private WAV/MP3, JSON/CSV, tutorial, and dirty-state flo
   await page.getByRole('button', { name: '1 Species' }).click();
   await page.getByRole('option', { name: 'GTF Green Tree Frog' }).click();
   await page.getByRole('button', { name: '1 Species' }).click();
-  const mp3Tool = page.getByRole('button', { name: 'Toggle Select and Draw tools (T)' });
+  const mp3Tool = page.getByRole('button', { name: 'Draw tool (T)' });
   if ((await mp3Tool.getAttribute('aria-pressed')) !== 'true') await mp3Tool.click();
   const mp3Ready = await mp3Stage.boundingBox();
   expect(mp3Ready).not.toBeNull();
@@ -318,7 +318,8 @@ test('keeps essential controls reachable at standalone and CE iframe widths', as
     for (const control of [
       page.getByRole('button', { name: 'Help and tutorial' }),
       page.getByRole('button', { name: 'Play or pause audio (V)' }),
-      page.getByRole('button', { name: 'Toggle Select and Draw tools (T)' }),
+      page.getByRole('button', { name: 'Draw tool (T)' }),
+      page.getByRole('button', { name: 'Select tool (G)' }),
       page.getByRole('button', { name: /Zoom in/ }),
       page.getByRole('button', { name: /No calls present/ }).first(),
       page.getByRole('option', { name: "ETF Peron's Tree Frog" }),

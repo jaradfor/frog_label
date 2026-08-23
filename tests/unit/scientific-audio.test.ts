@@ -431,6 +431,29 @@ describe('seamless spectrogram rasterization', () => {
     controller.abort();
     await expect(pending).rejects.toMatchObject({ name: 'AbortError' });
   });
+
+  it('lets one waveform waiter cancel without aborting the shared index build', async () => {
+    const source = mono(
+      Float32Array.from({ length: 2_000_000 }, (_, index) => Math.sin(index * 0.017)),
+      8_000,
+    );
+    const controller = new AbortController();
+    const cancelled = prepareWaveformPeakIndexesCooperative(source, {
+      signal: controller.signal,
+      sliceMilliseconds: 1,
+    });
+    const surviving = prepareWaveformPeakIndexesCooperative(source, { sliceMilliseconds: 1 });
+
+    // Both waiters join the same source-owned build after their mandatory
+    // initial yield; cancellation remains local to the first promise.
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    controller.abort();
+    await expect(cancelled).rejects.toMatchObject({ name: 'AbortError' });
+    await expect(surviving).resolves.toBeUndefined();
+
+    const envelope = computeWaveformEnvelope(source, 101, 'average', 1, 2);
+    expect(Math.max(...envelope.maximum)).toBeGreaterThan(0.99);
+  });
 });
 
 function peakDb(

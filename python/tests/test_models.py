@@ -13,6 +13,7 @@ from froglabel_cli.models import (
     HumanProvenance,
     SpeciesSnapshot,
     migrate_document,
+    species_snapshot,
 )
 
 SPECIES = SpeciesSnapshot(
@@ -138,4 +139,25 @@ def test_v1_document_upgrade_preserves_historical_species_snapshot() -> None:
 
     assert migrated.schema_version == 2
     assert migrated.boxes[0].species.code == "PER"
-    assert "selectionPriority" not in migrated.boxes[0].species.model_dump(by_alias=True)
+    assert "selectionPriority" not in migrated.boxes[0].species.model_dump(
+        by_alias=True, exclude_none=True
+    )
+
+
+def test_active_species_snapshot_preserves_priority_without_requiring_it_from_history(
+    catalog,
+) -> None:
+    entry = catalog.species[0].model_copy(update={"selection_priority": 250})
+
+    snapshot = species_snapshot(entry)
+
+    assert snapshot.model_dump(by_alias=True, exclude_none=True)["selectionPriority"] == 250
+    historical = SpeciesSnapshot.model_validate(
+        {
+            "speciesId": "fixture:historical",
+            "code": "GRE",
+            "speciesName": "Historical Frog",
+            "addedAfterInitialization": True,
+        }
+    )
+    assert historical.selection_priority is None

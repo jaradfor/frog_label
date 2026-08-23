@@ -461,6 +461,7 @@ export class SpectralWebGLAtlas {
       gl.FLOAT,
       null,
     );
+    assertWebGlNoError(gl, 'spectral atlas allocation');
 
     gl.bindTexture(gl.TEXTURE_2D, this.paletteTexture);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
@@ -471,6 +472,7 @@ export class SpectralWebGLAtlas {
     gl.bindVertexArray(this.vertexArray);
     gl.bindBuffer(gl.ARRAY_BUFFER, this.vertexBuffer);
     gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([0, 0, 1, 0, 0, 1, 1, 1]), gl.STATIC_DRAW);
+    assertWebGlNoError(gl, 'spectral vertex-buffer allocation');
     const position = gl.getAttribLocation(this.program, 'a_position');
     if (position < 0) throw new Error('Spectral compositor position attribute is unavailable.');
     gl.enableVertexAttribArray(position);
@@ -494,8 +496,12 @@ export class SpectralWebGLAtlas {
    */
   prepareTile(tile: CachedSpectralTile): boolean {
     if (this.destroyed || this.gl.isContextLost()) return false;
-    this.upload(tile);
-    return true;
+    try {
+      this.upload(tile);
+      return !this.gl.isContextLost();
+    } catch {
+      return false;
+    }
   }
 
   render(
@@ -524,6 +530,7 @@ export class SpectralWebGLAtlas {
     gl.uniform1i(gl.getUniformLocation(this.program, 'u_palette'), 1);
     gl.uniform1f(this.brightnessUniform, clamp(options.brightness, 0.25, 3));
     gl.uniform1f(this.contrastUniform, clamp(options.contrast ?? 1, 0.25, 4));
+    assertWebGlNoError(gl, 'spectral compositor setup');
 
     for (const tile of tiles) {
       const mapped = this.upload(tile);
@@ -547,9 +554,11 @@ export class SpectralWebGLAtlas {
       );
       gl.uniform4f(this.uvUniform, u0, vBottom, u1, vTop);
       gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+      assertWebGlNoError(gl, 'spectral tile draw');
     }
     gl.bindVertexArray(null);
     gl.flush();
+    assertWebGlNoError(gl, 'spectral frame flush');
     return this.surface;
   }
 
@@ -606,6 +615,7 @@ export class SpectralWebGLAtlas {
       gl.FLOAT,
       tile.db as Float32Array<ArrayBuffer>,
     );
+    assertWebGlNoError(gl, 'spectral tile upload');
     return mapped;
   }
 
@@ -627,7 +637,14 @@ export class SpectralWebGLAtlas {
       gl.UNSIGNED_BYTE,
       createSpectrogramPaletteLut(palette),
     );
+    assertWebGlNoError(gl, 'spectral palette upload');
   }
+}
+
+function assertWebGlNoError(gl: WebGL2RenderingContext, operation: string): void {
+  const error = gl.getError();
+  if (error === gl.NO_ERROR) return;
+  throw new Error(`WebGL ${operation} failed (0x${error.toString(16)}).`);
 }
 
 function requiredResource<T>(resource: T | null, name: string): T {

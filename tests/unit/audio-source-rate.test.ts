@@ -59,6 +59,33 @@ describe('source sample-rate detection', () => {
     loaded.dispose();
     fetch.mockRestore();
   });
+
+  it('yields before decoding embedded audio and honours cancellation', async () => {
+    const controller = new AbortController();
+    const pending = loadAudioResource(
+      {
+        // The payload need not be a valid WAV: cancellation must win before
+        // container parsing or a maximum-size synchronous atob can begin.
+        url: `data:audio/wav;base64,${'AAAA'.repeat(100_000)}`,
+        filename: 'cancelled.wav',
+      },
+      controller.signal,
+    );
+    controller.abort();
+    await expect(pending).rejects.toMatchObject({ name: 'AbortError' });
+  });
+
+  it('decodes large embedded payloads through bounded atob chunks', async () => {
+    const decode = vi.spyOn(globalThis, 'atob');
+    await expect(
+      loadAudioResource({
+        url: `data:audio/wav;base64,${'AAAA'.repeat(100_000)}`,
+        filename: 'chunked.wav',
+      }),
+    ).rejects.toThrow(/RIFF\/WAVE markers/);
+    expect(decode.mock.calls.length).toBeGreaterThan(1);
+    decode.mockRestore();
+  });
 });
 
 describe('spectrogram overlap conversion', () => {

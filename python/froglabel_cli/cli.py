@@ -7,7 +7,7 @@ from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
-from .admin_config import Target, load_project_configuration
+from .admin_config import ProjectConfiguration, Target, load_project_configuration
 from .ce_installer import CeSourceInstaller
 from .ce_runtime import CeRuntime
 from .enterprise import EnterpriseProjectAdministrator
@@ -195,9 +195,7 @@ def _dispatch_project(args: argparse.Namespace) -> dict[str, Any]:
         result = runtime.run_project_administration(
             command=args.command,
             project_id=args.project,
-            candidate=(
-                candidate.model_dump(by_alias=True, mode="json") if candidate is not None else None
-            ),
+            candidate=_ce_candidate_payload(candidate),
             apply=getattr(args, "apply", False),
             repair_clone=getattr(args, "repair_clone", False),
             data_dir=args.data_dir,
@@ -226,6 +224,16 @@ def _dispatch_project(args: argparse.Namespace) -> dict[str, Any]:
     if resolved is not None:
         result = {**result, "resolvedConfiguration": resolved}
     return result
+
+
+def _ce_candidate_payload(candidate: ProjectConfiguration | None) -> dict[str, Any] | None:
+    if candidate is None:
+        return None
+    return candidate.model_dump(
+        by_alias=True,
+        mode="json",
+        exclude_unset=True,
+    )
 
 
 def _validate_target_arguments(args: argparse.Namespace, target: Target) -> None:

@@ -146,7 +146,7 @@ describe('V2 catalog and document contracts', () => {
     expect(migrated.boxes[0].species).toEqual(legacyDocument.boxes[0].species);
   });
 
-  it('keeps operational priority out of immutable annotation snapshots', () => {
+  it('retains operational priority in new V2 snapshots for annotation-scoped catalogs', () => {
     const active: SpeciesEntry = {
       schemaVersion: 2,
       kind: 'froglabel.species',
@@ -162,6 +162,7 @@ describe('V2 catalog and document contracts', () => {
     expect(speciesSnapshot(active)).toEqual({
       speciesId: active.speciesId,
       code: active.code,
+      selectionPriority: 900,
       speciesName: active.speciesName,
       addedAfterInitialization: false,
     });

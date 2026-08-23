@@ -55,7 +55,8 @@
   | **X**                                | Fit complete time and frequency bounds                                         |
   | **V**                                | Play/pause                                                                     |
   | **F** / **R**                        | Faster/slower playback through the existing discrete rates                     |
-  | **T**                                | Toggle Select/Draw                                                             |
+  | **T**                                | Activate Draw                                                                  |
+  | **G**                                | Activate Select                                                                |
   | **Shift+R**                          | Remove selected box                                                            |
   | **Tab** / **Shift+Tab**              | Cycle boxes when the command surface owns focus; remain native inside controls |
   | **C** / **Shift+C**                  | Cycle overlapping boxes forward/backward                                       |
@@ -125,10 +126,10 @@
 
 ## Implementation Verification — 2026-08-22
 
-- Final source checks pass: 165/165 Vitest tests across 21 files, 33/33 Python tests, TypeScript, ESLint, generated-validator drift, Prettier, and `git diff --check`.
-- The production build remains within budget at 105,506 B Brotli JavaScript (150,000 B limit) and 5,073 B Brotli CSS (10,000 B limit). CE, Enterprise, and GitHub Pages artifacts were regenerated from this working tree; the Pages archive SHA-256 is `78403629756648b777fefec4e0aa21554a4367350e91eff0da3b3bd72df51600`.
+- Final source checks pass: 177/177 Vitest tests across 24 files, 36/36 Python tests, TypeScript, ESLint, generated-validator drift, Prettier, and `git diff --check`.
+- The production build remains within budget at 106,080 B Brotli JavaScript (150,000 B limit) and 5,073 B Brotli CSS (10,000 B limit). CE, Enterprise, and GitHub Pages artifacts were regenerated from this working tree; the Pages archive SHA-256 is `8a9e6cb1c7c0aaedce2d842d8e754746203b747f2d3a5e7c85c1cbc4bfffc7a1`.
 - The Chromium performance gate passed with a 72.2 ms first preview, 1.6 ms selection p95, 7.7 ms drag feedback, 10.4 ms pan feedback, 45.7 ms exact refinement, zero missed next-frame updates across 100 rapid camera actions, zero blank/opaque frames, and zero rendering long tasks.
-- The complete standalone Chromium workspace suite passes 14/14, including modifier-driven axis isolation, adjustable frequency-emphasis switching without a blank frame, exact raw/band-pass/negative audition controls, reflowing dock geometry at 640×700, 844×720, 1280×720, and 1440×900; seven palette previews; keyboard routing; tutorial isolation; and accessibility checks. The static Pages suite passes 6/6 and the exact generated Enterprise Interface passes its inline browser round trip.
+- The most recent completed standalone Chromium workspace suite passes 14/14, including modifier-driven axis isolation, adjustable frequency-emphasis switching without a blank frame, exact raw/band-pass/negative audition controls, reflowing dock geometry at 640×700, 844×720, 1280×720, and 1440×900; seven palette previews; keyboard routing; tutorial isolation; and accessibility checks. The current managed environment blocks Chromium startup before tests (`sandbox_host_linux: Operation not permitted`), so this fix set is covered by the source suites above but does not claim a fresh browser rerun. The most recent static Pages suite passes 6/6, and the most recent exact generated Enterprise Interface passes its inline browser round trip.
 - The CE frontend artifact was regenerated. A new CE browser rerun still requires the normal full `ls-ce prepare` build: the existing derived checkout correctly rejected the new compatibility-manifest hash, while a disposable pristine source correctly refused to run before its upstream Yarn build/canary existed.
 
 ## Stateless Axis Zoom — 2026-08-22

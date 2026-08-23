@@ -303,7 +303,7 @@ def make_test_evidence(inputs: Inputs) -> None:
         standalone / "run-summary.json",
         {
             "status": "passed",
-            "tests": 12,
+            "tests": 14,
             "runner": "scripts/test-e2e-agent.mjs",
             "browser": "Chromium 149.0.7827.0",
             "servedTarget": "production Vite build on loopback",
@@ -665,7 +665,8 @@ def make_reports(inputs: Inputs, source_commit: str, enterprise_manifest: dict[s
     )
     inline_summary = json.loads(
         (
-            repo / "test-results/final/playwright-enterprise-interface-harness/run-1/run-summary.json"
+            repo
+            / "test-results/final/playwright-enterprise-interface-harness/run-1/run-summary.json"
         ).read_text()
     )
     performance = json.loads(
@@ -720,13 +721,13 @@ def make_reports(inputs: Inputs, source_commit: str, enterprise_manifest: dict[s
 
         | Command/lane | Exit | Result and machine-readable evidence |
         | --- | ---: | --- |
-        | `npm run test:unit -- --reporter=junit` | 0 | 128/128, `tests/unit-results.xml` |
-        | `npm run test:component -- --reporter=junit` | 0 | 16/16, `tests/component-results.xml` |
-        | `pytest` tracked Python package/tests | 0 | 33/33, `tests/python-results.xml` |
+        | `npm run test:unit -- --reporter=junit` | 0 | 159/159, `tests/unit-results.xml` |
+        | `npm run test:component -- --reporter=junit` | 0 | 18/18, `tests/component-results.xml` |
+        | `pytest` tracked Python package/tests | 0 | 36/36, `tests/python-results.xml` |
         | `npm run typecheck`; `npm run lint`; `npm run format:check`; `npm run check:validators` | 0 each | clean final source |
         | `ruff check` tracked Python | 0 | clean final source |
         | `npm run build`; `npm run size` | 0 each | Brotli JS ≤150,000 B; CSS ≤10,000 B |
-        | `node scripts/test-e2e-agent.mjs` | 0 | 12/12, production build in Chromium |
+        | `node scripts/test-e2e-agent.mjs` | 0 | 14/14, production build in Chromium |
         | exact Pages artifact Playwright | 0 | 6/6 at `/frog_label/` |
         | restricted real-Django WSGI CE runner, fresh state, twice | 0 each | first Submit then Update; stable result identity |
         | normally served CE runner, fresh DB, twice | 0 each | WAV/MP3 native import, Submit/Update/reload/export/no-calls/blank rejection/DB |
@@ -1173,11 +1174,11 @@ def make_reports(inputs: Inputs, source_commit: str, enterprise_manifest: dict[s
 
         | Layer | Result | Environment | Evidence |
         | --- | --- | --- | --- |
-        | JS unit/property/protocol | 128/128 | Vitest | `tests/unit-results.xml` |
-        | React component | 16/16 | jsdom | `tests/component-results.xml` |
-        | Python | 33/33 | pytest + Hypothesis | `tests/python-results.xml` |
+        | JS unit/property/protocol | 159/159 | Vitest | `tests/unit-results.xml` |
+        | React component | 18/18 | jsdom | `tests/component-results.xml` |
+        | Python | 36/36 | pytest + Hypothesis | `tests/python-results.xml` |
         | Python coverage | collected (informational) | coverage.py | `tests/coverage/` |
-        | Standalone browser | 12/12 | real Chromium, production build | `tests/playwright-standalone/` |
+        | Standalone browser | 14/14 | real Chromium, production build | `tests/playwright-standalone/` |
         | GitHub Pages static | 6/6 | exact ZIP at `/frog_label/` | `tests/playwright-github-pages-static/` |
         | CE restricted WSGI | 2 independent passes | real CE Django/editor/DB | `tests/playwright-label-studio-ce-wsgi/` |
         | CE normal HTTP | 2 independent passes | real CE server/native import/export | `tests/playwright-label-studio-ce-served/` |
@@ -1418,7 +1419,7 @@ def make_configs_and_runbooks(inputs: Inputs) -> None:
 
         1. Open the prepared local project and import a short WAV or MP3 through native Label Studio Import.
         2. Open the task, hold Space, type G, and release to select `GRE — Green Tree Frog` and arm Draw; drag over a call.
-        3. Press T for Select, refine a handle, then use V/F/R playback and WASD/Q/E/X navigation. Undo and redo once.
+        3. Press G for Select, refine a handle, then use V/F/R playback and WASD/Q/E/X navigation. Undo and redo once.
         4. If a species is missing, choose Add species and enter its 1-6 letter left-hand code, prefix priority, and Full Species Name.
         5. Use `?` for isolated practice; Escape returns to the unchanged live task.
         6. For a reviewed negative, choose No calls or press Shift+X. Do not use No calls for an unchecked task.

@@ -64,6 +64,7 @@ def catalog_post(
     code: str,
     name: str,
     barrier: threading.Barrier | None = None,
+    selection_priority: int = 0,
 ) -> tuple[int, dict[str, Any]]:
     from django.db import close_old_connections
     from rest_framework.test import APIRequestFactory, force_authenticate
@@ -75,7 +76,11 @@ def catalog_post(
         f"/froglabel/api/projects/{project_id}/catalog/",
         {
             "expectedRevision": revision,
-            "species": {"code": code, "speciesName": name},
+            "species": {
+                "code": code,
+                "selectionPriority": selection_priority,
+                "speciesName": name,
+            },
         },
         format="json",
     )
@@ -293,6 +298,16 @@ def main() -> int:
     )
     assert conflict_status == 409
     assert conflict_body["error"]["code"] == "CATALOG_CODE_CONFLICT"
+    priority_conflict_status, priority_conflict_body = catalog_post(
+        owner,
+        empty.id,
+        concurrent_live.descriptor.catalog_revision,
+        "ETF",
+        "Peron's Tree Frog",
+        selection_priority=100,
+    )
+    assert priority_conflict_status == 409
+    assert priority_conflict_body["error"]["code"] == "CATALOG_CODE_CONFLICT"
 
     outsider = User.objects.create_user(email="outsider@example.test", password="local-only")
     outsider_org = Organization.create_organization(created_by=outsider, title="Other organization")

@@ -60,8 +60,9 @@ export async function runSeededStandaloneExplorer(
   record('add/select project-session species', 'full name and left-hand code accepted');
   await page.getByRole('button', { name: '1 Species' }).click();
 
-  const tool = page.getByRole('button', { name: 'Toggle Select and Draw tools (T)' });
-  await expect(tool).toHaveAttribute('aria-pressed', 'true');
+  const drawTool = page.getByRole('button', { name: 'Draw tool (T)' });
+  const selectTool = page.getByRole('button', { name: 'Select tool (G)' });
+  await expect(drawTool).toHaveAttribute('aria-pressed', 'true');
   const canvas = page.locator('canvas.spectrogram-canvas');
   const rectangle = await canvas.boundingBox();
   if (!rectangle) throw new Error('Seeded explorer spectrogram has no bounding box');
@@ -83,8 +84,9 @@ export async function runSeededStandaloneExplorer(
   await expect(page.getByRole('row', { name: /EXF — Explorer Tree Frog/ })).toHaveCount(2);
   record('draw two overlapping boxes', 'two bounded canonical boxes visible');
 
-  await tool.click();
-  await expect(tool).toHaveAttribute('aria-pressed', 'false');
+  await selectTool.click();
+  await expect(drawTool).toHaveAttribute('aria-pressed', 'false');
+  await expect(selectTool).toHaveAttribute('aria-pressed', 'true');
   await page.mouse.click(
     rectangle.x + rectangle.width * (0.4 + offset),
     rectangle.y + rectangle.height * 0.48,

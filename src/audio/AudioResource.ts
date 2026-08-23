@@ -69,7 +69,7 @@ export async function loadAudioResource(
   signal?: AbortSignal,
 ): Promise<LoadedAudio> {
   const bytes = source.url.startsWith('data:')
-    ? decodeBase64DataUrl(source.url, signal)
+    ? await decodeBase64DataUrl(source.url, signal)
     : await downloadAudioBytes(source.url, signal);
   if (bytes.byteLength > AUDIO_LIMITS.maximumFileBytes) {
     throw new ValidationError('Audio exceeds the 128 MiB file-size limit');
@@ -164,32 +164,113 @@ async function downloadAudioBytes(url: string, signal?: AbortSignal): Promise<Ar
   }
 }
 
-function decodeBase64DataUrl(url: string, signal?: AbortSignal): ArrayBuffer {
+const BASE64_DECODE_CHUNK_CHARACTERS = 256 * 1024;
+
+async function decodeBase64DataUrl(url: string, signal?: AbortSignal): Promise<ArrayBuffer> {
   if (signal?.aborted) throw new DOMException('Audio load was cancelled', 'AbortError');
   const comma = url.indexOf(',');
   if (comma < 5 || !/;base64$/iu.test(url.slice(5, comma))) {
     throw new ValidationError('Embedded audio must use a base64 data URL');
   }
-  const encoded = url.slice(comma + 1);
+  const payloadStart = comma + 1;
+  const encodedLength = url.length - payloadStart;
   const maximumEncodedBytes = Math.ceil((AUDIO_LIMITS.maximumFileBytes * 4) / 3) + 4;
-  if (encoded.length > maximumEncodedBytes) {
+  if (encodedLength > maximumEncodedBytes) {
     throw new ValidationError('Audio exceeds the 128 MiB file-size limit');
   }
-  let binary: string;
+
+  // Validate and size the payload cooperatively first. This preserves atob's
+  // tolerance for ASCII whitespace without constructing one maximum-size
+  // binary string on the UI thread.
+  await yieldAudioDecode();
+  let compactLength = 0;
+  let paddingCount = 0;
+  let paddingStarted = false;
+  for (let start = 0; start < encodedLength; start += BASE64_DECODE_CHUNK_CHARACTERS) {
+    throwIfAudioLoadAborted(signal);
+    const raw = url.slice(
+      payloadStart + start,
+      payloadStart + Math.min(encodedLength, start + BASE64_DECODE_CHUNK_CHARACTERS),
+    );
+    const compact = raw.replace(/[\t\n\f\r ]/gu, '');
+    if (/[^A-Za-z0-9+/=]/u.test(compact)) {
+      throw new ValidationError('Embedded audio data is not valid base64');
+    }
+    for (const character of compact) {
+      if (character === '=') {
+        paddingStarted = true;
+        paddingCount += 1;
+      } else if (paddingStarted) {
+        throw new ValidationError('Embedded audio data is not valid base64');
+      }
+    }
+    if (paddingCount > 2) {
+      throw new ValidationError('Embedded audio data is not valid base64');
+    }
+    compactLength += compact.length;
+    await yieldAudioDecode();
+  }
+
+  const decodedLength = Math.floor((compactLength * 3) / 4) - paddingCount;
+  if (decodedLength < 0 || decodedLength > AUDIO_LIMITS.maximumFileBytes) {
+    throw new ValidationError('Audio exceeds the 128 MiB file-size limit');
+  }
+  const bytes = new Uint8Array(new ArrayBuffer(decodedLength));
+  let written = 0;
+  let carry = '';
   try {
-    binary = atob(encoded);
-  } catch {
+    for (let start = 0; start < encodedLength; start += BASE64_DECODE_CHUNK_CHARACTERS) {
+      throwIfAudioLoadAborted(signal);
+      const end = Math.min(encodedLength, start + BASE64_DECODE_CHUNK_CHARACTERS);
+      const compact =
+        carry + url.slice(payloadStart + start, payloadStart + end).replace(/[\t\n\f\r ]/gu, '');
+      const decodeLength =
+        end === encodedLength ? compact.length : compact.length - (compact.length % 4);
+      const encodedChunk = compact.slice(0, decodeLength);
+      carry = compact.slice(decodeLength);
+      if (encodedChunk) {
+        const binary = atob(encodedChunk);
+        if (written + binary.length > bytes.length) {
+          throw new ValidationError('Embedded audio data is not valid base64');
+        }
+        for (let index = 0; index < binary.length; index += 1) {
+          bytes[written + index] = binary.charCodeAt(index);
+        }
+        written += binary.length;
+      }
+      await yieldAudioDecode();
+    }
+  } catch (error) {
+    if (signal?.aborted || (error instanceof DOMException && error.name === 'AbortError')) {
+      throw new DOMException('Audio load was cancelled', 'AbortError');
+    }
+    if (error instanceof ValidationError) throw error;
     throw new ValidationError('Embedded audio data is not valid base64');
   }
-  if (binary.length > AUDIO_LIMITS.maximumFileBytes) {
-    throw new ValidationError('Audio exceeds the 128 MiB file-size limit');
+  throwIfAudioLoadAborted(signal);
+  if (carry || written !== decodedLength) {
+    throw new ValidationError('Embedded audio data is not valid base64');
   }
-  const bytes = new Uint8Array(binary.length);
-  for (let index = 0; index < binary.length; index += 1) {
-    bytes[index] = binary.charCodeAt(index);
-  }
-  if (signal?.aborted) throw new DOMException('Audio load was cancelled', 'AbortError');
   return bytes.buffer;
+}
+
+function throwIfAudioLoadAborted(signal?: AbortSignal): void {
+  if (signal?.aborted) throw new DOMException('Audio load was cancelled', 'AbortError');
+}
+
+function yieldAudioDecode(): Promise<void> {
+  if (typeof MessageChannel === 'undefined') {
+    return new Promise((resolve) => setTimeout(resolve, 0));
+  }
+  return new Promise((resolve) => {
+    const channel = new MessageChannel();
+    channel.port1.onmessage = () => {
+      channel.port1.close();
+      channel.port2.close();
+      resolve();
+    };
+    channel.port2.postMessage(undefined);
+  });
 }
 
 /**

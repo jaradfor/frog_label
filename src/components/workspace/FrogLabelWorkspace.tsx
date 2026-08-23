@@ -1,6 +1,7 @@
 import {
   useCallback,
   useEffect,
+  useId,
   useLayoutEffect,
   useMemo,
   useRef,
@@ -47,6 +48,8 @@ import {
   WORKSPACE_COMMANDS,
   commandForKeyboardEvent,
   isEditableTarget,
+  isNativeControlTarget,
+  isWorkspaceCommandSurfaceTarget,
   speciesCharacterForKeyboardEvent,
   type WorkspaceCommandId,
 } from '../../app/keyboard';
@@ -137,7 +140,7 @@ const tutorialSteps = [
   },
   {
     title: 'Draw tool',
-    text: 'Species selection arms Draw automatically. T toggles between Draw and Select.',
+    text: 'Species selection arms Draw automatically. Press T for Draw and G for Select.',
     anchor: 'tool',
   },
   {
@@ -147,7 +150,7 @@ const tutorialSteps = [
   },
   {
     title: 'Select tool',
-    text: 'Press T to enter Select so the practice box can be inspected and resized.',
+    text: 'Press G to enter Select so the practice box can be inspected and resized.',
     anchor: 'tool',
   },
   {
@@ -250,7 +253,7 @@ export function FrogLabelWorkspace(props: FrogLabelWorkspaceProps) {
         event.preventDefault();
         event.stopImmediatePropagation();
         exitTutorial();
-      } else if (event.code === 'Enter' && !isTutorialTextEntryTarget(event.target)) {
+      } else if (event.code === 'Enter' && !isNativeActivationTarget(event.target)) {
         event.preventDefault();
         event.stopImmediatePropagation();
         if (tutorialStep === tutorialSteps.length - 1) exitTutorial();
@@ -868,7 +871,8 @@ function WorkspaceCore({
         }
 
         const timeSpan = current.timeEndSeconds - current.timeStartSeconds;
-        const nextTimeSpan = Math.max(0.25, Math.min(current.durationSeconds, timeSpan / factor));
+        const minimumTimeSpan = Math.min(0.25, current.durationSeconds);
+        const nextTimeSpan = clamp(timeSpan / factor, minimumTimeSpan, current.durationSeconds);
         const anchorTime = current.timeStartSeconds + timeSpan * anchor.timeRatio;
         const timeStartSeconds = clamp(
           anchorTime - nextTimeSpan * anchor.timeRatio,
@@ -1056,19 +1060,6 @@ function WorkspaceCore({
         case 'tool.pan':
           setTool('pan');
           break;
-        case 'tool.toggleDrawSelect':
-          if (!hostEditable) {
-            setTool('select');
-            setAnnouncement('Drawing is locked in this read-only workspace.');
-            break;
-          }
-          if (!spectrogramReady && tool !== 'draw') {
-            setAnnouncement('Building the first spectrogram frame…');
-            break;
-          }
-          setTool((current) => (current === 'draw' ? 'select' : 'draw'));
-          onSemanticEvent(tool === 'draw' ? 'tool.select' : 'tool.draw');
-          break;
         case 'audio.playPause':
           if (audio) togglePlay();
           break;
@@ -1163,7 +1154,6 @@ function WorkspaceCore({
       spectrogramReady,
       stepPlaybackRate,
       togglePlay,
-      tool,
       zoom,
       fitView,
     ],
@@ -1236,6 +1226,7 @@ function WorkspaceCore({
         !event.metaKey &&
         !event.altKey &&
         !isEditableTarget(event.target) &&
+        !isNativeActivationTarget(event.target) &&
         activePointersRef.current.size === 0
       ) {
         event.preventDefault();
@@ -1526,13 +1517,23 @@ function WorkspaceCore({
         <button
           type="button"
           className={tool === 'draw' ? 'active' : ''}
-          onClick={() => runCommand('tool.toggleDrawSelect')}
+          onClick={() => runCommand('tool.draw')}
           aria-pressed={tool === 'draw'}
-          aria-label="Toggle Select and Draw tools (T)"
-          data-tutorial="tool"
+          aria-label="Draw tool (T)"
+          data-tutorial={tool === 'draw' ? 'tool' : undefined}
           disabled={!spectrogramReady || !hostEditable}
         >
-          <span className="toolbar-label">Tool</span> <kbd>T</kbd>
+          <span className="toolbar-label">Draw</span> <kbd>T</kbd>
+        </button>
+        <button
+          type="button"
+          className={tool === 'select' ? 'active' : ''}
+          onClick={() => runCommand('tool.select')}
+          aria-pressed={tool === 'select'}
+          aria-label="Select tool (G)"
+          data-tutorial={tool === 'select' ? 'tool' : undefined}
+        >
+          <span className="toolbar-label">Select</span> <kbd>G</kbd>
         </button>
         <div className="toolbar-separator" />
         <button
@@ -2186,6 +2187,7 @@ function DetailsPanel({
   onAuditionPaddingCommit(): void;
   onPlay(mode: BoxAuditionMode, paddingHz: number): void;
 }) {
+  const auditionBandSummaryId = useId();
   const [draft, setDraft] = useState(() => geometryDraft(box));
   useEffect(() => {
     setDraft(geometryDraft(box));
@@ -2284,14 +2286,14 @@ function DetailsPanel({
                   inputMode="numeric"
                   value={auditionPaddingHz}
                   aria-invalid={!paddingValid}
-                  aria-describedby="audition-band-summary"
+                  aria-describedby={auditionBandSummaryId}
                   onChange={(event) => onAuditionPaddingChange(event.target.value)}
                   onBlur={onAuditionPaddingCommit}
                 />
                 <span>Hz</span>
               </span>
             </label>
-            <p id="audition-band-summary" className="audition-band-summary">
+            <p id={auditionBandSummaryId} className="audition-band-summary">
               {paddedBand
                 ? `Band-pass ${Math.round(paddedBand.lowFrequencyHz)}–${Math.round(paddedBand.highFrequencyHz)} Hz. Negative removes the exact ${Math.round(box.lowFrequencyHz)}–${Math.round(box.highFrequencyHz)} Hz box band.`
                 : 'Enter a valid non-negative margin to enable band-pass replay.'}
@@ -3110,12 +3112,8 @@ function eventForStep(step: number): string | null {
 const FOCUSABLE_SELECTOR =
   'a[href], button, input, select, textarea, [tabindex]:not([tabindex="-1"])';
 
-function isTutorialTextEntryTarget(target: EventTarget | null): boolean {
-  if (!(target instanceof HTMLElement)) return false;
-  return (
-    target.matches('input, textarea, select, [contenteditable="true"]') ||
-    Boolean(target.closest('[contenteditable="true"]'))
-  );
+function isNativeActivationTarget(target: EventTarget | null): boolean {
+  return isNativeControlTarget(target) && !isWorkspaceCommandSurfaceTarget(target);
 }
 
 function humanizeReason(reason: MutationReason): string {

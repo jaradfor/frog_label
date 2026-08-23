@@ -12,9 +12,7 @@ from pydantic import AliasChoices, BaseModel, ConfigDict, Field, StringConstrain
 Identifier = Annotated[str, StringConstraints(min_length=1, max_length=256)]
 LegacySpeciesCode = Annotated[str, StringConstraints(pattern=r"^[A-Z]{3}$")]
 SpeciesCode = Annotated[str, StringConstraints(pattern=r"^[QWERTASDFGZXCVB]{1,6}$")]
-SnapshotCode = Annotated[
-    str, StringConstraints(pattern=r"^(?:[A-Z]{3}|[QWERTASDFGZXCVB]{1,6})$")
-]
+SnapshotCode = Annotated[str, StringConstraints(pattern=r"^(?:[A-Z]{3}|[QWERTASDFGZXCVB]{1,6})$")]
 ShortText = Annotated[str, StringConstraints(min_length=1, max_length=256)]
 AttributeText = Annotated[str, StringConstraints(max_length=1024)]
 AttributeValue = AttributeText | int | float | bool | None
@@ -138,6 +136,13 @@ class SpeciesCatalog(FrogModel):
             raise ValueError("defaultSpeciesId does not exist")
         return self
 
+    def contract_dict(self) -> dict[str, Any]:
+        """Serialize the catalog without dropping schema-required nullable fields."""
+
+        payload = self.model_dump(by_alias=True, mode="json", exclude_none=True)
+        payload["defaultSpeciesId"] = self.default_species_id
+        return payload
+
 
 class SpeciesSnapshotV1(FrogModel):
     species_id: Identifier
@@ -158,6 +163,7 @@ class SpeciesSnapshotV1(FrogModel):
 class SpeciesSnapshot(FrogModel):
     species_id: Identifier
     code: SnapshotCode
+    selection_priority: int | None = Field(default=None, ge=0, le=1_000_000)
     species_name: ShortText
     scientific_name: ShortText | None = None
     added_after_initialization: bool
@@ -295,6 +301,7 @@ class LabelStudioResult(FrogModel):
     )
     type: Literal["reactcode", "textarea", "labels"]
     value: Any
+    origin: str | None = None
 
     def document(self) -> FrogLabelDocument:
         if self.type == "reactcode":
@@ -319,6 +326,7 @@ def species_snapshot(entry: SpeciesEntry) -> SpeciesSnapshot:
     return SpeciesSnapshot(
         species_id=entry.species_id,
         code=entry.code,
+        selection_priority=entry.selection_priority,
         species_name=entry.species_name,
         scientific_name=entry.scientific_name,
         added_after_initialization=entry.added_after_initialization,

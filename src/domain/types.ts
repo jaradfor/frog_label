@@ -84,6 +84,12 @@ export interface SpeciesSnapshotV1 {
 export interface SpeciesSnapshotV2 {
   speciesId: string;
   code: string;
+  /**
+   * Present on newly written V2 snapshots so annotation-scoped Enterprise
+   * species retain deterministic prefix ordering. Optional for documents
+   * written before the field was introduced.
+   */
+  selectionPriority?: number;
   speciesName: string;
   scientificName?: string;
   addedAfterInitialization: boolean;

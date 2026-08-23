@@ -17,7 +17,8 @@ export type WorkspaceCommandId =
   | 'audio.playPause'
   | 'audio.faster'
   | 'audio.slower'
-  | 'tool.toggleDrawSelect'
+  | 'tool.draw'
+  | 'tool.select'
   | 'box.delete'
   | 'selection.nextBox'
   | 'selection.previousBox'
@@ -27,10 +28,8 @@ export type WorkspaceCommandId =
   | 'gesture.cancel'
   | 'history.undo'
   | 'history.redo'
-  // These commands remain available to pointer-driven toolbar controls. They
-  // intentionally have no keyboard binding in the expert command map.
-  | 'tool.draw'
-  | 'tool.select'
+  // Pan remains available to pointer-driven canvas controls. It intentionally
+  // has no keyboard binding in the expert command map.
   | 'tool.pan';
 
 export interface WorkspaceCommandDefinition {
@@ -134,12 +133,8 @@ export const WORKSPACE_COMMANDS: readonly WorkspaceCommandDefinition[] = [
   { id: 'audio.playPause', label: 'Play or pause', shortcut: 'V', code: 'KeyV' },
   { id: 'audio.faster', label: 'Faster playback', shortcut: 'F', code: 'KeyF' },
   { id: 'audio.slower', label: 'Slower playback', shortcut: 'R', code: 'KeyR' },
-  {
-    id: 'tool.toggleDrawSelect',
-    label: 'Toggle Select or Draw',
-    shortcut: 'T',
-    code: 'KeyT',
-  },
+  { id: 'tool.draw', label: 'Use Draw tool', shortcut: 'T', code: 'KeyT' },
+  { id: 'tool.select', label: 'Use Select tool', shortcut: 'G', code: 'KeyG' },
   {
     id: 'box.delete',
     label: 'Delete selected box',

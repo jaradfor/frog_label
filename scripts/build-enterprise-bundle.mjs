@@ -1,4 +1,3 @@
-import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
@@ -12,8 +11,8 @@ import { spectrogramWorkerSource } from './vite-spectrogram-worker-plugin.mjs';
 const repository = path.resolve(import.meta.dirname, '..');
 const temporaryRoot = path.join(repository, '.cache', 'enterprise-build');
 const resourceRoot = path.join(repository, 'python', 'froglabel_cli', 'resources');
-const commit = await resolveSourceRevision();
-const buildVersion = `1.0.0+${commit}`;
+const sourceRevision = await resolveSourceRevision();
+const buildVersion = `1.0.0+${sourceRevision}`;
 
 await rm(temporaryRoot, { recursive: true, force: true });
 await mkdir(resourceRoot, { recursive: true });
@@ -32,7 +31,7 @@ await writeFile(
       kind: 'froglabel.enterprise-component-bundle',
       schemaVersion: 1,
       buildVersion,
-      sourceCommit: commit,
+      sourceCommit: sourceRevision,
       entry: 'src/enterprise/entry.tsx',
       exportName: 'renderEnterpriseFrogLabel',
       hostReactExternal: true,
@@ -147,35 +146,35 @@ async function resolveSourceRevision() {
     }
     return override;
   }
-  try {
-    return execFileSync('git', ['rev-parse', '--short=12', 'HEAD'], {
-      cwd: repository,
-      encoding: 'utf8',
-      stdio: ['ignore', 'pipe', 'ignore'],
-    }).trim();
-  } catch {
-    const digest = createHash('sha256');
-    for (const root of ['src', 'schemas']) {
-      for (const filename of await listFiles(path.join(repository, root))) {
-        digest.update(path.relative(repository, filename));
-        digest.update('\0');
-        digest.update(await readFile(filename));
-        digest.update('\0');
-      }
-    }
-    for (const relative of [
-      'package.json',
-      'package-lock.json',
-      'scripts/build-enterprise-bundle.mjs',
-      'scripts/vite-spectrogram-worker-plugin.mjs',
-    ]) {
-      digest.update(relative);
+  return resolveSourceTreeRevision();
+}
+
+function sourceInputPaths() {
+  return [
+    'src',
+    'schemas',
+    'package.json',
+    'package-lock.json',
+    'tsconfig.json',
+    'scripts/build-enterprise-bundle.mjs',
+    'scripts/vite-spectrogram-worker-plugin.mjs',
+  ];
+}
+
+async function resolveSourceTreeRevision() {
+  const digest = createHash('sha256');
+  for (const relative of sourceInputPaths()) {
+    const filename = path.join(repository, relative);
+    const filenames =
+      relative === 'src' || relative === 'schemas' ? await listFiles(filename) : [filename];
+    for (const input of filenames) {
+      digest.update(path.relative(repository, input));
       digest.update('\0');
-      digest.update(await readFile(path.join(repository, relative)));
+      digest.update(await readFile(input));
       digest.update('\0');
     }
-    return `tree.${digest.digest('hex').slice(0, 12)}`;
   }
+  return `tree.${digest.digest('hex').slice(0, 12)}`;
 }
 
 async function listFiles(root) {

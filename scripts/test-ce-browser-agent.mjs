@@ -281,8 +281,10 @@ async function ensurePanelOpen(frame, name) {
 }
 
 async function ensureDrawTool(frame, draw) {
-  const button = frame.getByRole('button', { name: 'Toggle Select and Draw tools (T)' });
-  if ((await button.getAttribute('aria-pressed')) !== String(draw)) await button.click();
+  const button = frame.getByRole('button', {
+    name: draw ? 'Draw tool (T)' : 'Select tool (G)',
+  });
+  if ((await button.getAttribute('aria-pressed')) !== 'true') await button.click();
 }
 
 async function waitForFirstSpectrogramFrame(shell) {

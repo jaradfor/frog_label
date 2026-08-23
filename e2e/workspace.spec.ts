@@ -2,7 +2,7 @@ import AxeBuilder from '@axe-core/playwright';
 import type { Locator, Page } from '@playwright/test';
 import { expect, test } from './fixture';
 
-test('selects GRE by chord, draws with the mouse, toggles tools, and deletes by shortcut', async ({
+test('selects GRE by chord, draws with the mouse, switches tools, and deletes by shortcut', async ({
   page,
 }) => {
   await page.goto('./');
@@ -10,7 +10,7 @@ test('selects GRE by chord, draws with the mouse, toggles tools, and deletes by 
   await waitForSpectrogramFrame(shell);
 
   const speciesPanel = page.getByRole('button', { name: '1 Species' });
-  const tool = page.getByRole('button', { name: 'Toggle Select and Draw tools (T)' });
+  const drawTool = page.getByRole('button', { name: 'Draw tool (T)' });
   await page.keyboard.down('Space');
   await page.keyboard.press('KeyG');
   await expect(page.locator('.froglabel-app')).toHaveAttribute('data-species-capture', 'active');
@@ -24,7 +24,7 @@ test('selects GRE by chord, draws with the mouse, toggles tools, and deletes by 
   await expect(speciesPanel).toHaveAttribute('aria-pressed', 'false');
   await page.keyboard.up('Space');
   await expect(page.getByLabel('Current species')).toContainText('GRE');
-  await expect(tool).toHaveAttribute('aria-pressed', 'true');
+  await expect(drawTool).toHaveAttribute('aria-pressed', 'true');
 
   const canvas = page.locator('canvas.spectrogram-canvas');
   const rect = await canvas.boundingBox();
@@ -46,7 +46,7 @@ test('selects GRE by chord, draws with the mouse, toggles tools, and deletes by 
   await expect(bandReplay).toBeEnabled();
   await expect(negativeReplay).toBeEnabled();
   await expect(bandMargin).toHaveValue('250');
-  await expect(page.locator('#audition-band-summary')).toContainText(
+  await expect(page.locator('.audition-band-summary')).toContainText(
     /Band-pass .*Negative removes/,
   );
   await bandReplay.click();
@@ -61,7 +61,7 @@ test('selects GRE by chord, draws with the mouse, toggles tools, and deletes by 
   // C is a selection command even when Draw is armed; it must not silently
   // no-op behind the current tool mode.
   await page.keyboard.press('KeyC');
-  await expect(tool).toHaveAttribute('aria-pressed', 'false');
+  await expect(drawTool).toHaveAttribute('aria-pressed', 'false');
 
   // The Dataset dock deliberately shortens the spectrogram. Close it before
   // targeting the annotation again so the pointer coordinates are current.
@@ -105,7 +105,7 @@ test('selects GRE by chord, draws with the mouse, toggles tools, and deletes by 
   expect(await readViewport(canvas)).not.toEqual(viewportBeforeMiddlePan);
 
   await page.keyboard.press('KeyT');
-  await expect(tool).toHaveAttribute('aria-pressed', 'true');
+  await expect(drawTool).toHaveAttribute('aria-pressed', 'true');
   await page.keyboard.press('Shift+KeyR');
   await expect(page.locator('.spectrogram-stage')).toHaveAttribute('data-box-count', '0');
   await expect(page.getByRole('row', { name: /GRE — Green Tree Frog/ })).toHaveCount(0);

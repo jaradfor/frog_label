@@ -338,6 +338,45 @@ describe('SpectrogramRenderer retained surface', () => {
     expect(atlas.destroy).toHaveBeenCalledOnce();
   });
 
+  it('destroys a failed WebGL atlas and completes the exact frame with Canvas2D', async () => {
+    const states: SpectrogramRenderState[] = [];
+    const errors: string[] = [];
+    const renderer = new SpectrogramRenderer(
+      loadedAudio(),
+      (message) => errors.push(message),
+      () => undefined,
+      (state) => states.push(state),
+    );
+    const worker = FakeWorker.instances[0];
+    const canvas = sizedCanvas(32, 18);
+    renderer.render(canvas, renderOptions());
+    worker.emit({ type: 'ready' });
+    await vi.waitFor(() => expect(worker.messages).toHaveLength(2));
+    const renderMessage = tileRenderMessage(worker);
+    const atlas = fakeAtlas(document.createElement('canvas'));
+    atlas.prepareTile.mockReturnValue(false);
+    vi.spyOn(SpectralWebGLAtlas, 'create').mockReturnValue(atlas.value);
+
+    emitVisibleTiles(worker, renderMessage);
+    worker.emit({
+      type: 'tiles-complete',
+      requestId: renderMessage.requestId,
+      audioGeneration: renderMessage.tileRequest.audioGeneration,
+      viewKey: renderMessage.tileRequest.viewKey,
+    });
+
+    await vi.waitFor(() => {
+      expect(states.at(-1)).toMatchObject({ status: 'ready', quality: 'exact' });
+    });
+    expect(atlas.prepareTile).toHaveBeenCalled();
+    expect(atlas.render).not.toHaveBeenCalled();
+    expect(atlas.destroy).toHaveBeenCalledOnce();
+    expect(allContexts.some((context) => context.drawImage.mock.calls.length > 0)).toBe(true);
+    expect(errors).toEqual([]);
+    renderer.destroy();
+    expect(atlas.destroy).toHaveBeenCalledOnce();
+  });
+
   it('releases worker-only tile and GPU caches when it permanently falls back', async () => {
     const renderer = new SpectrogramRenderer(loadedAudio(), () => undefined);
     const worker = FakeWorker.instances[0];

@@ -290,9 +290,8 @@ describe('FrogLabelWorkspace controls', () => {
     await user.click(speciesButton);
 
     const status = document.querySelector<HTMLElement>('.expert-status-line')!;
-    const toolButton = screen.getByRole('button', {
-      name: 'Toggle Select and Draw tools (T)',
-    });
+    const drawButton = screen.getByRole('button', { name: 'Draw tool (T)' });
+    const selectButton = screen.getByRole('button', { name: 'Select tool (G)' });
     fireEvent.keyDown(window, { code: 'Space', key: ' ' });
     expect(document.querySelector('.froglabel-app')).toHaveAttribute(
       'data-species-capture',
@@ -309,7 +308,8 @@ describe('FrogLabelWorkspace controls', () => {
     fireEvent.keyDown(window, { code: 'Digit1', key: '1' });
     fireEvent.keyDown(window, { code: 'KeyT', key: 't' });
     expect(speciesButton).toHaveAttribute('aria-pressed', 'false');
-    expect(toolButton).toHaveAttribute('aria-pressed', 'false');
+    expect(drawButton).toHaveAttribute('aria-pressed', 'false');
+    expect(selectButton).toHaveAttribute('aria-pressed', 'true');
 
     fireEvent.keyUp(window, { code: 'Space', key: ' ' });
     expect(document.querySelector('.froglabel-app')).toHaveAttribute(
@@ -318,7 +318,45 @@ describe('FrogLabelWorkspace controls', () => {
     );
     expect(screen.getByLabelText('Current species')).toHaveTextContent('GREGreen Tree Frog');
     expect(status).toHaveTextContent(/DRAW.*GRE — Green Tree Frog/);
-    expect(toolButton).toHaveAttribute('aria-pressed', 'true');
+    expect(drawButton).toHaveAttribute('aria-pressed', 'true');
+    expect(selectButton).toHaveAttribute('aria-pressed', 'false');
+    fireEvent.keyDown(window, { code: 'KeyG', key: 'g' });
+    expect(drawButton).toHaveAttribute('aria-pressed', 'false');
+    expect(selectButton).toHaveAttribute('aria-pressed', 'true');
+  });
+
+  it('starts a Space species chord on the focused command surface but not a native button', async () => {
+    const user = userEvent.setup();
+    renderWorkspace(expertCatalog);
+    const speciesButton = screen.getByRole('button', { name: '1 Species' });
+    await user.click(speciesButton);
+    await screen.findByRole('option', { name: 'GRE Green Tree Frog' });
+    await user.click(speciesButton);
+
+    // The no-audio fixture does not mount SpectrogramCanvas, so model its
+    // programmatically focusable stage while exercising the real window
+    // listener and target-routing guard.
+    const commandSurface = document.createElement('div');
+    commandSurface.className = 'spectrogram-stage';
+    commandSurface.tabIndex = 0;
+    commandSurface.dataset.workspaceCommandSurface = 'true';
+    document.body.append(commandSurface);
+    commandSurface.focus();
+    fireEvent.keyDown(commandSurface, { code: 'Space', key: ' ' });
+    expect(document.querySelector('.froglabel-app')).toHaveAttribute(
+      'data-species-capture',
+      'active',
+    );
+    fireEvent.keyUp(commandSurface, { code: 'Space', key: ' ' });
+
+    const selectButton = screen.getByRole('button', { name: 'Select tool (G)' });
+    selectButton.focus();
+    fireEvent.keyDown(selectButton, { code: 'Space', key: ' ' });
+    expect(document.querySelector('.froglabel-app')).toHaveAttribute(
+      'data-species-capture',
+      'idle',
+    );
+    commandSurface.remove();
   });
 
   it('cancels a held species chord when the catalog revision changes', async () => {
@@ -379,9 +417,8 @@ describe('FrogLabelWorkspace controls', () => {
         mode="demo"
       />,
     );
-    const toolButton = screen.getByRole('button', {
-      name: 'Toggle Select and Draw tools (T)',
-    });
+    const drawButton = screen.getByRole('button', { name: 'Draw tool (T)' });
+    const selectButton = screen.getByRole('button', { name: 'Select tool (G)' });
     const speciesButton = screen.getByRole('button', { name: '1 Species' });
     await user.click(speciesButton);
     await screen.findByRole('option', { name: 'GRE Green Tree Frog' });
@@ -392,7 +429,8 @@ describe('FrogLabelWorkspace controls', () => {
     fireEvent.keyDown(window, { code: 'KeyG', key: 'g' });
     fireEvent.keyUp(window, { code: 'Space', key: ' ' });
     expect(screen.getByLabelText('Current species')).toHaveTextContent('GREGreen Tree Frog');
-    expect(toolButton).toHaveAttribute('aria-pressed', 'false');
+    expect(drawButton).toHaveAttribute('aria-pressed', 'false');
+    expect(selectButton).toHaveAttribute('aria-pressed', 'true');
     expect(document.querySelector('.sr-live')).toHaveTextContent(/Read-only/i);
   });
 
@@ -413,8 +451,14 @@ describe('FrogLabelWorkspace controls', () => {
     nextButton.focus();
     fireEvent.keyDown(nextButton, { code: 'Space', key: ' ' });
     expect(screen.getByRole('dialog', { name: 'Tutorial step 1 of 12' })).toBeVisible();
+    expect(document.querySelector('.tutorial-practice-layer .froglabel-app')).toHaveAttribute(
+      'data-species-capture',
+      'idle',
+    );
     fireEvent.keyUp(nextButton, { code: 'Space', key: ' ' });
     fireEvent.keyDown(nextButton, { code: 'Enter', key: 'Enter' });
+    expect(screen.getByRole('dialog', { name: 'Tutorial step 1 of 12' })).toBeVisible();
+    fireEvent.keyDown(window, { code: 'Enter', key: 'Enter' });
     expect(screen.getByRole('dialog', { name: 'Tutorial step 2 of 12' })).toBeVisible();
     fireEvent.keyDown(window, { code: 'Enter', key: 'Enter' });
     expect(screen.getByRole('dialog', { name: 'Tutorial step 3 of 12' })).toBeVisible();

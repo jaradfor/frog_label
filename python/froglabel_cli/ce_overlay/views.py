@@ -138,6 +138,7 @@ class ProjectCatalogView(APIView):
                     if (
                         existing.species_name != requested.speciesName
                         or existing.scientific_name != requested.scientificName
+                        or existing.selection_priority != requested.selectionPriority
                     ):
                         return Response(
                             {
@@ -145,8 +146,8 @@ class ProjectCatalogView(APIView):
                                 "error": {
                                     "code": "CATALOG_CODE_CONFLICT",
                                     "message": (
-                                        f"Code {requested.code} already belongs to "
-                                        f"{existing.species_name}; resolve explicitly."
+                                        f"Code {requested.code} already has different species "
+                                        "metadata or selection priority; resolve explicitly."
                                     ),
                                 },
                             },
@@ -267,6 +268,6 @@ class ProjectCatalogView(APIView):
             for permission in (all_permissions.labels_create, all_permissions.labels_change)
         )
         return {
-            "catalog": live.canonical().model_dump(by_alias=True, mode="json", exclude_none=True),
+            "catalog": live.canonical().contract_dict(),
             "permissions": {"createSpecies": can_create},
         }

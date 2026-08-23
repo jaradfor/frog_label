@@ -45,7 +45,8 @@ describe('expert workspace keyboard routing', () => {
     ['KeyV', false, 'audio.playPause'],
     ['KeyF', false, 'audio.faster'],
     ['KeyR', false, 'audio.slower'],
-    ['KeyT', false, 'tool.toggleDrawSelect'],
+    ['KeyT', false, 'tool.draw'],
+    ['KeyG', false, 'tool.select'],
     ['KeyR', true, 'box.delete'],
     ['Tab', false, 'selection.nextBox'],
     ['Tab', true, 'selection.previousBox'],
@@ -150,6 +151,7 @@ describe('expert workspace keyboard routing', () => {
   it('masks ordinary commands during a species chord', () => {
     expect(route({ code: 'Digit1' }, document.body, { speciesCaptureActive: true })).toBeNull();
     expect(route({ code: 'KeyV' }, document.body, { speciesCaptureActive: true })).toBeNull();
+    expect(route({ code: 'KeyG' }, document.body, { speciesCaptureActive: true })).toBeNull();
   });
 });
 

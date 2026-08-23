@@ -46,6 +46,7 @@ export class EmbeddedCatalogPort implements SpeciesCatalogPort {
     }
     if (!speciesName) throw new ValidationError('Full Species Name is required');
     const catalog = await this.read();
+    const selectionPriority = input.selectionPriority ?? 0;
     const historical = catalog.historicalSpecies?.find(
       (entry) => entry.code.toLocaleLowerCase('en') === code.toLocaleLowerCase('en'),
     );
@@ -60,9 +61,18 @@ export class EmbeddedCatalogPort implements SpeciesCatalogPort {
     if (existing) {
       if (
         existing.speciesName === speciesName &&
-        (existing.scientificName ?? undefined) === scientificName
+        (existing.scientificName ?? undefined) === scientificName &&
+        existing.selectionPriority === selectionPriority
       ) {
         return structuredClone(existing);
+      }
+      if (
+        existing.speciesName === speciesName &&
+        (existing.scientificName ?? undefined) === scientificName
+      ) {
+        throw new ValidationError(
+          `Code ${code} already uses selection priority ${existing.selectionPriority}; requested ${selectionPriority}`,
+        );
       }
       throw new ValidationError(`Code ${code} already belongs to ${existing.speciesName}`);
     }
@@ -72,7 +82,7 @@ export class EmbeddedCatalogPort implements SpeciesCatalogPort {
       kind: 'froglabel.species',
       speciesId: `local:${crypto.randomUUID()}`,
       code,
-      selectionPriority: input.selectionPriority ?? 0,
+      selectionPriority,
       speciesName,
       ...(scientificName ? { scientificName } : {}),
       addedAfterInitialization: true,
@@ -106,7 +116,7 @@ export class EmbeddedCatalogPort implements SpeciesCatalogPort {
       schemaVersion: 2,
       kind: 'froglabel.species',
       ...structuredClone(snapshot),
-      selectionPriority: 0,
+      selectionPriority: snapshot.selectionPriority ?? 0,
       createdAt: now,
       updatedAt: now,
     });

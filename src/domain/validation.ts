@@ -59,6 +59,7 @@ export function speciesSnapshot(species: SpeciesEntry) {
   return {
     speciesId: species.speciesId,
     code: species.code,
+    selectionPriority: species.selectionPriority,
     speciesName: species.speciesName,
     ...(species.scientificName ? { scientificName: species.scientificName } : {}),
     addedAfterInitialization: species.addedAfterInitialization,

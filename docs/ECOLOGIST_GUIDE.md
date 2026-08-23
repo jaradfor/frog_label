@@ -2,7 +2,7 @@
 
 1. Open the assigned recording in Label Studio. Press `V` to play/pause and `F`/`R` to change playback rate.
 2. Hold `Space`, type the shortest useful left-hand species prefix, and release. The status line previews the deterministic winner and Draw arms automatically. If the species is missing, open panel `1`, choose **Add missing species**, enter a 1–6 letter left-hand code (`QWERTASDFGZXCVB`), prefix priority, and Full Species Name, then save it.
-3. Drag around a call. Press `T` to switch between Draw and Select/Resize. Keep the mouse in your right hand: `WASD` pans; `E`/`Q` zooms both axes in/out; `Shift+D/A` zooms time in/out; `Shift+W/S` zooms frequency in/out; `X` fits; `Shift+R` removes the selected box; and middle/right drag pans from either tool.
+3. Drag around a call. Press `T` for Draw or `G` for Select/Resize; the separate top-bar buttons show the active tool. Keep the mouse in your right hand: `WASD` pans; `E`/`Q` zooms both axes in/out; `Shift+D/A` zooms time in/out; `Shift+W/S` zooms frequency in/out; `X` fits; `Shift+R` removes the selected box; and middle/right drag pans from either tool.
 4. For a reviewed recording with no calls, choose **No calls present** or press `Shift+X`. Deleting the final box returns to unreviewed; it does not assert no calls.
 5. Use Undo/Redo for scientific edits. Press `?` for isolated practice; practice is discarded and never changes the assigned annotation.
 6. Finish with Label Studio's outer **Submit** or **Update** button.

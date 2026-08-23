@@ -590,6 +590,7 @@ export class SpectrogramRenderer {
           }
           throwRendererAbort(controller.signal, 'Spectrogram GPU upload cancelled');
           surface = atlas.render(completeTiles, current.width, current.height, current.options);
+          if (!surface) throw new Error('Spectrogram WebGL context was lost.');
         } catch (error) {
           // A newer view owns the same atlas. Cancellation is ordinary
           // latest-wins scheduling and must never tear down that shared GPU

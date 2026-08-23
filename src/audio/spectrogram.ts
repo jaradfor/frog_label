@@ -485,7 +485,12 @@ export async function prepareWaveformPeakIndexesCooperative(
     if (waveformPeakIndexes.has(samples)) continue;
     let build = waveformPeakIndexBuilds.get(samples);
     if (!build) {
-      build = buildWaveformPeakIndexCooperative(samples, options);
+      // The cached build belongs to the PCM source, not to whichever canvas
+      // happened to request it first. Individual callers may stop waiting,
+      // but must not cancel work shared by another mounted waveform.
+      build = buildWaveformPeakIndexCooperative(samples, {
+        sliceMilliseconds: options.sliceMilliseconds,
+      });
       waveformPeakIndexBuilds.set(samples, build);
       const clearBuild = () => {
         if (waveformPeakIndexBuilds.get(samples) === build) {
@@ -494,8 +499,36 @@ export async function prepareWaveformPeakIndexesCooperative(
       };
       void build.then(clearBuild, clearBuild);
     }
-    await build;
+    await waitForWaveformPeakIndex(build, options.signal);
   }
+}
+
+function waitForWaveformPeakIndex(
+  build: Promise<WaveformPeakIndex>,
+  signal?: AbortSignal,
+): Promise<WaveformPeakIndex> {
+  if (!signal) return build;
+  if (signal.aborted) {
+    return Promise.reject(new DOMException('Waveform indexing cancelled', 'AbortError'));
+  }
+  return new Promise((resolve, reject) => {
+    const cleanup = () => signal.removeEventListener('abort', abort);
+    const abort = () => {
+      cleanup();
+      reject(new DOMException('Waveform indexing cancelled', 'AbortError'));
+    };
+    signal.addEventListener('abort', abort, { once: true });
+    void build.then(
+      (index) => {
+        cleanup();
+        resolve(index);
+      },
+      (error: unknown) => {
+        cleanup();
+        reject(error);
+      },
+    );
+  });
 }
 
 function waveformPeak(samples: Float32Array, first: number, last: number): number {
@@ -528,7 +561,7 @@ function waveformPeak(samples: Float32Array, first: number, last: number): numbe
 
 async function buildWaveformPeakIndexCooperative(
   samples: Float32Array,
-  options: { signal?: AbortSignal; sliceMilliseconds?: number },
+  options: { sliceMilliseconds?: number },
 ): Promise<WaveformPeakIndex> {
   const blockCount = Math.ceil(samples.length / WAVEFORM_BLOCK_SAMPLES);
   const leafCount = nextPowerOfTwo(blockCount);
@@ -536,7 +569,6 @@ async function buildWaveformPeakIndexCooperative(
   const sliceMilliseconds = Math.max(1, options.sliceMilliseconds ?? 8);
   let sliceStartedAt = monotonicNow();
   for (let block = 0; block < blockCount; block += 1) {
-    throwIfAborted(options.signal, 'Waveform indexing cancelled');
     tree[leafCount + block] = scanAbsolutePeak(
       samples,
       block * WAVEFORM_BLOCK_SAMPLES,
@@ -548,7 +580,6 @@ async function buildWaveformPeakIndexCooperative(
     }
   }
   for (let node = leafCount - 1; node > 0; node -= 1) {
-    throwIfAborted(options.signal, 'Waveform indexing cancelled');
     tree[node] = Math.max(tree[node * 2], tree[node * 2 + 1]);
     if ((node & 4_095) === 0 && monotonicNow() - sliceStartedAt >= sliceMilliseconds) {
       await yieldToMainThread();

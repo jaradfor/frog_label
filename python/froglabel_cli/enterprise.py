@@ -151,7 +151,7 @@ class EnterpriseProjectAdministrator:
             "target": "enterprise",
             "initialized": initialized,
             "configurationFingerprint": configuration_fingerprint(candidate),
-            "catalog": state.catalog().model_dump(by_alias=True, mode="json", exclude_none=True),
+            "catalog": state.catalog().contract_dict(),
             "plan": plan.stable_dict() if plan else None,
             "artifacts": artifacts,
             "message": enterprise_unchanged_message(output),
@@ -197,7 +197,7 @@ class EnterpriseProjectAdministrator:
             "configurationFingerprint": configuration_fingerprint(candidate),
             "plan": plan.stable_dict(),
             "reconciliation": reconciliation,
-            "catalog": updated.catalog().model_dump(by_alias=True, mode="json", exclude_none=True),
+            "catalog": updated.catalog().contract_dict(),
             "artifacts": artifacts,
             "message": enterprise_unchanged_message(output),
         }
@@ -215,7 +215,7 @@ class EnterpriseProjectAdministrator:
         return {
             "target": "enterprise",
             "valid": True,
-            "catalog": state.catalog().model_dump(by_alias=True, mode="json", exclude_none=True),
+            "catalog": state.catalog().contract_dict(),
             "plan": plan.stable_dict() if plan else None,
             "remoteProject": "unchanged and not contacted",
         }
@@ -413,7 +413,7 @@ def render_enterprise_artifacts(
 ) -> dict[str, Any]:
     output.mkdir(parents=True, exist_ok=True)
     bundle, bundle_manifest = load_enterprise_bundle()
-    catalog = state.catalog().model_dump(by_alias=True, mode="json", exclude_none=True)
+    catalog = state.catalog().contract_dict()
     source = enterprise_interface(bundle, catalog)
     validate_enterprise_interface(source)
     full_path = output / FULL_INTERFACE_FILENAME
@@ -521,6 +521,7 @@ def reconcile_enterprise_export(state: EnterpriseState, source: Path) -> dict[st
                     snapshot = box.species.model_dump(by_alias=True, mode="json", exclude_none=True)
                     if not snapshot["addedAfterInitialization"]:
                         continue
+                    snapshot.setdefault("selectionPriority", 0)
                     prior = discovered.get(snapshot["speciesId"])
                     if prior is not None and prior != snapshot:
                         conflicts.append(
@@ -542,6 +543,7 @@ def reconcile_enterprise_export(state: EnterpriseState, source: Path) -> dict[st
             current_snapshot = {
                 "speciesId": seed.species_id,
                 "code": seed.code,
+                "selectionPriority": seed.selection_priority,
                 "speciesName": seed.species_name,
                 **({"scientificName": seed.scientific_name} if seed.scientific_name else {}),
                 "addedAfterInitialization": seed.added_after_initialization,
@@ -571,7 +573,7 @@ def reconcile_enterprise_export(state: EnterpriseState, source: Path) -> dict[st
             {
                 "speciesId": species_id,
                 "code": snapshot["code"],
-                "selectionPriority": 0,
+                "selectionPriority": snapshot["selectionPriority"],
                 "speciesName": snapshot["speciesName"],
                 **(
                     {"scientificName": snapshot["scientificName"]}

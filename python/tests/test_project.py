@@ -13,6 +13,7 @@ from froglabel_cli.enterprise import (
     EnterpriseProjectAdministrator,
     EnterpriseState,
     plan_enterprise_sync,
+    reconcile_enterprise_export,
 )
 from froglabel_cli.errors import FrogLabelCliError
 from froglabel_cli.exports import export_label_studio_project
@@ -263,6 +264,26 @@ def test_enterprise_artifact_render_is_byte_deterministic_from_applied_state(
     assert "outputSchema:FrogLabelEnterpriseBundle.outputSchema" in source
 
 
+def test_enterprise_empty_catalog_serialization_preserves_required_null(
+    tmp_path: Path,
+) -> None:
+    candidate = ProjectConfiguration.model_validate(
+        {
+            "schemaVersion": 2,
+            "project": {},
+            "catalog": {"species": []},
+            "audio": {},
+            "ui": {},
+        }
+    )
+
+    result = EnterpriseProjectAdministrator().init(tmp_path, candidate)
+
+    assert result["catalog"]["defaultSpeciesId"] is None
+    embedded = json.loads((tmp_path / "embedded-catalog.json").read_text(encoding="utf-8"))
+    assert embedded["defaultSpeciesId"] is None
+
+
 def test_flat_export_validates_singleton_and_neutralizes_csv_formula(
     tmp_path: Path,
 ) -> None:
@@ -303,6 +324,7 @@ def test_flat_export_validates_singleton_and_neutralizes_csv_formula(
                                     "from_name": "froglabel",
                                     "to_name": "froglabel",
                                     "type": "reactcode",
+                                    "origin": "manual",
                                     "value": {"reactcode": document},
                                 }
                             ],
@@ -410,6 +432,74 @@ def test_flat_export_accepts_enterprise_interface_structured_result(tmp_path: Pa
     assert summary["boxCount"] == 0
 
 
+def test_enterprise_reconciliation_accepts_origin_and_preserves_snapshot_priority(
+    tmp_path: Path,
+    catalog,
+) -> None:
+    state = EnterpriseState(
+        catalogId="fixture:enterprise",
+        catalogRevision=1,
+        initializedAt=catalog.initialized_at,
+        initializedBy="tests",
+        species=[],
+    )
+    source = tmp_path / "native-priority.json"
+    source.write_text(
+        json.dumps(
+            [
+                {
+                    "id": 1,
+                    "annotations": [
+                        {
+                            "id": 2,
+                            "result": [
+                                {
+                                    "id": "outer:stable",
+                                    "from_name": "froglabel",
+                                    "to_name": "froglabel",
+                                    "type": "reactcode",
+                                    "origin": "manual",
+                                    "value": {
+                                        "reactcode": {
+                                            "kind": "froglabel.annotation-set",
+                                            "schemaVersion": 2,
+                                            "catalogId": "fixture:enterprise",
+                                            "reviewStatus": "calls_present",
+                                            "boxes": [
+                                                {
+                                                    "id": "box:added",
+                                                    "species": {
+                                                        "speciesId": "local:added",
+                                                        "code": "ETF",
+                                                        "selectionPriority": 250,
+                                                        "speciesName": "Added Frog",
+                                                        "addedAfterInitialization": True,
+                                                    },
+                                                    "startTimeSeconds": 0,
+                                                    "endTimeSeconds": 1,
+                                                    "lowFrequencyHz": 500,
+                                                    "highFrequencyHz": 1500,
+                                                    "provenance": {"source": "human"},
+                                                }
+                                            ],
+                                        }
+                                    },
+                                }
+                            ],
+                        }
+                    ],
+                }
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    result = reconcile_enterprise_export(state, source)
+
+    assert result["conflicts"] == []
+    assert result["proposedAdditions"][0]["selectionPriority"] == 250
+
+
 def test_enterprise_rejects_ce_project_identity(tmp_path: Path) -> None:
     config = tmp_path / "bad.yaml"
     config.write_text(
@@ -476,10 +566,33 @@ def test_ce_project_command_forwards_to_clean_derived_runtime(
             return {"target": "ce", "project": 7, "valid": True}
 
     monkeypatch.setattr(cli, "CeRuntime", Runtime)
+    forwarded_configuration = ProjectConfiguration.model_validate(
+        {
+            "schemaVersion": 2,
+            "project": {"hostProjectId": 7},
+            "catalog": {
+                "species": [
+                    {
+                        "speciesId": "local:implicit-priority",
+                        "code": "GRE",
+                        "speciesName": "Implicit Priority Frog",
+                    },
+                    {
+                        "speciesId": "local:explicit-priority",
+                        "code": "ETF",
+                        "selectionPriority": 0,
+                        "speciesName": "Explicit Priority Frog",
+                    },
+                ]
+            },
+            "audio": {},
+            "ui": {},
+        }
+    )
     monkeypatch.setattr(
         cli,
         "load_project_configuration",
-        lambda **_options: (configuration(target="ce"), {"fixture": True}),
+        lambda **_options: (forwarded_configuration, {"fixture": True}),
     )
     monkeypatch.chdir(tmp_path)
     args = cli.build_parser().parse_args(
@@ -507,3 +620,16 @@ def test_ce_project_command_forwards_to_clean_derived_runtime(
     assert observed["data_dir"] == data_dir
     assert observed["command"] == "init"
     assert observed["project_id"] == 7
+    forwarded = observed["candidate"]
+    assert isinstance(forwarded, dict)
+    assert "defaultSpeciesId" not in forwarded["project"]
+    assert "selectionPriority" not in forwarded["catalog"]["species"][0]
+    assert forwarded["catalog"]["species"][1]["selectionPriority"] == 0
+    explicit_null = ProjectConfiguration.model_validate(
+        {
+            "schemaVersion": 2,
+            "project": {"hostProjectId": 7, "defaultSpeciesId": None},
+            "catalog": {"species": []},
+        }
+    )
+    assert cli._ce_candidate_payload(explicit_null)["project"]["defaultSpeciesId"] is None

@@ -471,8 +471,10 @@ async function ensurePanelOpen(frame, name) {
 }
 
 async function ensureDrawTool(frame, draw) {
-  const button = frame.getByRole('button', { name: 'Toggle Select and Draw tools (T)' });
-  if ((await button.getAttribute('aria-pressed')) !== String(draw)) await button.click();
+  const button = frame.getByRole('button', {
+    name: draw ? 'Draw tool (T)' : 'Select tool (G)',
+  });
+  if ((await button.getAttribute('aria-pressed')) !== 'true') await button.click();
 }
 
 async function waitForFirstSpectrogramFrame(shell) {
@@ -748,9 +750,8 @@ async function completeCeTutorial(page, frame, expectedLiveBoxCount) {
   )
     throw new Error('Tutorial Restart retained practice boxes');
   if (
-    (await frame
-      .getByRole('button', { name: 'Toggle Select and Draw tools (T)' })
-      .getAttribute('aria-pressed')) !== 'false'
+    (await frame.getByRole('button', { name: 'Select tool (G)' }).getAttribute('aria-pressed')) !==
+    'true'
   )
     throw new Error('Tutorial Restart did not restore the initial Select tool');
   if (

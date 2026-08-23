@@ -6,7 +6,7 @@ FrogLabel is a spectrogram-first human annotation workspace for frog-call record
 
 The [GitHub Pages demo](https://jaradfor.github.io/frog_label/) opens directly into the labeling workflow with the bundled `green_tree.mp3` Green Tree Frog recording and the `GRE — Green Tree Frog` species ready in the catalog. No login or Label Studio server is required. Demo annotations stay in memory and reset when the page reloads.
 
-Hold `Space`, tap `G`, and release to select `GRE` and arm Draw, then drag over a call in the spectrogram. The `?` button opens isolated practice. `WASD` pans; `E`/`Q` zoom both axes in/out; `Shift+D/A` zooms time in/out; `Shift+W/S` zooms frequency in/out; `X` fits the recording; `T` toggles Select/Draw; `Shift+R` removes the selected box; and number keys `1`–`4` toggle Species, Details, Display, and Dataset unless a text field owns the key or a mouse button is held.
+Hold `Space`, tap `G`, and release to select `GRE` and arm Draw, then drag over a call in the spectrogram. The `?` button opens isolated practice. `T` activates Draw; `G` activates Select; `WASD` pans; `E`/`Q` zoom both axes in/out; `Shift+D/A` zooms time in/out; `Shift+W/S` zooms frequency in/out; `X` fits the recording; `Shift+R` removes the selected box; and number keys `1`–`4` toggle Species, Details, Display, and Dataset unless a text field owns the key or a mouse button is held.
 
 Use [Try your own audio](https://jaradfor.github.io/frog_label/?mode=local) for the private local workflow. WAV and MP3 bytes stay in the browser. FrogLabel accepts recordings up to five minutes, subject to the decoded channel-sample safety limit. JSON is the durable, lossless save format; CSV is a convenient flat export.
 

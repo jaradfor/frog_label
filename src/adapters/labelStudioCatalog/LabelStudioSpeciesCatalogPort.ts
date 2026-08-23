@@ -48,11 +48,13 @@ export class LabelStudioSpeciesCatalogPort implements SpeciesCatalogPort {
       throw new ValidationError('Code must contain 1–6 left-hand letters');
     }
     if (!speciesName) throw new ValidationError('Full Species Name is required');
+    const selectionPriority = input.selectionPriority ?? 0;
 
     let catalog = await this.read(signal);
     for (let attempt = 0; attempt < 2; attempt += 1) {
       const existing = matchingCode(catalog, code);
-      if (existing) return reconcileExisting(existing, speciesName, scientificName);
+      if (existing)
+        return reconcileExisting(existing, selectionPriority, speciesName, scientificName);
       const response = await this.fetchSameOrigin(this.endpoint(), {
         method: 'POST',
         signal,
@@ -64,7 +66,7 @@ export class LabelStudioSpeciesCatalogPort implements SpeciesCatalogPort {
           expectedRevision: catalog.catalogRevision,
           species: {
             code,
-            selectionPriority: input.selectionPriority ?? 0,
+            selectionPriority,
             speciesName,
             ...(scientificName ? { scientificName } : {}),
           },
@@ -81,7 +83,8 @@ export class LabelStudioSpeciesCatalogPort implements SpeciesCatalogPort {
       if (response.status === 409 && body.error?.code === 'CATALOG_STALE') {
         catalog = this.acceptCatalog(body);
         const winner = matchingCode(catalog, code);
-        if (winner) return reconcileExisting(winner, speciesName, scientificName);
+        if (winner)
+          return reconcileExisting(winner, selectionPriority, speciesName, scientificName);
         continue;
       }
       if (!response.ok) throw responseBodyError(response, body, 'Species could not be added.');
@@ -160,9 +163,20 @@ function matchingCode(catalog: SpeciesCatalog, code: string): SpeciesEntry | und
 
 function reconcileExisting(
   existing: SpeciesEntry,
+  selectionPriority: number,
   speciesName: string,
   scientificName: string | undefined,
 ): SpeciesEntry {
+  if (
+    existing.speciesName === speciesName &&
+    (existing.scientificName ?? undefined) === scientificName &&
+    existing.selectionPriority !== selectionPriority
+  ) {
+    throw new IntegrationError(
+      'CATALOG_CODE_CONFLICT',
+      `Code ${existing.code} already uses selection priority ${existing.selectionPriority}; requested ${selectionPriority}. Resolve explicitly.`,
+    );
+  }
   if (
     existing.speciesName !== speciesName ||
     (existing.scientificName ?? undefined) !== scientificName

@@ -2,7 +2,7 @@ import {
   computeSpectrogramAnalysisCooperative,
   poolSpectrogramDbRegionCooperative,
   renderSpectrogramPixelsCooperative,
-  renderSpectrogramPreviewPixels,
+  renderSpectrogramPreviewPixelsCooperative,
   type SpectrogramAnalysis,
   type SpectrogramRenderOptions,
 } from '../audio/spectrogram';
@@ -129,11 +129,12 @@ async function drainLatestRender(): Promise<void> {
             postFrame(message, message.width, message.height, pixels, 'exact');
           }
         } else if (source) {
-          const preview = renderSpectrogramPreviewPixels(
+          const preview = await renderSpectrogramPreviewPixelsCooperative(
             source,
             message.width,
             message.height,
             message.options,
+            { signal: controller.signal, sliceMilliseconds: 8 },
           );
           if (controller.signal.aborted || message.requestId !== latestRender?.requestId) continue;
           postFrame(message, preview.width, preview.height, preview.pixels, 'preview');

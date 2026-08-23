@@ -66,9 +66,10 @@ export async function runCompleteTutorialWorkflow(
     'data-box-count',
     '0',
   );
-  await expect(
-    surface.getByRole('button', { name: 'Toggle Select and Draw tools (T)' }),
-  ).toHaveAttribute('aria-pressed', 'false');
+  await expect(surface.getByRole('button', { name: 'Select tool (G)' })).toHaveAttribute(
+    'aria-pressed',
+    'true',
+  );
   await expect(practiceRoot(surface).getByLabel('Current species').locator('strong')).toHaveText(
     '—',
   );
@@ -208,8 +209,10 @@ async function chooseEtf(page: Page, surface: TutorialSurface): Promise<void> {
 }
 
 async function ensureDrawTool(surface: TutorialSurface, draw: boolean): Promise<void> {
-  const tool = surface.getByRole('button', { name: 'Toggle Select and Draw tools (T)' });
-  if ((await tool.getAttribute('aria-pressed')) !== String(draw)) await tool.click();
+  const tool = surface.getByRole('button', {
+    name: draw ? 'Draw tool (T)' : 'Select tool (G)',
+  });
+  if ((await tool.getAttribute('aria-pressed')) !== 'true') await tool.click();
 }
 
 async function drawCenteredBox(page: Page, surface: TutorialSurface): Promise<void> {

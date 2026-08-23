@@ -136,6 +136,20 @@ describe('WebGL atlas lifecycle', () => {
     expect(gl.deleteProgram).toHaveBeenCalledOnce();
     expect(loseContext).toHaveBeenCalledOnce();
   });
+
+  it('rejects GPU allocation and upload errors so callers can use Canvas2D', () => {
+    const allocation = fakeWebGl();
+    allocation.getError.mockReturnValueOnce(allocation.gl.OUT_OF_MEMORY);
+    expect(() => new SpectralWebGLAtlas(document.createElement('canvas'), allocation.gl)).toThrow(
+      /atlas allocation failed/,
+    );
+
+    const upload = fakeWebGl();
+    const atlas = new SpectralWebGLAtlas(document.createElement('canvas'), upload.gl);
+    upload.getError.mockReturnValueOnce(upload.gl.OUT_OF_MEMORY);
+    expect(atlas.prepareTile(cachedTile('failed-upload', 1))).toBe(false);
+    atlas.destroy();
+  });
 });
 
 function renderOptions(): SpectrogramRenderOptions {
@@ -207,10 +221,14 @@ function fakeWebGl() {
     TEXTURE1: 24,
     TRIANGLE_STRIP: 25,
     UNPACK_ALIGNMENT: 26,
+    NO_ERROR: 0,
+    OUT_OF_MEMORY: 1_285,
   };
+  const getError = vi.fn(() => constants.NO_ERROR);
   const gl = {
     ...constants,
     getParameter: vi.fn(() => 4_096),
+    getError,
     createTexture: vi.fn(() => ({})),
     createShader: vi.fn(() => ({})),
     shaderSource: vi.fn(),
@@ -255,5 +273,5 @@ function fakeWebGl() {
     deleteVertexArray: vi.fn(),
     getExtension: vi.fn((name: string) => (name === 'WEBGL_lose_context' ? { loseContext } : null)),
   };
-  return { gl: gl as unknown as WebGL2RenderingContext, loseContext };
+  return { gl: gl as unknown as WebGL2RenderingContext, loseContext, getError };
 }

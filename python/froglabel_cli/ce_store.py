@@ -170,7 +170,7 @@ class CeProjectAdministrator:
             "project": project_id,
             "valid": True,
             "adapterVersion": live.descriptor.adapter_version,
-            "catalog": live.canonical().model_dump(by_alias=True, mode="json", exclude_none=True),
+            "catalog": live.canonical().contract_dict(),
             "managedSpeciesIds": live.descriptor.config_managed_species_ids,
             "plan": plan.stable_dict() if plan is not None else None,
         }
@@ -564,7 +564,7 @@ class CeProjectAdministrator:
             "applied": applied,
             "configurationFingerprint": configuration_fingerprint(candidate),
             "labelConfigChanged": config_changed,
-            "catalog": live.canonical().model_dump(by_alias=True, mode="json", exclude_none=True),
+            "catalog": live.canonical().contract_dict(),
             "plan": plan.stable_dict(),
             "message": (
                 "Applied and validated FrogLabel CE project changes."
