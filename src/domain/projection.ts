@@ -1,5 +1,6 @@
 import type { CanonicalPoint, FrogLabelBoxV2, PixelPoint, ViewportTransform } from './types';
 import { ValidationError } from './errors';
+import { frequencyAtAxisRatio, frequencyToAxisRatio } from './frequencyScale';
 
 const clamp = (value: number, minimum: number, maximum: number) =>
   Math.min(maximum, Math.max(minimum, value));
@@ -30,6 +31,14 @@ export function assertViewport(viewport: ViewportTransform): void {
     throw new ValidationError('Logarithmic viewports require a positive frequency minimum');
   }
   if (
+    viewport.frequencyWarp !== undefined &&
+    (!Number.isFinite(viewport.frequencyWarp) ||
+      viewport.frequencyWarp < 0 ||
+      viewport.frequencyWarp > 1)
+  ) {
+    throw new ValidationError('Frequency emphasis must be between zero and one');
+  }
+  if (
     viewport.timeEndSeconds > viewport.durationSeconds ||
     viewport.highFrequencyHz > viewport.maximumFrequencyHz
   ) {
@@ -41,13 +50,13 @@ export function pixelToCanonical(point: PixelPoint, viewport: ViewportTransform)
   assertViewport(viewport);
   const x = clamp(point.x, 0, viewport.widthPixels) / viewport.widthPixels;
   const y = clamp(point.y, 0, viewport.heightPixels) / viewport.heightPixels;
-  const frequencyHz =
-    viewport.frequencyScale === 'logarithmic'
-      ? Math.exp(
-          Math.log(viewport.highFrequencyHz) -
-            y * (Math.log(viewport.highFrequencyHz) - Math.log(viewport.lowFrequencyHz)),
-        )
-      : viewport.highFrequencyHz - y * (viewport.highFrequencyHz - viewport.lowFrequencyHz);
+  const frequencyHz = frequencyAtAxisRatio(
+    1 - y,
+    viewport.lowFrequencyHz,
+    viewport.highFrequencyHz,
+    viewport.frequencyScale,
+    viewport.frequencyWarp,
+  );
   return {
     timeSeconds:
       viewport.timeStartSeconds + x * (viewport.timeEndSeconds - viewport.timeStartSeconds),
@@ -58,12 +67,14 @@ export function pixelToCanonical(point: PixelPoint, viewport: ViewportTransform)
 export function canonicalToPixel(point: CanonicalPoint, viewport: ViewportTransform): PixelPoint {
   assertViewport(viewport);
   const frequencyRatio =
-    viewport.frequencyScale === 'logarithmic'
-      ? (Math.log(viewport.highFrequencyHz) -
-          Math.log(Math.max(viewport.lowFrequencyHz / 2, point.frequencyHz))) /
-        (Math.log(viewport.highFrequencyHz) - Math.log(viewport.lowFrequencyHz))
-      : (viewport.highFrequencyHz - point.frequencyHz) /
-        (viewport.highFrequencyHz - viewport.lowFrequencyHz);
+    1 -
+    frequencyToAxisRatio(
+      point.frequencyHz,
+      viewport.lowFrequencyHz,
+      viewport.highFrequencyHz,
+      viewport.frequencyScale,
+      viewport.frequencyWarp,
+    );
   return {
     x:
       ((point.timeSeconds - viewport.timeStartSeconds) /

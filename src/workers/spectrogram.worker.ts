@@ -234,6 +234,7 @@ function exactFrameCacheKey(message: RenderMessage): string {
     options.palette,
     options.channelMode ?? 'average',
     options.frequencyScale ?? 'linear',
+    options.frequencyWarp ?? 0.5,
   ]);
 }
 

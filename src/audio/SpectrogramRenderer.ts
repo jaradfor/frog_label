@@ -15,6 +15,7 @@ import {
   type SpectralTileDescriptor,
   type SpectralTilePlan,
 } from './SpectralTileAtlas';
+import { frequencyToAxisRatio } from '../domain/frequencyScale';
 
 interface WorkerRenderResult {
   type: 'rendered';
@@ -83,6 +84,7 @@ export class SpectrogramRenderer {
   private readonly audioGeneration = nextAudioGeneration++;
   private worker: Worker | null = null;
   private workerUrl: string | null = null;
+  private workerUrlRevoke: ((url: string) => void) | null = null;
   private workerReady = false;
   private workerInitialized = false;
   private workerInitializationController: AbortController | null = null;
@@ -125,9 +127,11 @@ export class SpectrogramRenderer {
   ) {
     if (typeof Worker !== 'undefined') {
       try {
+        const revokeObjectUrl = URL.revokeObjectURL.bind(URL);
         this.workerUrl = URL.createObjectURL(
           new Blob([spectrogramWorkerSource], { type: 'text/javascript' }),
         );
+        this.workerUrlRevoke = revokeObjectUrl;
         this.worker = new Worker(this.workerUrl, { name: 'froglabel-spectrogram' });
         this.worker.addEventListener('message', this.handleMessage);
         this.worker.addEventListener('error', this.handleWorkerError);
@@ -366,9 +370,12 @@ export class SpectrogramRenderer {
 
   private scheduleWorkerUrlRevoke(delayMilliseconds = 250): void {
     if (!this.workerUrl || this.workerUrlRevokeTimer !== null) return;
+    const workerUrl = this.workerUrl;
+    const revoke = this.workerUrlRevoke;
     this.workerUrlRevokeTimer = globalThis.setTimeout(() => {
-      if (this.workerUrl) URL.revokeObjectURL(this.workerUrl);
-      this.workerUrl = null;
+      revoke?.(workerUrl);
+      if (this.workerUrl === workerUrl) this.workerUrl = null;
+      this.workerUrlRevoke = null;
       this.workerUrlRevokeTimer = null;
     }, delayMilliseconds);
   }
@@ -682,7 +689,8 @@ export class SpectrogramRenderer {
       prior.brightness !== next.brightness ||
       prior.contrast !== next.contrast ||
       prior.channelMode !== next.channelMode ||
-      (prior.frequencyScale ?? 'linear') !== (next.frequencyScale ?? 'linear')
+      (prior.frequencyScale ?? 'linear') !== (next.frequencyScale ?? 'linear') ||
+      (prior.frequencyWarp ?? 0.5) !== (next.frequencyWarp ?? 0.5)
     ) {
       return false;
     }
@@ -706,6 +714,7 @@ export class SpectrogramRenderer {
       next.lowFrequencyHz,
       next.highFrequencyHz,
       next.frequencyScale ?? 'linear',
+      next.frequencyWarp,
       height,
     );
     const destinationBottom = frequencyToPixel(
@@ -713,6 +722,7 @@ export class SpectrogramRenderer {
       next.lowFrequencyHz,
       next.highFrequencyHz,
       next.frequencyScale ?? 'linear',
+      next.frequencyWarp,
       height,
     );
     if (
@@ -1012,13 +1022,12 @@ function frequencyToPixel(
   lowFrequencyHz: number,
   highFrequencyHz: number,
   scale: SpectrogramRenderOptions['frequencyScale'],
+  warp: number | undefined,
   height: number,
 ): number {
-  if (scale === 'logarithmic' && lowFrequencyHz > 0 && frequencyHz > 0) {
-    const span = Math.log(highFrequencyHz) - Math.log(lowFrequencyHz);
-    return (1 - (Math.log(frequencyHz) - Math.log(lowFrequencyHz)) / span) * height;
-  }
-  return (1 - (frequencyHz - lowFrequencyHz) / (highFrequencyHz - lowFrequencyHz)) * height;
+  return (
+    (1 - frequencyToAxisRatio(frequencyHz, lowFrequencyHz, highFrequencyHz, scale, warp)) * height
+  );
 }
 
 function rasterSize(canvas: HTMLCanvasElement): { width: number; height: number } {

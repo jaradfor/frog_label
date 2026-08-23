@@ -40,6 +40,17 @@ describe('exact spectral tile planning', () => {
       frequencyScale: 'linear',
     });
     expect(linear.viewKey).not.toBe(first.viewKey);
+    const adjustable = createSpectralTilePlan(7, 30, 22_050, 513, 257, {
+      ...renderOptions(),
+      frequencyScale: 'adjustable',
+      frequencyWarp: 0.65,
+    });
+    const stronger = createSpectralTilePlan(7, 30, 22_050, 513, 257, {
+      ...adjustable.visible[0].options,
+      frequencyWarp: 0.8,
+    });
+    expect(adjustable.viewKey).not.toBe(first.viewKey);
+    expect(stronger.viewKey).not.toBe(adjustable.viewKey);
     const zoomed = createSpectralTilePlan(7, 30, 22_050, 513, 257, {
       ...renderOptions(),
       timeStartSeconds: 2,

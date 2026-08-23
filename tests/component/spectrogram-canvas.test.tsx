@@ -143,6 +143,7 @@ describe('SpectrogramCanvas camera gestures', () => {
           palette: 'viridis',
           channelMode: 'average',
           frequencyScale: 'linear',
+          frequencyWarp: 0.5,
         }}
         playheadSeconds={0}
         cancelVersion={0}
@@ -239,6 +240,7 @@ describe('SpectrogramCanvas camera gestures', () => {
           palette: 'viridis',
           channelMode: 'average',
           frequencyScale: 'linear',
+          frequencyWarp: 0.5,
         }}
         playheadSeconds={0}
         cancelVersion={0}
@@ -390,6 +392,7 @@ function canvasProps(overrides: { boxes?: ReturnType<typeof annotationBox>[] } =
       palette: 'viridis' as const,
       channelMode: 'average' as const,
       frequencyScale: 'linear' as const,
+      frequencyWarp: 0.5,
     },
     playheadSeconds: 0,
     cancelVersion: 0,

@@ -201,7 +201,7 @@ describe('seamless spectrogram rasterization', () => {
 
   const analysis = deterministicAnalysis();
 
-  for (const frequencyScale of ['linear', 'logarithmic'] as const) {
+  for (const frequencyScale of ['linear', 'adjustable', 'logarithmic'] as const) {
     for (const channelMode of ['average', 'max', 'left', 'right'] as const) {
       it(`preserves exact rectangular peaks for ${frequencyScale} ${channelMode}`, () => {
         const options: SpectrogramRenderOptions = {
@@ -214,6 +214,7 @@ describe('seamless spectrogram rasterization', () => {
           palette: 'viridis',
           channelMode,
           frequencyScale,
+          frequencyWarp: 0.65,
         };
         expect(poolSpectrogramDb(analysis, 17, 13, options)).toEqual(
           poolSpectrogramDbNaive(analysis, 17, 13, options),
@@ -226,12 +227,13 @@ describe('seamless spectrogram rasterization', () => {
     const options: SpectrogramRenderOptions = {
       timeStartSeconds: 0,
       timeEndSeconds: analysis.durationSeconds,
-      lowFrequencyHz: 20,
+      lowFrequencyHz: 0,
       highFrequencyHz: 4_000,
       brightness: 1,
       palette: 'magma',
       channelMode: 'average',
-      frequencyScale: 'logarithmic',
+      frequencyScale: 'adjustable',
+      frequencyWarp: 0.65,
     };
     await expect(poolSpectrogramDbCooperative(analysis, 31, 19, options)).resolves.toEqual(
       poolSpectrogramDb(analysis, 31, 19, options),
@@ -245,7 +247,7 @@ describe('seamless spectrogram rasterization', () => {
     ).rejects.toMatchObject({ name: 'AbortError' });
   });
 
-  it('stitches arbitrary tile boundaries bit-for-bit across offset linear and log views', async () => {
+  it('stitches arbitrary tile boundaries bit-for-bit across offset frequency scales', async () => {
     const rasterWidth = 53;
     const rasterHeight = 41;
     const regions = [
@@ -254,7 +256,7 @@ describe('seamless spectrogram rasterization', () => {
       { pixelX: 0, pixelY: 13, width: 29, height: 28 },
       { pixelX: 29, pixelY: 13, width: 24, height: 28 },
     ];
-    for (const frequencyScale of ['linear', 'logarithmic'] as const) {
+    for (const frequencyScale of ['linear', 'adjustable', 'logarithmic'] as const) {
       for (const channelMode of ['average', 'max', 'left', 'right'] as const) {
         const options: SpectrogramRenderOptions = {
           timeStartSeconds: 0.031,
@@ -266,6 +268,7 @@ describe('seamless spectrogram rasterization', () => {
           palette: 'viridis',
           channelMode,
           frequencyScale,
+          frequencyWarp: 0.65,
         };
         const full = poolSpectrogramDb(analysis, rasterWidth, rasterHeight, options);
         const stitched = new Float32Array(full.length);
@@ -506,13 +509,21 @@ function poolSpectrogramDbNaive(
     firstFrame = clampTest(firstFrame, 0, analysis.frameCount - 1);
     lastFrame = clampTest(lastFrame, firstFrame + 1, analysis.frameCount);
     for (let y = 0; y < height; y += 1) {
-      const upper = testFrequencyAtPixel(y, height, low, high, options.frequencyScale ?? 'linear');
+      const upper = testFrequencyAtPixel(
+        y,
+        height,
+        low,
+        high,
+        options.frequencyScale ?? 'linear',
+        options.frequencyWarp,
+      );
       const lower = testFrequencyAtPixel(
         y + 1,
         height,
         low,
         high,
         options.frequencyScale ?? 'linear',
+        options.frequencyWarp,
       );
       let firstBin = Math.floor(lower / binHz);
       let lastBin = Math.ceil(upper / binHz);
@@ -548,11 +559,14 @@ function testFrequencyAtPixel(
   low: number,
   high: number,
   scale: FrequencyScale,
+  warp = 0.5,
 ): number {
   const ratio = 1 - edge / height;
-  return scale === 'logarithmic' && low > 0
-    ? Math.exp(Math.log(low) + ratio * (Math.log(high) - Math.log(low)))
-    : low + ratio * (high - low);
+  if (scale === 'logarithmic' && low > 0) {
+    return Math.exp(Math.log(low) + ratio * (Math.log(high) - Math.log(low)));
+  }
+  const adjustedRatio = scale === 'adjustable' ? ratio ** (1 / (1 - warp * 0.75)) : ratio;
+  return low + adjustedRatio * (high - low);
 }
 
 function clampTest(value: number, minimum: number, maximum: number): number {

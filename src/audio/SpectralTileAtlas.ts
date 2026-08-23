@@ -3,6 +3,7 @@ import {
   type SpectrogramPalette,
   type SpectrogramRenderOptions,
 } from './spectrogram';
+import { frequencyAtAxisRatio, frequencyToAxisRatio } from '../domain/frequencyScale';
 
 export const SPECTRAL_TILE_SIZE = 256;
 export const SPECTRAL_TILE_CACHE_BYTES = 48 * 1024 * 1024;
@@ -139,6 +140,7 @@ function tileViewIdentity(
     `a${audioGeneration}`,
     options.channelMode ?? 'average',
     options.frequencyScale ?? 'linear',
+    numberKey(options.frequencyWarp ?? 0.5),
     zoomLevel,
     numberKey(options.timeStartSeconds),
     numberKey(options.timeEndSeconds),
@@ -202,30 +204,40 @@ function centeredZoomOptions(
   const timeCenter = (options.timeStartSeconds + options.timeEndSeconds) / 2;
   const timeStartSeconds = clamp(timeCenter - nextTimeSpan / 2, 0, durationSeconds - nextTimeSpan);
 
-  let lowFrequencyHz: number;
-  let highFrequencyHz: number;
-  if (
-    options.frequencyScale === 'logarithmic' &&
-    options.lowFrequencyHz > 0 &&
-    options.highFrequencyHz > options.lowFrequencyHz
-  ) {
-    const lowLog = Math.log(options.lowFrequencyHz);
-    const highLog = Math.log(options.highFrequencyHz);
-    const centerLog = (lowLog + highLog) / 2;
-    const spanLog = (highLog - lowLog) / factor;
-    const minimumLog = Math.log(Math.max(Number.MIN_VALUE, Math.min(options.lowFrequencyHz, 1)));
-    const maximumLog = Math.log(maximumFrequencyHz);
-    const boundedSpan = Math.min(maximumLog - minimumLog, spanLog);
-    const nextLowLog = clamp(centerLog - boundedSpan / 2, minimumLog, maximumLog - boundedSpan);
-    lowFrequencyHz = Math.exp(nextLowLog);
-    highFrequencyHz = Math.exp(nextLowLog + boundedSpan);
-  } else {
-    const span = options.highFrequencyHz - options.lowFrequencyHz;
-    const nextSpan = clamp(span / factor, Math.min(1, maximumFrequencyHz), maximumFrequencyHz);
-    const center = (options.lowFrequencyHz + options.highFrequencyHz) / 2;
-    lowFrequencyHz = clamp(center - nextSpan / 2, 0, maximumFrequencyHz - nextSpan);
-    highFrequencyHz = lowFrequencyHz + nextSpan;
-  }
+  const scale = options.frequencyScale ?? 'linear';
+  const floor = scale === 'logarithmic' ? Math.min(20, maximumFrequencyHz / 2) : 0;
+  const lowRatio = frequencyToAxisRatio(
+    Math.max(floor, options.lowFrequencyHz),
+    floor,
+    maximumFrequencyHz,
+    scale,
+    options.frequencyWarp,
+  );
+  const highRatio = frequencyToAxisRatio(
+    options.highFrequencyHz,
+    floor,
+    maximumFrequencyHz,
+    scale,
+    options.frequencyWarp,
+  );
+  const spanRatio = highRatio - lowRatio;
+  const nextSpanRatio = clamp(spanRatio / factor, Number.EPSILON, 1);
+  const centerRatio = (lowRatio + highRatio) / 2;
+  const nextLowRatio = clamp(centerRatio - nextSpanRatio / 2, 0, 1 - nextSpanRatio);
+  const lowFrequencyHz = frequencyAtAxisRatio(
+    nextLowRatio,
+    floor,
+    maximumFrequencyHz,
+    scale,
+    options.frequencyWarp,
+  );
+  const highFrequencyHz = frequencyAtAxisRatio(
+    nextLowRatio + nextSpanRatio,
+    floor,
+    maximumFrequencyHz,
+    scale,
+    options.frequencyWarp,
+  );
   return {
     ...options,
     timeStartSeconds,

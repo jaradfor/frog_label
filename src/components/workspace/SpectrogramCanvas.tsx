@@ -18,6 +18,7 @@ import type {
   ViewportTransform,
 } from '../../domain/types';
 import { boxToPixelRect, canonicalToPixel, geometryFromDrag } from '../../domain/projection';
+import { frequencyAtAxisRatio } from '../../domain/frequencyScale';
 
 type Tool = 'select' | 'draw' | 'pan';
 type ResizeHandle = 'nw' | 'ne' | 'sw' | 'se';
@@ -65,6 +66,7 @@ interface SpectrogramCanvasProps {
     palette: SpectrogramPalette;
     channelMode: AnalysisChannelMode;
     frequencyScale: FrequencyScale;
+    frequencyWarp: number;
   };
   playheadSeconds: number;
   onSelect(boxId: string | null): void;
@@ -144,10 +146,11 @@ export function SpectrogramCanvas({
     () => ({
       ...view,
       frequencyScale: settings.frequencyScale,
+      frequencyWarp: settings.frequencyWarp,
       widthPixels: Math.max(1, size.width),
       heightPixels: Math.max(1, size.height),
     }),
-    [settings.frequencyScale, size, view],
+    [settings.frequencyScale, settings.frequencyWarp, size, view],
   );
   const requestedViewportRef = useRef<ViewportTransform | null>(null);
   const projectionViewport = useMemo(() => {
@@ -273,7 +276,7 @@ export function SpectrogramCanvas({
     return () => controller.abort();
   }, [denseAnnotations, size, visibleBoxes]);
 
-  const viewKey = `${view.timeStartSeconds}:${view.timeEndSeconds}:${view.lowFrequencyHz}:${view.highFrequencyHz}:${size.width}:${size.height}`;
+  const viewKey = `${view.timeStartSeconds}:${view.timeEndSeconds}:${view.lowFrequencyHz}:${view.highFrequencyHz}:${settings.frequencyScale}:${settings.frequencyWarp}:${size.width}:${size.height}`;
   useEffect(() => {
     const active = gestureRef.current;
     if (!active) return;
@@ -467,6 +470,7 @@ export function SpectrogramCanvas({
       data-render-request-generation={renderState.requestGeneration}
       data-render-painted-request-generation={renderState.paintedRequestGeneration}
       data-frequency-scale={settings.frequencyScale}
+      data-frequency-warp={settings.frequencyWarp}
       data-view-time-start-seconds={view.timeStartSeconds}
       data-view-time-end-seconds={view.timeEndSeconds}
       data-view-low-frequency-hz={view.lowFrequencyHz}
@@ -486,7 +490,18 @@ export function SpectrogramCanvas({
       </div>
       <div className="frequency-axis" aria-hidden="true">
         <span>{Math.round(view.highFrequencyHz / 1000)} kHz</span>
-        <span>{Math.round((view.highFrequencyHz + view.lowFrequencyHz) / 2000)} kHz</span>
+        <span>
+          {Math.round(
+            frequencyAtAxisRatio(
+              0.5,
+              view.lowFrequencyHz,
+              view.highFrequencyHz,
+              settings.frequencyScale,
+              settings.frequencyWarp,
+            ) / 1000,
+          )}{' '}
+          kHz
+        </span>
         <span>{Math.round(view.lowFrequencyHz / 1000)} kHz</span>
       </div>
       <div
@@ -641,6 +656,7 @@ function sameViewportProjection(left: ViewportTransform, right: ViewportTransfor
     left.lowFrequencyHz === right.lowFrequencyHz &&
     left.highFrequencyHz === right.highFrequencyHz &&
     left.frequencyScale === right.frequencyScale &&
+    left.frequencyWarp === right.frequencyWarp &&
     left.widthPixels === right.widthPixels &&
     left.heightPixels === right.heightPixels
   );

@@ -2,9 +2,11 @@
 
 1. Open the assigned recording in Label Studio. Press `V` to play/pause and `F`/`R` to change playback rate.
 2. Hold `Space`, type the shortest useful left-hand species prefix, and release. The status line previews the deterministic winner and Draw arms automatically. If the species is missing, open panel `1`, choose **Add missing species**, enter a 1–6 letter left-hand code (`QWERTASDFGZXCVB`), prefix priority, and Full Species Name, then save it.
-3. Drag around a call. Press `T` to switch between Draw and Select/Resize. Keep the mouse in your right hand: `WASD` pans; `Q`/`E` zooms both axes; `Shift+A/D` zooms time only; `Shift+W/S` zooms frequency only; `X` fits; `Shift+R` removes the selected box; and middle/right drag pans from either tool.
+3. Drag around a call. Press `T` to switch between Draw and Select/Resize. Keep the mouse in your right hand: `WASD` pans; `Q`/`E` zooms both axes; `Shift+D/A` zooms time in/out; `Shift+E/Q` zooms frequency in/out; `X` fits; `Shift+R` removes the selected box; and middle/right drag pans from either tool.
 4. For a reviewed recording with no calls, choose **No calls present** or press `Shift+X`. Deleting the final box returns to unreviewed; it does not assert no calls.
 5. Use Undo/Redo for scientific edits. Press `?` for isolated practice; practice is discarded and never changes the assigned annotation.
 6. Finish with Label Studio's outer **Submit** or **Update** button.
+
+Frequency-axis tuning lives in panel `3`. **Linear** devotes more space to high frequencies, **Logarithmic** strongly expands low frequencies, and **Adjustable** provides a 0–100% low-frequency-emphasis slider between those working styles. This is a view preference only: existing and new boxes remain stored in exact hertz.
 
 In CE, a newly added species becomes available to this project. In Enterprise, it is stored in this annotation and can be included in a later project-catalog update by the project lead. Rows marked **historical** identify legacy catalog records; they remain visible for context but cannot be selected or typed with Space until the project administrator completes the V2 migration.

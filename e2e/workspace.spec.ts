@@ -175,9 +175,7 @@ test('routes expert controls after buttons and the spectrogram, but protects fie
   await expect(species).toHaveAttribute('aria-pressed', 'true');
 });
 
-test('switches the seven previewed palettes without blanking the retained spectrogram', async ({
-  page,
-}) => {
+test('switches palettes and adjustable frequency emphasis without blanking', async ({ page }) => {
   await page.goto('./');
   const shell = page.locator('.spectrogram-shell');
   await waitForSpectrogramFrame(shell);
@@ -206,6 +204,29 @@ test('switches the seven previewed palettes without blanking the retained spectr
     .toBeGreaterThan(generation);
   await expect(shell).toHaveAttribute('aria-busy', 'false');
   await expect(page.locator('.spectrogram-readiness-overlay')).toHaveCount(0);
+
+  const frequencyScale = page.getByLabel('Frequency scale');
+  const scaleGeneration = Number((await shell.getAttribute('data-render-generation')) ?? 0);
+  await frequencyScale.selectOption('adjustable');
+  const emphasis = page.getByRole('slider', { name: 'Low-frequency emphasis' });
+  await emphasis.fill('0.75');
+  await expect(shell).toHaveAttribute('data-frequency-scale', 'adjustable');
+  await expect(shell).toHaveAttribute('data-frequency-warp', '0.75');
+  await expect
+    .poll(async () => Number(await shell.getAttribute('data-render-generation')))
+    .toBeGreaterThan(scaleGeneration);
+  await expect(shell).toHaveAttribute('aria-busy', 'false');
+  await expect(page.locator('.spectrogram-readiness-overlay')).toHaveCount(0);
+
+  const beforeAdjustableZoom = await readViewport(page.locator('canvas.spectrogram-canvas'));
+  await page.locator('.spectrogram-stage').focus();
+  await pressAndWaitForPaint(page, shell, 'Shift+KeyE');
+  const afterAdjustableZoom = await readViewport(page.locator('canvas.spectrogram-canvas'));
+  expect(afterAdjustableZoom.timeStart).toBe(beforeAdjustableZoom.timeStart);
+  expect(afterAdjustableZoom.timeEnd).toBe(beforeAdjustableZoom.timeEnd);
+  expect(afterAdjustableZoom.highFrequency - afterAdjustableZoom.lowFrequency).toBeLessThan(
+    beforeAdjustableZoom.highFrequency - beforeAdjustableZoom.lowFrequency,
+  );
 });
 
 test('fifty view operations cannot mutate canonical geometry', async ({ page }) => {
@@ -301,14 +322,14 @@ test('modifier zoom isolates time and frequency while Q/E remains combined', asy
   await page.mouse.move(plot.x + plot.width / 2, plot.y + plot.height / 2);
 
   const beforeTimeZoom = await readViewport(canvas);
-  await pressAndWaitForPaint(page, shell, 'Shift+KeyA');
+  await pressAndWaitForPaint(page, shell, 'Shift+KeyD');
   const timeZoom = await readViewport(canvas);
   expect(timeZoom.timeEnd - timeZoom.timeStart).toBeLessThan(
     beforeTimeZoom.timeEnd - beforeTimeZoom.timeStart,
   );
   expect(timeZoom.lowFrequency).toBe(beforeTimeZoom.lowFrequency);
   expect(timeZoom.highFrequency).toBe(beforeTimeZoom.highFrequency);
-  await pressAndWaitForPaint(page, shell, 'Shift+KeyD');
+  await pressAndWaitForPaint(page, shell, 'Shift+KeyA');
   const timeZoomedOut = await readViewport(canvas);
   expect(timeZoomedOut.timeEnd - timeZoomedOut.timeStart).toBeGreaterThan(
     timeZoom.timeEnd - timeZoom.timeStart,
@@ -318,14 +339,14 @@ test('modifier zoom isolates time and frequency while Q/E remains combined', asy
   await pressAndWaitForPaint(page, shell, 'KeyX');
 
   const beforeFrequencyZoom = await readViewport(canvas);
-  await pressAndWaitForPaint(page, shell, 'Shift+KeyW');
+  await pressAndWaitForPaint(page, shell, 'Shift+KeyE');
   const frequencyZoom = await readViewport(canvas);
   expect(frequencyZoom.highFrequency - frequencyZoom.lowFrequency).toBeLessThan(
     beforeFrequencyZoom.highFrequency - beforeFrequencyZoom.lowFrequency,
   );
   expect(frequencyZoom.timeStart).toBe(beforeFrequencyZoom.timeStart);
   expect(frequencyZoom.timeEnd).toBe(beforeFrequencyZoom.timeEnd);
-  await pressAndWaitForPaint(page, shell, 'Shift+KeyS');
+  await pressAndWaitForPaint(page, shell, 'Shift+KeyQ');
   const frequencyZoomedOut = await readViewport(canvas);
   expect(frequencyZoomedOut.highFrequency - frequencyZoomedOut.lowFrequency).toBeGreaterThan(
     frequencyZoom.highFrequency - frequencyZoom.lowFrequency,

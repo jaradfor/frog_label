@@ -19,6 +19,13 @@ const logarithmicViewport: ViewportTransform = {
   frequencyScale: 'logarithmic',
 };
 
+const adjustableViewport: ViewportTransform = {
+  ...viewport,
+  lowFrequencyHz: 0,
+  frequencyScale: 'adjustable',
+  frequencyWarp: 0.65,
+};
+
 describe('viewport projection properties', () => {
   it('round-trips canonical points within floating point tolerance', () => {
     fc.assert(
@@ -54,6 +61,30 @@ describe('viewport projection properties', () => {
       ),
       { numRuns: 500 },
     );
+  });
+
+  it('round-trips adjustable-frequency points without shifting annotations', () => {
+    fc.assert(
+      fc.property(
+        fc.double({ min: 5, max: 35, noNaN: true, noDefaultInfinity: true }),
+        fc.double({ min: 0, max: 12000, noNaN: true, noDefaultInfinity: true }),
+        (timeSeconds, frequencyHz) => {
+          const roundTrip = pixelToCanonical(
+            canonicalToPixel({ timeSeconds, frequencyHz }, adjustableViewport),
+            adjustableViewport,
+          );
+          expect(roundTrip.timeSeconds).toBeCloseTo(timeSeconds, 9);
+          expect(roundTrip.frequencyHz).toBeCloseTo(frequencyHz, 7);
+        },
+      ),
+      { numRuns: 500 },
+    );
+  });
+
+  it('rejects out-of-range adjustable emphasis in viewport contracts', () => {
+    expect(() =>
+      pixelToCanonical({ x: 0, y: 0 }, { ...adjustableViewport, frequencyWarp: 1.01 }),
+    ).toThrow(/between zero and one/i);
   });
 
   it('always normalizes a drag into ordered canonical geometry', () => {

@@ -64,6 +64,11 @@ import {
   type FrequencyScale,
   type SpectrogramPalette,
 } from '../../audio/spectrogram';
+import {
+  DEFAULT_FREQUENCY_WARP,
+  frequencyAtAxisRatio,
+  frequencyToAxisRatio,
+} from '../../domain/frequencyScale';
 
 export interface FrogLabelWorkspaceProps {
   annotationPort: AnnotationDocumentPort;
@@ -157,7 +162,7 @@ const tutorialSteps = [
   },
   {
     title: 'Zoom, pan, and fit',
-    text: 'Press Q/E for combined zoom, Shift+A/D for time-only zoom, Shift+W/S for frequency-only zoom, WASD to pan, and X to fit. View changes never alter scientific coordinates.',
+    text: 'Press Q/E for combined zoom, Shift+D/A for time in/out, Shift+E/Q for frequency in/out, WASD to pan, and X to fit. View changes never alter scientific coordinates.',
     anchor: 'zoom',
   },
   {
@@ -433,6 +438,7 @@ function WorkspaceCore({
     palette: SpectrogramPalette;
     channelMode: AnalysisChannelMode;
     frequencyScale: FrequencyScale;
+    frequencyWarp: number;
   }>({
     fftSamples: 512,
     overlapPercent: 75,
@@ -441,6 +447,7 @@ function WorkspaceCore({
     palette: 'viridis',
     channelMode: 'average',
     frequencyScale: 'linear',
+    frequencyWarp: DEFAULT_FREQUENCY_WARP,
   });
   const [announcement, setAnnouncement] = useState(tutorialMessage);
 
@@ -850,7 +857,13 @@ function WorkspaceCore({
         if (scope === 'frequency') {
           return {
             ...current,
-            ...zoomFrequencyWindow(current, factor, anchor.frequencyRatio, settings.frequencyScale),
+            ...zoomFrequencyWindow(
+              current,
+              factor,
+              anchor.frequencyRatio,
+              settings.frequencyScale,
+              settings.frequencyWarp,
+            ),
           };
         }
 
@@ -874,12 +887,18 @@ function WorkspaceCore({
           ...current,
           timeStartSeconds,
           timeEndSeconds: timeStartSeconds + nextTimeSpan,
-          ...zoomFrequencyWindow(current, factor, anchor.frequencyRatio, settings.frequencyScale),
+          ...zoomFrequencyWindow(
+            current,
+            factor,
+            anchor.frequencyRatio,
+            settings.frequencyScale,
+            settings.frequencyWarp,
+          ),
         };
       });
       onSemanticEvent('viewport.zoomed');
     },
-    [onSemanticEvent, settings.frequencyScale],
+    [onSemanticEvent, settings.frequencyScale, settings.frequencyWarp],
   );
 
   const panView = useCallback(
@@ -894,11 +913,16 @@ function WorkspaceCore({
           ...current,
           timeStartSeconds,
           timeEndSeconds: timeStartSeconds + timeSpan,
-          ...panFrequencyWindow(current, deltaFrequencyAxisFraction, settings.frequencyScale),
+          ...panFrequencyWindow(
+            current,
+            deltaFrequencyAxisFraction,
+            settings.frequencyScale,
+            settings.frequencyWarp,
+          ),
         };
       });
     },
-    [settings.frequencyScale],
+    [settings.frequencyScale, settings.frequencyWarp],
   );
 
   const panByViewFraction = useCallback(
@@ -914,11 +938,16 @@ function WorkspaceCore({
           ...current,
           timeStartSeconds,
           timeEndSeconds: timeStartSeconds + timeSpan,
-          ...panFrequencyWindow(current, frequencyFraction, settings.frequencyScale),
+          ...panFrequencyWindow(
+            current,
+            frequencyFraction,
+            settings.frequencyScale,
+            settings.frequencyWarp,
+          ),
         };
       });
     },
-    [settings.frequencyScale],
+    [settings.frequencyScale, settings.frequencyWarp],
   );
 
   const fitView = useCallback(() => {
@@ -1512,7 +1541,7 @@ function WorkspaceCore({
           disabled={!audio}
           data-tutorial="zoom"
           aria-label="Zoom in spectrogram (Q)"
-          title="Q/E zoom both axes; Shift+A/D zoom time; Shift+W/S zoom frequency"
+          title="Q/E zoom both axes; Shift+D/A zoom time in/out; Shift+E/Q zoom frequency in/out"
         >
           <span className="toolbar-label">Zoom in</span> <kbd>Q</kbd>
         </button>
@@ -1521,7 +1550,7 @@ function WorkspaceCore({
           onClick={() => runCommand('viewport.zoomOut')}
           disabled={!audio}
           aria-label="Zoom out spectrogram (E)"
-          title="Q/E zoom both axes; Shift+A/D zoom time; Shift+W/S zoom frequency"
+          title="Q/E zoom both axes; Shift+D/A zoom time in/out; Shift+E/Q zoom frequency in/out"
         >
           <span className="toolbar-label">Zoom out</span> <kbd>E</kbd>
         </button>
@@ -2396,6 +2425,7 @@ function DisplayPanel({
     palette: SpectrogramPalette;
     channelMode: AnalysisChannelMode;
     frequencyScale: FrequencyScale;
+    frequencyWarp: number;
   };
   onChange(value: typeof settings): void;
   view: { maximumFrequencyHz: number; lowFrequencyHz: number; highFrequencyHz: number };
@@ -2477,9 +2507,29 @@ function DisplayPanel({
           }}
         >
           <option value="linear">Linear</option>
+          <option value="adjustable">Adjustable</option>
           <option value="logarithmic">Logarithmic</option>
         </select>
       </label>
+      {settings.frequencyScale === 'adjustable' && (
+        <label>
+          Low-frequency emphasis <output>{Math.round(settings.frequencyWarp * 100)}%</output>
+          <input
+            type="range"
+            min="0"
+            max="1"
+            step="0.05"
+            value={settings.frequencyWarp}
+            aria-label="Low-frequency emphasis"
+            onChange={(event) =>
+              onChange({ ...settings, frequencyWarp: Number(event.target.value) })
+            }
+          />
+          <span className="muted">
+            0% is linear-like · 50% balanced · 100% strongly expands low frequencies
+          </span>
+        </label>
+      )}
       <label>
         Brightness <output>{settings.brightness.toFixed(1)}×</output>
         <input
@@ -3133,32 +3183,41 @@ function panFrequencyWindow(
   current: FrequencyViewWindow,
   axisFraction: number,
   scale: FrequencyScale,
+  warp: number,
 ): Pick<FrequencyViewWindow, 'lowFrequencyHz' | 'highFrequencyHz'> {
   const floor = frequencyFloor(current.maximumFrequencyHz, scale);
-  if (scale === 'logarithmic' && floor > 0) {
-    const globalLow = Math.log(floor);
-    const globalHigh = Math.log(current.maximumFrequencyHz);
-    const low = clamp(Math.log(Math.max(floor, current.lowFrequencyHz)), globalLow, globalHigh);
-    const high = clamp(
-      Math.log(Math.max(current.lowFrequencyHz + Number.EPSILON, current.highFrequencyHz)),
-      low + Number.EPSILON,
-      globalHigh,
-    );
-    const span = Math.min(globalHigh - globalLow, Math.max(Number.EPSILON, high - low));
-    const nextLow = clamp(low + span * axisFraction, globalLow, globalHigh - span);
-    return { lowFrequencyHz: Math.exp(nextLow), highFrequencyHz: Math.exp(nextLow + span) };
-  }
-  const availableSpan = Math.max(Number.EPSILON, current.maximumFrequencyHz - floor);
-  const span = Math.min(
-    availableSpan,
-    Math.max(Number.EPSILON, current.highFrequencyHz - Math.max(floor, current.lowFrequencyHz)),
-  );
-  const lowFrequencyHz = clamp(
-    Math.max(floor, current.lowFrequencyHz) + span * axisFraction,
+  const lowRatio = frequencyToAxisRatio(
+    Math.max(floor, current.lowFrequencyHz),
     floor,
-    Math.max(floor, current.maximumFrequencyHz - span),
+    current.maximumFrequencyHz,
+    scale,
+    warp,
   );
-  return { lowFrequencyHz, highFrequencyHz: lowFrequencyHz + span };
+  const highRatio = frequencyToAxisRatio(
+    current.highFrequencyHz,
+    floor,
+    current.maximumFrequencyHz,
+    scale,
+    warp,
+  );
+  const span = Math.min(1, Math.max(Number.EPSILON, highRatio - lowRatio));
+  const nextLowRatio = clamp(lowRatio + span * axisFraction, 0, 1 - span);
+  return {
+    lowFrequencyHz: frequencyAtAxisRatio(
+      nextLowRatio,
+      floor,
+      current.maximumFrequencyHz,
+      scale,
+      warp,
+    ),
+    highFrequencyHz: frequencyAtAxisRatio(
+      nextLowRatio + span,
+      floor,
+      current.maximumFrequencyHz,
+      scale,
+      warp,
+    ),
+  };
 }
 
 function zoomFrequencyWindow(
@@ -3166,6 +3225,7 @@ function zoomFrequencyWindow(
   factor: number,
   rawAnchorRatio: number,
   scale: FrequencyScale,
+  warp: number,
 ): Pick<FrequencyViewWindow, 'lowFrequencyHz' | 'highFrequencyHz'> {
   const anchorRatio = clamp(rawAnchorRatio, 0, 1);
   const floor = frequencyFloor(current.maximumFrequencyHz, scale);
@@ -3174,46 +3234,40 @@ function zoomFrequencyWindow(
   const high = clamp(current.highFrequencyHz, low + Number.EPSILON, current.maximumFrequencyHz);
   const minimumSpan = Math.min(100, availableSpan);
 
-  if (scale !== 'logarithmic' || floor <= 0) {
-    const span = high - low;
-    const nextSpan = Math.max(minimumSpan, Math.min(availableSpan, span / factor));
-    const anchor = low + span * anchorRatio;
-    const lowFrequencyHz = clamp(
-      anchor - nextSpan * anchorRatio,
-      floor,
-      Math.max(floor, current.maximumFrequencyHz - nextSpan),
-    );
-    return { lowFrequencyHz, highFrequencyHz: lowFrequencyHz + nextSpan };
-  }
-
-  const globalLow = Math.log(floor);
-  const globalHigh = Math.log(current.maximumFrequencyHz);
-  const globalSpan = globalHigh - globalLow;
-  const currentLow = Math.log(Math.max(floor, low));
-  const currentHigh = Math.log(Math.max(low + Number.EPSILON, high));
+  const currentLow = frequencyToAxisRatio(low, floor, current.maximumFrequencyHz, scale, warp);
+  const currentHigh = frequencyToAxisRatio(high, floor, current.maximumFrequencyHz, scale, warp);
   const currentSpan = Math.max(Number.EPSILON, currentHigh - currentLow);
   const anchor = currentLow + currentSpan * anchorRatio;
-  let nextSpan = clamp(currentSpan / factor, Number.EPSILON, globalSpan);
+  let nextSpan = clamp(currentSpan / factor, Number.EPSILON, 1);
 
   const boundsForSpan = (span: number) => {
     let nextLow = anchor - span * anchorRatio;
     let nextHigh = nextLow + span;
-    if (nextLow < globalLow) {
-      nextHigh += globalLow - nextLow;
-      nextLow = globalLow;
+    if (nextLow < 0) {
+      nextHigh -= nextLow;
+      nextLow = 0;
     }
-    if (nextHigh > globalHigh) {
-      nextLow -= nextHigh - globalHigh;
-      nextHigh = globalHigh;
+    if (nextHigh > 1) {
+      nextLow -= nextHigh - 1;
+      nextHigh = 1;
     }
-    nextLow = Math.max(globalLow, nextLow);
-    return { lowFrequencyHz: Math.exp(nextLow), highFrequencyHz: Math.exp(nextHigh) };
+    nextLow = Math.max(0, nextLow);
+    return {
+      lowFrequencyHz: frequencyAtAxisRatio(nextLow, floor, current.maximumFrequencyHz, scale, warp),
+      highFrequencyHz: frequencyAtAxisRatio(
+        nextHigh,
+        floor,
+        current.maximumFrequencyHz,
+        scale,
+        warp,
+      ),
+    };
   };
 
   let next = boundsForSpan(nextSpan);
   if (next.highFrequencyHz - next.lowFrequencyHz < minimumSpan && availableSpan > minimumSpan) {
     let tooSmall = nextSpan;
-    let largeEnough = globalSpan;
+    let largeEnough = 1;
     for (let iteration = 0; iteration < 24; iteration += 1) {
       const middle = (tooSmall + largeEnough) / 2;
       const candidate = boundsForSpan(middle);

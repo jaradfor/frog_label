@@ -1,6 +1,7 @@
 import type { AnalysisChannelMode, AudioAnalysisSource } from '../domain/types';
+import { frequencyAtAxisRatio, type FrequencyScale } from '../domain/frequencyScale';
 
-export type FrequencyScale = 'linear' | 'logarithmic';
+export type { FrequencyScale } from '../domain/frequencyScale';
 
 export const SPECTROGRAM_PALETTES = [
   { value: 'roseus', label: 'Roseus' },
@@ -27,6 +28,7 @@ export interface SpectrogramRenderOptions {
   palette: SpectrogramPalette;
   channelMode?: AnalysisChannelMode;
   frequencyScale?: FrequencyScale;
+  frequencyWarp?: number;
 }
 
 export interface SpectrogramAnalysis {
@@ -345,8 +347,8 @@ function createSpectrogramPreviewPlan(
   const lastBins = new Int32Array(height);
   if (valid) {
     for (let y = 0; y < height; y += 1) {
-      const upper = frequencyAtPixel(y, height, low, high, scale);
-      const lower = frequencyAtPixel(y + 1, height, low, high, scale);
+      const upper = frequencyAtPixel(y, height, low, high, scale, options.frequencyWarp);
+      const lower = frequencyAtPixel(y + 1, height, low, high, scale, options.frequencyWarp);
       const firstBin = Math.floor(lower / binHz);
       let lastBin = Math.ceil(upper / binHz);
       if (lastBin <= firstBin) lastBin = firstBin + 1;
@@ -762,8 +764,15 @@ function createPoolPlan(
   let lastVisibleBin = 0;
   for (let y = 0; y < boundedHeight; y += 1) {
     const globalY = pixelY + y;
-    const upper = frequencyAtPixel(globalY, rasterHeight, low, high, scale);
-    const lower = frequencyAtPixel(globalY + 1, rasterHeight, low, high, scale);
+    const upper = frequencyAtPixel(globalY, rasterHeight, low, high, scale, options.frequencyWarp);
+    const lower = frequencyAtPixel(
+      globalY + 1,
+      rasterHeight,
+      low,
+      high,
+      scale,
+      options.frequencyWarp,
+    );
     const firstBin = Math.floor(lower / binHz);
     let lastBin = Math.ceil(upper / binHz);
     if (lastBin <= firstBin) lastBin = firstBin + 1;
@@ -879,12 +888,10 @@ function frequencyAtPixel(
   low: number,
   high: number,
   scale: FrequencyScale,
+  warp?: number,
 ): number {
   const ratio = 1 - edge / height;
-  if (scale === 'logarithmic' && low > 0) {
-    return Math.exp(Math.log(low) + ratio * (Math.log(high) - Math.log(low)));
-  }
-  return low + ratio * (high - low);
+  return frequencyAtAxisRatio(ratio, low, high, scale, warp);
 }
 
 function nextPowerOfTwo(value: number): number {

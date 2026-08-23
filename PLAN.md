@@ -50,8 +50,8 @@
   | **W** / **S**                        | Pan frequency up/down by 10% of the visible span                               |
   | **A** / **D**                        | Pan earlier/later by 10% of the visible span                                   |
   | **Q** / **E**                        | Zoom both axes in/out by 1.25× around the mouse pointer, or viewport center    |
-  | **Shift+A** / **Shift+D**            | Zoom time only in/out, preserving the frequency window exactly                 |
-  | **Shift+W** / **Shift+S**            | Zoom frequency only in/out, preserving the time window exactly                 |
+  | **Shift+D** / **Shift+A**            | Zoom time only in/out, preserving the frequency window exactly                 |
+  | **Shift+E** / **Shift+Q**            | Zoom frequency only in/out, preserving the time window exactly                 |
   | **X**                                | Fit complete time and frequency bounds                                         |
   | **V**                                | Play/pause                                                                     |
   | **F** / **R**                        | Faster/slower playback through the existing discrete rates                     |
@@ -125,16 +125,24 @@
 
 ## Implementation Verification — 2026-08-22
 
-- Final source checks pass: 156/156 Vitest tests across 20 files, 33/33 Python tests, TypeScript, ESLint, generated-validator drift, Prettier, and `git diff --check`.
-- The production build remains within budget at 105,400 B Brotli JavaScript (150,000 B limit) and 5,073 B Brotli CSS (10,000 B limit). CE, Enterprise, and GitHub Pages artifacts were regenerated from this working tree; the Pages archive SHA-256 is `4d9a37b4e62d52479ad733364660cf5bff4dfd03016275cd1ef28bd9da6125bc`.
-- The Chromium performance gate passed with a 64.2 ms first preview, 1.3 ms selection p95, 7.8 ms drag feedback, 7.1 ms pan feedback, 35.7 ms exact refinement, zero missed next-frame updates across 100 rapid camera actions, zero blank/opaque frames, and zero rendering long tasks.
-- The complete standalone Chromium workspace suite passes 14/14, including modifier-driven axis isolation, exact raw/band-pass/negative audition controls, reflowing dock geometry at 640×700, 844×720, 1280×720, and 1440×900; seven-palette switching without a blank frame; keyboard routing; tutorial isolation; and accessibility checks. The static Pages suite passes 6/6 and the exact generated Enterprise Interface passes its inline browser round trip.
+- Final source checks pass: 165/165 Vitest tests across 21 files, 33/33 Python tests, TypeScript, ESLint, generated-validator drift, Prettier, and `git diff --check`.
+- The production build remains within budget at 105,506 B Brotli JavaScript (150,000 B limit) and 5,073 B Brotli CSS (10,000 B limit). CE, Enterprise, and GitHub Pages artifacts were regenerated from this working tree; the Pages archive SHA-256 is `78403629756648b777fefec4e0aa21554a4367350e91eff0da3b3bd72df51600`.
+- The Chromium performance gate passed with a 72.2 ms first preview, 1.6 ms selection p95, 7.7 ms drag feedback, 10.4 ms pan feedback, 45.7 ms exact refinement, zero missed next-frame updates across 100 rapid camera actions, zero blank/opaque frames, and zero rendering long tasks.
+- The complete standalone Chromium workspace suite passes 14/14, including modifier-driven axis isolation, adjustable frequency-emphasis switching without a blank frame, exact raw/band-pass/negative audition controls, reflowing dock geometry at 640×700, 844×720, 1280×720, and 1440×900; seven palette previews; keyboard routing; tutorial isolation; and accessibility checks. The static Pages suite passes 6/6 and the exact generated Enterprise Interface passes its inline browser round trip.
 - The CE frontend artifact was regenerated. A new CE browser rerun still requires the normal full `ls-ce prepare` build: the existing derived checkout correctly rejected the new compatibility-manifest hash, while a disposable pristine source correctly refused to run before its upstream Yarn build/canary existed.
 
 ## Stateless Axis Zoom — 2026-08-22
 
 - `Q` and `E` remain the fast, repeatable combined zoom pair.
-- `Shift+A` and `Shift+D` zoom time only, preserving both frequency bounds exactly.
-- `Shift+W` and `Shift+S` zoom frequency only, preserving both time bounds exactly; this keeps the shifted layer aligned with `W/S` frequency panning.
+- `Shift+D` zooms time in and `Shift+A` zooms time out, preserving both frequency bounds exactly.
+- `Shift+E` zooms frequency in and `Shift+Q` zooms frequency out, preserving both time bounds exactly.
 - Delete moves from `Shift+D` to the unused mnemonic `Shift+R` (remove), keeping the complete command set on the left hand.
 - All zoom commands remain pointer-anchored when the pointer is over the spectrogram and centered otherwise. `X` always fits both axes.
+
+## Adjustable Frequency Axis — 2026-08-22
+
+- Keep Linear and Logarithmic as exact presets and add an Adjustable scale with a continuous 0–100% low-frequency-emphasis control, defaulting to a balanced 50%.
+- Use an exactly invertible power-law transform: emphasis continuously changes the exponent from 1.0 (linear) to 0.25 (strong low-frequency expansion). Unlike logarithmic scaling, it remains defined at 0 Hz.
+- Use the same shared transform for scientific raster pooling, annotation projection, pointer conversion, axis labels, frequency pan/zoom, retained-frame placement, tile identity, and worker cache identity.
+- Preserve canonical annotation frequencies in hertz. Scale and emphasis remain display settings and never alter saved boxes.
+- Verify forward/inverse round trips, offscreen projection, naive/exact pooling parity, arbitrary tile seams, adjustable cache invalidation, no-blank browser switching, and axis-isolated zoom under the adjustable scale.

@@ -37,10 +37,10 @@ describe('expert workspace keyboard routing', () => {
     ['KeyD', false, 'viewport.panRight'],
     ['KeyQ', false, 'viewport.zoomIn'],
     ['KeyE', false, 'viewport.zoomOut'],
-    ['KeyA', true, 'viewport.zoomTimeIn'],
-    ['KeyD', true, 'viewport.zoomTimeOut'],
-    ['KeyW', true, 'viewport.zoomFrequencyIn'],
-    ['KeyS', true, 'viewport.zoomFrequencyOut'],
+    ['KeyD', true, 'viewport.zoomTimeIn'],
+    ['KeyA', true, 'viewport.zoomTimeOut'],
+    ['KeyE', true, 'viewport.zoomFrequencyIn'],
+    ['KeyQ', true, 'viewport.zoomFrequencyOut'],
     ['KeyX', false, 'viewport.fit'],
     ['KeyV', false, 'audio.playPause'],
     ['KeyF', false, 'audio.faster'],
@@ -75,8 +75,8 @@ describe('expert workspace keyboard routing', () => {
   it('allows repeat only for continuous pan and zoom commands', () => {
     expect(route({ code: 'KeyW', repeat: true })).toBe('viewport.panUp');
     expect(route({ code: 'KeyQ', repeat: true })).toBe('viewport.zoomIn');
-    expect(route({ code: 'KeyA', shiftKey: true, repeat: true })).toBe('viewport.zoomTimeIn');
-    expect(route({ code: 'KeyW', shiftKey: true, repeat: true })).toBe('viewport.zoomFrequencyIn');
+    expect(route({ code: 'KeyD', shiftKey: true, repeat: true })).toBe('viewport.zoomTimeIn');
+    expect(route({ code: 'KeyE', shiftKey: true, repeat: true })).toBe('viewport.zoomFrequencyIn');
     expect(route({ code: 'KeyX', repeat: true })).toBeNull();
     expect(route({ code: 'KeyV', repeat: true })).toBeNull();
     expect(isRepeatableCommand('viewport.panRight')).toBe(true);

@@ -1,3 +1,5 @@
+import type { FrequencyScale } from './frequencyScale';
+
 export type ReviewStatus = 'calls_present' | 'no_calls';
 
 export interface ExternalTaxonV1 {
@@ -246,7 +248,8 @@ export interface ViewportTransform extends AudioBounds {
   highFrequencyHz: number;
   widthPixels: number;
   heightPixels: number;
-  frequencyScale?: 'linear' | 'logarithmic';
+  frequencyScale?: FrequencyScale;
+  frequencyWarp?: number;
 }
 
 export interface PixelPoint {

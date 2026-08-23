@@ -256,6 +256,14 @@ describe('FrogLabelWorkspace controls', () => {
       'true',
     );
     expect(screen.getByLabelText('Roseus dBFS scale')).toHaveTextContent('-120-90-60-300');
+
+    const frequencyScale = screen.getByLabelText('Frequency scale');
+    expect(within(frequencyScale).getAllByRole('option')).toHaveLength(3);
+    await user.selectOptions(frequencyScale, 'adjustable');
+    const emphasis = screen.getByRole('slider', { name: 'Low-frequency emphasis' });
+    expect(emphasis).toHaveValue('0.5');
+    fireEvent.change(emphasis, { target: { value: '0.75' } });
+    expect(screen.getByText('75%')).toBeVisible();
   });
 
   it('resets the actual virtual species-list scroll position when filtering', async () => {
