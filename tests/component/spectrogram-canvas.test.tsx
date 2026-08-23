@@ -5,6 +5,8 @@ import { SpectrogramCanvas } from '../../src/components/workspace/SpectrogramCan
 
 const rendererHarness = vi.hoisted(() => ({
   behaviors: [] as Array<'ready' | 'refining' | 'error'>,
+  construct: vi.fn(),
+  destroy: vi.fn(),
   render: vi.fn(),
   latest: null as null | { emitReady(): void },
 }));
@@ -19,13 +21,15 @@ vi.mock('../../src/audio/SpectrogramRenderer', () => ({
       _onError: (message: string) => void,
       private readonly onPhase: (phase: string) => void,
       private readonly onState: (state: object) => void,
+      analysisOptions?: object,
     ) {
+      rendererHarness.construct(analysisOptions);
       rendererHarness.latest = { emitReady: () => this.emitReady() };
     }
 
-    render(): number {
+    render(_canvas: HTMLCanvasElement, options: object): number {
       this.requestGeneration += 1;
-      rendererHarness.render(this.requestGeneration);
+      rendererHarness.render(options, this.requestGeneration);
       const behavior = rendererHarness.behaviors.shift() ?? 'ready';
       if (behavior === 'error') {
         this.onPhase('error');
@@ -52,7 +56,9 @@ vi.mock('../../src/audio/SpectrogramRenderer', () => ({
       return this.requestGeneration;
     }
 
-    destroy(): void {}
+    destroy(): void {
+      rendererHarness.destroy();
+    }
 
     private emitReady(): void {
       this.paintGeneration += 1;
@@ -73,6 +79,8 @@ let resizeCallback: ResizeObserverCallback;
 
 beforeEach(() => {
   rendererHarness.behaviors.length = 0;
+  rendererHarness.construct.mockClear();
+  rendererHarness.destroy.mockClear();
   rendererHarness.render.mockClear();
   rendererHarness.latest = null;
   vi.stubGlobal('PointerEvent', MouseEvent);
@@ -136,8 +144,10 @@ describe('SpectrogramCanvas camera gestures', () => {
           highFrequencyHz: 4_000,
         }}
         settings={{
-          fftSamples: 256,
+          windowMilliseconds: 20,
           overlapPercent: 75,
+          windowFunction: 'hann',
+          minimumDb: -120,
           brightness: 1,
           contrast: 1,
           palette: 'viridis',
@@ -233,8 +243,10 @@ describe('SpectrogramCanvas camera gestures', () => {
           highFrequencyHz: 4_000,
         }}
         settings={{
-          fftSamples: 256,
+          windowMilliseconds: 20,
           overlapPercent: 75,
+          windowFunction: 'hann',
+          minimumDb: -120,
           brightness: 1,
           contrast: 1,
           palette: 'viridis',
@@ -355,6 +367,63 @@ describe('SpectrogramCanvas camera gestures', () => {
       initialTop,
     );
   });
+
+  it('rebuilds analysis only for STFT changes and passes display settings to every render', async () => {
+    const common = canvasProps();
+    const result = render(<SpectrogramCanvas {...common} />);
+    resizeStage(result.container);
+
+    await waitFor(() => expect(rendererHarness.render).toHaveBeenCalled());
+    expect(rendererHarness.construct).toHaveBeenCalledTimes(1);
+    expect(rendererHarness.construct).toHaveBeenLastCalledWith({
+      windowMilliseconds: 20,
+      overlapPercent: 75,
+      windowFunction: 'hann',
+    });
+    expect(rendererHarness.render).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        windowMilliseconds: 20,
+        overlapPercent: 75,
+        windowFunction: 'hann',
+        minimumDb: -120,
+      }),
+      expect.any(Number),
+    );
+
+    result.rerender(
+      <SpectrogramCanvas
+        {...common}
+        settings={{ ...common.settings, brightness: 1.7, minimumDb: -80 }}
+      />,
+    );
+    await waitFor(() =>
+      expect(rendererHarness.render).toHaveBeenLastCalledWith(
+        expect.objectContaining({ brightness: 1.7, minimumDb: -80 }),
+        expect.any(Number),
+      ),
+    );
+    expect(rendererHarness.construct).toHaveBeenCalledTimes(1);
+    expect(rendererHarness.destroy).not.toHaveBeenCalled();
+
+    result.rerender(
+      <SpectrogramCanvas
+        {...common}
+        settings={{
+          ...common.settings,
+          windowMilliseconds: 40,
+          overlapPercent: 50,
+          windowFunction: 'blackman',
+        }}
+      />,
+    );
+    await waitFor(() => expect(rendererHarness.construct).toHaveBeenCalledTimes(2));
+    expect(rendererHarness.destroy).toHaveBeenCalledTimes(1);
+    expect(rendererHarness.construct).toHaveBeenLastCalledWith({
+      windowMilliseconds: 40,
+      overlapPercent: 50,
+      windowFunction: 'blackman',
+    });
+  });
 });
 
 function renderCanvas() {
@@ -385,8 +454,10 @@ function canvasProps(overrides: { boxes?: ReturnType<typeof annotationBox>[] } =
       highFrequencyHz: 4_000,
     },
     settings: {
-      fftSamples: 256,
+      windowMilliseconds: 20,
       overlapPercent: 75,
+      windowFunction: 'hann' as const,
+      minimumDb: -120,
       brightness: 1,
       contrast: 1,
       palette: 'viridis' as const,

@@ -28,7 +28,7 @@
 - Add document/schema version 2 so new boxes can snapshot variable-length codes while historical three-letter snapshots such as PER remain valid. V1 documents remain readable and upgrade only when next written; existing box snapshots are never rewritten.
 - Provide a dual-read, explicit-migration path for V1 catalogs. Administrative sync must supply a valid new code and priority for every active legacy entry, update records transactionally by immutable speciesId, and reject partial or colliding migrations.
 - Update TypeScript/Python models, generated schemas, Hydra configuration, CE storage/API, Enterprise embedding, local imports, and CreateSpeciesInput. Legacy catalog entries without a mapping remain visible as historical species but cannot participate in Space selection.
-- Recode bundled fixtures deterministically: GRE remains Green Tree Frog, PER becomes ETF, RED remains Red-Eyed Tree Frog, and COR becomes CRF. Their initial priority is 0 because their first-letter prefixes do not conflict.
+- Recode bundled fixtures deterministically: GRE remains Green Treefrog, PER becomes ETF, RED remains Red-Eyed Tree Frog, and COR becomes CRF. Their initial priority is 0 because their first-letter prefixes do not conflict.
 
 ## Expert Shell and Controls
 
@@ -41,7 +41,7 @@
   - **4:** bottom Dataset tray
 
 - Only dock bodies and large species/dataset lists may scroll. Virtualize long lists. Keep all docks closed initially, eliminate layout animations, and prevent wheel propagation to the application shell.
-- Add a fixed-height Vim-style status line for tool, species, playback rate, viewport, render state, and persistence state. During capture it shows, for example, **SPECIES G\_ → GRE — Green Tree Frog · release Space**, including ambiguity count or rejected-input feedback without moving surrounding controls.
+- Add a fixed-height Vim-style status line for tool, species, playback rate, viewport, render state, and persistence state. During capture it shows, for example, **SPECIES G\_ → GRE — Green Treefrog · release Space**, including ambiguity count or rejected-input feedback without moving surrounding controls.
 - Use this default command map:
 
   | Input                                | Action                                                                         |
@@ -76,14 +76,15 @@
 
 - Replace the broad focus guard with command-aware routing. Digits are suppressed only for input, textarea, select, contenteditable content, or while any pointer button is held. Focused buttons/forms no longer suppress them. Track pointer IDs through up, cancel, lost capture, blur, and visibility changes, and deliberately focus the spectrogram command surface after pointer interaction.
 - Keep the playback button's visible text permanently **Play**; only highlight, aria-pressed, and the status line change during playback. Its dimensions and icon remain fixed.
-- Put a compact audition bank at the top of Box Details: **Replay box** uses the raw selected time window, **Replay box / band-pass** passes the committed box frequency band plus a persistent administrator-style ±Hz margin, and **Play negative** removes the exact committed box band from that same time window. Keep audition available in read-only workspaces, show the effective bands and active mode without layout movement, and cancel stale playback on selection, geometry, task, Escape, or global-playback changes.
+- Put a compact audition bank at the top of Box Details: **Play Full Sound** uses the raw selected time window, **Play Call Only** passes the committed box frequency band plus a persistent administrator-style ±Hz margin, and **Play Outside Box** removes the exact committed box band from that same time window. Keep audition available in read-only workspaces, show the effective bands and active mode without layout movement, and cancel stale playback on selection, geometry, task, Escape, or global-playback changes.
 - Schedule box playback directly from the decoded PCM with `AudioBufferSourceNode.start(when, offset, duration)` instead of a 10 ms UI polling loop. Reuse one lazy audio context/buffer, preserve native channels, use cascaded fourth-order Linkwitz–Riley high/low edges with playback-rate-scaled cutoffs, parallel outside-band branches for the negative, and a 4 ms edge envelope to prevent clicks.
 - Update help and tutorial content from the same shortcut registry. Tutorial advancement must no longer consume bare Space.
 - Preserve the HumanSignal/Label Studio contract: controlled annotation regions, readOnly behavior, stable region IDs, and outer-shell-owned Submit/Update. Do not add duplicate submission or persistence controls.
 
 ## Seamless Spectrogram Architecture
 
-- Preserve the complete ~20 ms Hann, 75%-overlap STFT, channel modes, linear/log scales, and exact peak pooling.
+- Default to complete ~20 ms power-of-two Hann analysis with 75% overlap and a −120 dBFS display floor, while preserving channel modes, linear/log scales, and exact peak pooling. The Display drawer exposes 10/20/40/80 ms target windows, Hann/Hamming/Blackman/rectangular window functions, 0/25/50/75% overlap, and a −120 to −40 dBFS display floor.
+- Rebuild the task-scoped STFT and its dependent exact tiles when window duration, window function, or overlap changes. Keep palette, brightness, contrast, and the dB floor display-only so they recolor existing pooled dB tiles without rerunning analysis or changing exact viewport-grid cache semantics.
 - Create one task-scoped worker session with a single initialization request. Remove the arbitrary 100 ms worker delay, 180 ms view debounce, duplicate initial renders, and FIFO processing of obsolete full-frame requests.
 - Use lifecycle states **initializing**, **preview**, **ready**, **refining**, and **error**. Never place an opaque overlay over valid pixels. After the first preview, navigation, playback, and annotation controls remain usable while exact pixels refine.
 - Use a retained front compositor and background surface:
@@ -98,7 +99,7 @@
   - Use exact 256×256 viewport-grid dB tiles keyed by audio generation, channel mode, frequency scale, zoom level, full view bounds, raster size, and global pixel coordinates. Fixed pooled world tiles are not scientifically exact for arbitrary fractional offsets because those offsets change the half-open STFT frame/bin range of nearly every output pixel.
   - Prioritize visible misses, then adjacent centered Q/E zoom views. Do not schedule an out-of-grid overscan ring: exact viewport keys make those tiles scientifically valid but impossible to reuse. Retained-frame reprojection supplies immediate feedback for fractional camera moves whose exact keys cannot be reused.
   - Store tiles in a byte-accounted 48 MiB LRU and explicitly dispose evicted ImageBitmap/GPU resources.
-  - Apply palette, brightness, and contrast through a 256-entry lookup texture/shader so display changes do not rerun STFT or pooling.
+  - Apply palette, brightness, contrast, and the selected dB floor through a 256-entry lookup texture/shader so display changes do not rerun STFT or pooling.
   - Do not construct a whole-file mip pyramid; maximum supported audio already consumes roughly 240 MiB for analysis data.
 
 - Optimize without changing scientific behavior: use direct real² + imag² power, precomputed frame/bin ranges, allocation-free channel loops, separable rectangular max pooling, and LUT color mapping. The separable prototype already matched current pooling bit-for-bit while reducing 1600×800 pooling from about 105 ms to 20–31 ms.
@@ -126,11 +127,12 @@
 
 ## Implementation Verification — 2026-08-22
 
-- Final source checks pass: 177/177 Vitest tests across 24 files, 36/36 Python tests, TypeScript, ESLint, generated-validator drift, Prettier, and `git diff --check`.
-- The production build remains within budget at 106,080 B Brotli JavaScript (150,000 B limit) and 5,073 B Brotli CSS (10,000 B limit). CE, Enterprise, and GitHub Pages artifacts were regenerated from this working tree; the Pages archive SHA-256 is `8a9e6cb1c7c0aaedce2d842d8e754746203b747f2d3a5e7c85c1cbc4bfffc7a1`.
-- The Chromium performance gate passed with a 72.2 ms first preview, 1.6 ms selection p95, 7.7 ms drag feedback, 10.4 ms pan feedback, 45.7 ms exact refinement, zero missed next-frame updates across 100 rapid camera actions, zero blank/opaque frames, and zero rendering long tasks.
-- The most recent completed standalone Chromium workspace suite passes 14/14, including modifier-driven axis isolation, adjustable frequency-emphasis switching without a blank frame, exact raw/band-pass/negative audition controls, reflowing dock geometry at 640×700, 844×720, 1280×720, and 1440×900; seven palette previews; keyboard routing; tutorial isolation; and accessibility checks. The current managed environment blocks Chromium startup before tests (`sandbox_host_linux: Operation not permitted`), so this fix set is covered by the source suites above but does not claim a fresh browser rerun. The most recent static Pages suite passes 6/6, and the most recent exact generated Enterprise Interface passes its inline browser round trip.
-- The CE frontend artifact was regenerated. A new CE browser rerun still requires the normal full `ls-ce prepare` build: the existing derived checkout correctly rejected the new compatibility-manifest hash, while a disposable pristine source correctly refused to run before its upstream Yarn build/canary existed.
+- Final source checks pass: 186/186 Vitest tests across 25 files, 36/36 Python tests, TypeScript, ESLint, generated-validator drift, Prettier, and `git diff --check`.
+- The production build remains within budget at 107,338 B Brotli JavaScript (150,000 B limit) and 5,339 B Brotli CSS (10,000 B limit). CE, Enterprise, and GitHub Pages artifacts were regenerated from this working tree; the Pages archive SHA-256 is `e2cda8f6ee4bec2017b85e297ac9bf28302de7094457173d7cdbb2912f4494da`.
+- The Chromium performance gate passed with a 53.2 ms first preview, 1.4 ms selection p95, 7.0 ms drag feedback, 13.2 ms pan feedback, 19.1 ms exact refinement, zero missed next-frame updates across 100 rapid camera actions, zero blank/opaque frames, and zero rendering long tasks.
+- The fresh standalone Chromium suite passes 14/14, including the 5,000-box performance gate, seeded replay explorer, modifier-driven axis isolation, adjustable frequency-emphasis repainting with a changed canvas hash and no blank frame, reflowing dock geometry at 640×700, 844×720, 1280×720, and 1440×900, keyboard routing, tutorial isolation, and accessibility checks. The exact packaged static Pages suite passes 6/6. The exact generated Enterprise Interface passes offline SDK validation and its inline Chromium round trip with licensed audio, drawing, controlled host echo, and result serialization.
+- A pristine checkout of the pinned Label Studio CE 1.23.0 commit passes the full normal-user HTTP/browser/database/export workflow with the regenerated frontend artifact, including all 12 tutorial steps, draft echo, submit/update, no-calls, and catalog-permission checks.
+- Label Studio Enterprise Interface `4489` version 5 was published and pulled back byte-for-byte (SHA-256 `ef16cb6ccc7e6d4c4939198640ed9db0265867f7e14592d5856b8712c04b0a63`), and project `280811` was pinned to version 5.
 
 ## Stateless Axis Zoom — 2026-08-22
 

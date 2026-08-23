@@ -16,6 +16,7 @@ describe('exact spectral tile planning', () => {
       palette: 'magma',
       brightness: 2,
       contrast: 1.7,
+      minimumDb: -60,
     });
     expect(first.viewKey).toBe(displayOnly.viewKey);
     expect(first.visible.map((tile) => tile.key)).toEqual(
@@ -122,12 +123,13 @@ describe('WebGL atlas lifecycle', () => {
       ...renderOptions(),
       brightness: 99,
       contrast: -4,
+      minimumDb: -20,
     });
     expect(
       (gl.uniform1f as unknown as ReturnType<typeof vi.fn>).mock.calls
-        .slice(-2)
+        .slice(-3)
         .map((call) => call[1]),
-    ).toEqual([3, 0.25]);
+    ).toEqual([3, 0.25, -40]);
     atlas.destroy();
     atlas.destroy();
     expect(gl.deleteTexture).toHaveBeenCalledTimes(2);

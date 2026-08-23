@@ -321,7 +321,10 @@ try {
   recordAction('authoritative reload', 'canonical submitted bytes preserved');
   await page.getByRole('row', { name: /GRE — Green Tree Frog/ }).click();
   await ensurePanelOpen(page, '2 Details');
-  await page.getByRole('button', { name: /Replay box raw/i }).click();
+  await page
+    .locator('[data-tutorial="details"]')
+    .getByRole('button', { name: /Play Full Sound/i })
+    .click();
   await page.getByRole('button', { name: 'Help and tutorial' }).click();
   await page.getByRole('button', { name: /Start 2-minute tutorial/ }).click();
   await page.keyboard.press('Space');

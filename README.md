@@ -14,7 +14,7 @@ The demo opens immediately with a real Green Treefrog (_Hyla cinerea_) field rec
 - **Select species by muscle memory.** Hold `Space`, type the shortest useful prefix, and release. FrogLabel previews the likely match while you type and automatically arms Draw after selection.
 - **Hear what is inside each annotation.** Every box offers **Play Call Only**, **Play Full Sound**, and **Play Outside Box**. A configurable frequency margin helps distinguish the focal call from insects, overlapping species, and background noise.
 - **Navigate without losing visual context.** Panning and zooming preserve the previous spectrogram frame until the exact new view is ready, avoiding disruptive blank flashes.
-- **Adapt the display to the recording.** Choose from multiple scientific colour palettes, brightness and contrast controls, stereo-channel views, and Linear, Logarithmic, or Adjustable frequency spacing.
+- **Adapt the analysis and display to the recording.** Tune the STFT window and overlap when needed, or adjust the dB floor, scientific colour palette, brightness, contrast, stereo-channel view, and Linear, Logarithmic, or Adjustable frequency spacing.
 - **Review an entire recording from one place.** The Annotation Dataset panel lists every box with species, time, frequency, bandwidth, listening controls, and deletion.
 - **Record true negatives explicitly.** “No calls present” is a deliberate reviewed state, distinct from an unfinished recording with no boxes.
 - **Protect the measurements.** Display, zoom, playback, palette, and panel changes never alter stored annotation coordinates.
@@ -73,6 +73,12 @@ These are listening aids only. They do not transform the source recording or the
 
 Linear spacing can devote too much screen area to high frequencies, while a fully logarithmic axis can overemphasize the lowest frequencies. FrogLabel adds an **Adjustable** scale between them, with a continuous low-frequency-emphasis control. All three views use the same exact annotation bounds in hertz.
 
+### Configurable spectrogram analysis
+
+The default remains complete ~20 ms power-of-two Hann analysis with 75% overlap and a −120 dBFS display floor. In the Spectrogram drawer, the target window duration can be set to 10, 20, 40, or 80 ms; the window can be Hann, Hamming, Blackman, or rectangular; overlap can be 0%, 25%, 50%, or 75%; and the display floor can be adjusted from −120 to −40 dBFS. FrogLabel reports the actual power-of-two FFT size and duration for the recording's sample rate.
+
+Changing the target duration, window function, or overlap rebuilds the complete analysis. Palette, brightness, contrast, and dB-floor changes only recolour the existing pooled dB data, so they remain responsive and do not alter the exact peak-pooling result or any annotation coordinates.
+
 ## Ways to use FrogLabel
 
 | Setting                            | Intended use                                                                                      |
@@ -87,7 +93,7 @@ FrogLabel deliberately leaves task assignment, review, submission, history, and 
 ## Scientific and privacy boundaries
 
 - Time and frequency geometry remains in full-precision seconds and hertz.
-- Viewport, selection, playback, tutorial, palette, and open-panel state are never written into scientific annotations.
+- Viewport, selection, playback, tutorial, spectrogram analysis/display preferences, and open-panel state are never written into scientific annotations.
 - A final-box deletion returns the recording to unreviewed; only the explicit No Calls action creates a reviewed negative.
 - Local audio is processed in the browser and is not uploaded by FrogLabel.
 - Runtime assets are self-hosted, with no analytics or telemetry client.

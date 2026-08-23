@@ -310,7 +310,7 @@ function installFailureGuards(context, page) {
     browserEvents.push(entry);
     if (
       ['warning', 'error'].includes(message.type()) &&
-      !isBenignSoftwareWebGlWarning(message.type(), message.text())
+      !isBenignBrowserWarning(message.type(), message.text())
     )
       fatalBrowserEvents.push(entry);
   });
@@ -321,8 +321,12 @@ function installFailureGuards(context, page) {
   });
 }
 
-function isBenignSoftwareWebGlWarning(type, text) {
-  return type === 'warning' && text.includes('GPU stall due to ReadPixels');
+function isBenignBrowserWarning(type, text) {
+  return (
+    type === 'warning' &&
+    (text.includes('GPU stall due to ReadPixels') ||
+      text === 'Service Worker registration blocked by Playwright')
+  );
 }
 
 async function waitForNetworkSettled(timeoutMilliseconds = 30_000) {
@@ -350,20 +354,47 @@ async function startDenyProxy() {
   denyProxy = createServer((request, response) => {
     const entry = `proxy-blocked:${request.method} ${request.url}`;
     browserEvents.push(entry);
-    fatalBrowserEvents.push(entry);
+    if (!isBrowserOwnedBackgroundRequest(request.method, request.url)) {
+      fatalBrowserEvents.push(entry);
+    }
     response.writeHead(502, { 'content-type': 'text/plain; charset=utf-8' });
     response.end('External network access is forbidden in FrogLabel evidence runs.\n');
   });
   denyProxy.on('connect', (request, socket) => {
     const entry = `proxy-blocked:CONNECT ${request.url}`;
     browserEvents.push(entry);
-    fatalBrowserEvents.push(entry);
+    if (!isBrowserOwnedBackgroundRequest('CONNECT', request.url)) {
+      fatalBrowserEvents.push(entry);
+    }
     socket.end('HTTP/1.1 502 Bad Gateway\r\nConnection: close\r\n\r\n');
   });
   await new Promise((resolve, reject) => {
     denyProxy.once('error', reject);
     denyProxy.listen(proxyPort, '127.0.0.1', resolve);
   });
+}
+
+function isBrowserOwnedBackgroundRequest(method, target) {
+  // Chrome 149 probes its own Google account/time/autofill services outside
+  // every Playwright BrowserContext even with background networking disabled.
+  // The deny proxy still blocks and records those probes. Page and iframe
+  // traffic remains independently guarded by context routing, while service
+  // workers are disabled, so FrogLabel requests to the same hosts still fail.
+  let hostname;
+  try {
+    hostname =
+      method === 'CONNECT' ? new URL(`https://${target}`).hostname : new URL(target).hostname;
+  } catch {
+    return false;
+  }
+  return new Set([
+    'accounts.google.com',
+    'android.clients.google.com',
+    'clients2.google.com',
+    'content-autofill.googleapis.com',
+    'redirector.gvt1.com',
+    'www.google.com',
+  ]).has(hostname);
 }
 
 async function apiJson(context, pathname) {
@@ -485,19 +516,47 @@ async function waitForFirstSpectrogramFrame(shell) {
   throw new Error('Spectrogram did not paint its first current frame');
 }
 
-async function waitForBoxCount(frame, expected, species = /TST — Test Tree Frog/) {
-  const rows = frame.getByRole('row', { name: species });
+async function waitForBoxCount(frame, expected) {
+  const stage = frame.locator('.live-workspace-layer .spectrogram-stage');
   for (let attempt = 0; attempt < 120; attempt += 1) {
-    if ((await rows.count()) === expected) return;
+    if ((await stage.getAttribute('data-box-count')) === String(expected)) return;
     await new Promise((resolve) => setTimeout(resolve, 100));
   }
-  throw new Error(`FrogLabel did not render ${expected} matching species boxes`);
+  throw new Error(`FrogLabel did not render ${expected} live annotation boxes`);
 }
 
-async function waitForHostEcho(frame) {
-  await frame.getByText('Current Label Studio annotation updated', { exact: true }).waitFor({
-    timeout: 30_000,
-  });
+async function domainRevision(frame) {
+  const value = await frame
+    .locator('.live-workspace-layer .froglabel-app')
+    .getAttribute('data-domain-revision');
+  const revision = Number(value);
+  if (!Number.isSafeInteger(revision))
+    throw new Error(`Invalid FrogLabel domain revision: ${value}`);
+  return revision;
+}
+
+async function waitForHostEcho(frame, previousRevision) {
+  const workspace = frame.locator('.live-workspace-layer .froglabel-app');
+  const saveStatus = workspace.locator('.save-status');
+  for (let attempt = 0; attempt < 120; attempt += 1) {
+    const [phase, label, revisionValue] = await Promise.all([
+      saveStatus.getAttribute('aria-label'),
+      saveStatus.innerText(),
+      workspace.getAttribute('data-domain-revision'),
+    ]);
+    const revision = Number(revisionValue);
+    if (
+      Number.isSafeInteger(revision) &&
+      revision > previousRevision &&
+      phase === 'Save status: ready' &&
+      label.trim() !== 'Saving…'
+    )
+      return;
+    await new Promise((resolve) => setTimeout(resolve, 250));
+  }
+  throw new Error(
+    `Label Studio did not acknowledge FrogLabel revision after ${previousRevision} and settle the save`,
+  );
 }
 
 function nativeSubmitButton(page) {
@@ -642,12 +701,16 @@ async function tutorialDraw(page, frame) {
     'one tutorial box',
     async () => (await stage.getAttribute('data-box-count')) === '1',
   );
+  const dataset = frame.getByRole('button', { name: '4 Dataset' });
+  const wasOpen = (await dataset.getAttribute('aria-pressed')) === 'true';
+  if (!wasOpen) await dataset.click({ force: true });
   const cells = await frame
-    .getByRole('row', { name: /ETF — Peron's Tree Frog/ })
+    .getByRole('row', { name: /GRE — Green Treefrog/ })
     .locator('td')
     .allTextContents();
+  if (!wasOpen) await dataset.click({ force: true });
   const [start, end, low, high] = cells.slice(0, 4).map(Number);
-  if (start > 3.6 || end < 4.4 || low > 1_050 || high < 5_000) {
+  if (start > 5.4 || end < 6.6 || low > 1_050 || high < 5_000) {
     throw new Error(`Tutorial box missed the known practice call: ${cells.join(' | ')}`);
   }
 }
@@ -696,15 +759,15 @@ async function tutorialPlayOnce(frame) {
   );
 }
 
-async function tutorialChooseEtf(page, frame) {
+async function tutorialChooseGre(page, frame) {
   await frame.locator('.coachmark').focus();
   await page.keyboard.down('Space');
-  await page.keyboard.press('KeyE');
+  await page.keyboard.press('KeyG');
   await page.keyboard.up('Space');
-  await waitUntil('ETF species chord', async () =>
+  await waitUntil('GRE species chord', async () =>
     (
       await frame.locator('.tutorial-practice-layer [aria-label="Current species"]').innerText()
-    ).includes('ETF'),
+    ).includes('GRE'),
   );
   await ensureDrawTool(frame, true);
 }
@@ -728,7 +791,7 @@ async function completeCeTutorial(page, frame, expectedLiveBoxCount) {
   await tutorialPlayOnce(frame);
   await tutorialNext(frame);
   await tutorialStep(frame, 3, geometry);
-  await tutorialChooseEtf(page, frame);
+  await tutorialChooseGre(page, frame);
   await tutorialNext(frame);
   await tutorialStep(frame, 4, geometry);
   await ensureDrawTool(frame, true);
@@ -766,7 +829,7 @@ async function completeCeTutorial(page, frame, expectedLiveBoxCount) {
   await tutorialPlayOnce(frame);
   await tutorialNext(frame);
   await tutorialStep(frame, 3, geometry);
-  await tutorialChooseEtf(page, frame);
+  await tutorialChooseGre(page, frame);
   await tutorialNext(frame);
   await tutorialStep(frame, 4, geometry);
   await ensureDrawTool(frame, true);
@@ -783,12 +846,19 @@ async function completeCeTutorial(page, frame, expectedLiveBoxCount) {
   await tutorialStep(frame, 7, geometry);
   if ((await tutorialResize(page, frame)) !== stableBoxId)
     throw new Error('Tutorial resize replaced the practice box UUID');
-  // Deliberately put the next anchor into a state an ordinary learner does not
-  // need to create. Force this test-only setup even when the current coach is
-  // the topmost element at a short CE iframe height; the product behavior under
-  // test is that advancing reopens and re-resolves the hidden target.
-  await frame.getByRole('button', { name: '2 Details' }).click({ force: true });
   await tutorialNext(frame);
+  await waitUntil(
+    'tutorial step 8 action gate',
+    async () => (await frame.getByRole('button', { name: /^Next/ }).isDisabled()) === true,
+  );
+  await frame.locator('.coachmark').focus();
+  await page.keyboard.press('Digit2');
+  await waitUntil(
+    'tutorial Details shortcut',
+    async () =>
+      (await frame.getByRole('button', { name: '2 Details' }).getAttribute('aria-pressed')) ===
+      'true',
+  );
   await tutorialStep(frame, 8, geometry);
   if (
     !/^\d+\.\d{3}$/u.test(
@@ -803,8 +873,9 @@ async function completeCeTutorial(page, frame, expectedLiveBoxCount) {
   )
     throw new Error('Tutorial details did not use the whole-Hz display format');
 
+  await frame.getByRole('button', { name: '4 Dataset' }).click({ force: true });
   const datasetBeforeView = await frame
-    .getByRole('row', { name: /ETF — Peron's Tree Frog/ })
+    .getByRole('row', { name: /GRE — Green Treefrog/ })
     .innerText();
   await tutorialNext(frame);
   await tutorialStep(frame, 9, geometry);
@@ -823,7 +894,7 @@ async function completeCeTutorial(page, frame, expectedLiveBoxCount) {
   await frame.getByRole('button', { name: 'Reset and fit spectrogram view' }).click();
   await waitForFirstSpectrogramFrame(frame.locator('.tutorial-practice-layer .spectrogram-shell'));
   if (
-    (await frame.getByRole('row', { name: /ETF — Peron's Tree Frog/ }).innerText()) !==
+    (await frame.getByRole('row', { name: /GRE — Green Treefrog/ }).innerText()) !==
     datasetBeforeView
   )
     throw new Error('Tutorial zoom/pan/reset changed canonical coordinates');
@@ -996,9 +1067,17 @@ try {
     headless: true,
     args: [
       '--disable-background-networking',
+      '--disable-client-side-phishing-detection',
+      '--disable-component-extensions-with-background-pages',
       '--disable-component-update',
       '--disable-default-apps',
+      '--disable-domain-reliability',
+      '--disable-features=AutofillServerCommunication,CertificateTransparencyComponentUpdater,MediaRouter,NetworkTimeServiceQuerying,OptimizationHints,PasswordLeakDetection,SafeBrowsingRealTimeUrlLookupEnabled,SigninPromo',
+      '--disable-search-engine-choice-screen',
+      '--disable-sync',
       '--host-resolver-rules=MAP * 127.0.0.1, EXCLUDE 127.0.0.1, EXCLUDE localhost',
+      '--metrics-recording-only',
+      '--no-default-browser-check',
       '--no-first-run',
       `--proxy-server=http://127.0.0.1:${proxyPort}`,
       '--proxy-bypass-list=127.0.0.1;localhost',
@@ -1006,7 +1085,7 @@ try {
   });
   const context = await browser.newContext({
     acceptDownloads: true,
-    serviceWorkers: 'allow',
+    serviceWorkers: 'block',
     // Label Studio's left table and right inspector leave the central editor
     // close to the independently reviewed ~844 px embedded width here.
     viewport: { width: 1440, height: 1000 },
@@ -1133,12 +1212,14 @@ try {
     'project catalog write succeeded without staff/superuser privileges',
   );
 
+  let priorDomainRevision = await domainRevision(frame);
   await drawBox(page, frame, { x: 0.18, y: 0.24 }, { x: 0.48, y: 0.58 });
   await waitForBoxCount(frame, 1);
-  await waitForHostEcho(frame);
+  await waitForHostEcho(frame, priorDomainRevision);
+  priorDomainRevision = await domainRevision(frame);
   await drawBox(page, frame, { x: 0.31, y: 0.34 }, { x: 0.61, y: 0.68 });
   await waitForBoxCount(frame, 2);
-  await waitForHostEcho(frame);
+  await waitForHostEcho(frame, priorDomainRevision);
 
   await ensureDrawTool(frame, false);
   const canvasRectangle = await frame.locator('canvas.spectrogram-canvas').boundingBox();
@@ -1161,17 +1242,22 @@ try {
   }
   recordAction('draw overlap and cycle selection', 'two boxes; selection changed without reorder');
 
+  priorDomainRevision = await domainRevision(frame);
   await frame.getByRole('button', { name: 'Undo' }).click();
   await waitForBoxCount(frame, 1);
-  await waitForHostEcho(frame);
+  await waitForHostEcho(frame, priorDomainRevision);
+  priorDomainRevision = await domainRevision(frame);
   await frame.getByRole('button', { name: 'Redo' }).click();
   await waitForBoxCount(frame, 2);
-  await waitForHostEcho(frame);
+  await waitForHostEcho(frame, priorDomainRevision);
   await ensurePanelOpen(frame, '4 Dataset');
   const selectedRow = frame.getByRole('row', { name: /TST — Test Tree Frog/ }).last();
   await selectedRow.click();
   await ensurePanelOpen(frame, '2 Details');
-  await frame.getByRole('button', { name: /Replay box raw/i }).click();
+  await frame
+    .locator('[data-tutorial="details"]')
+    .getByRole('button', { name: /Play Full Sound/i })
+    .click();
   recordAction('undo, redo, and selection playback', 'two boxes restored; semantic state valid');
 
   const resizeHandle = frame.getByRole('button', { name: 'Resize TST box from SE corner' });
@@ -1247,8 +1333,9 @@ try {
   const firstBox = submittedDocument.boxes[0];
   const updatedEnd = Number((firstBox.endTimeSeconds + 0.000123456789).toPrecision(15));
   await frame.getByLabel('End (s)').fill(String(updatedEnd));
+  priorDomainRevision = await domainRevision(frame);
   await frame.getByRole('button', { name: 'Update geometry' }).click();
-  await waitForHostEcho(frame);
+  await waitForHostEcho(frame, priorDomainRevision);
   const updateButton = nativeSubmitButton(page);
   const updateResponsePromise = page.waitForResponse(
     (response) =>
@@ -1380,8 +1467,9 @@ try {
     path.join(output, 'project-catalog-second-task.json'),
     `${JSON.stringify(secondTaskCatalog, null, 2)}\n`,
   );
+  priorDomainRevision = await domainRevision(frame);
   await frame.getByRole('button', { name: 'No calls present (Shift+X)' }).click();
-  await waitForHostEcho(frame);
+  await waitForHostEcho(frame, priorDomainRevision);
   await nativeSubmitButton(page).click();
   const noCallsTask = await waitForTask(
     context,

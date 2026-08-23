@@ -1,8 +1,8 @@
 {
   "kind": "froglabel.enterprise-component-bundle",
   "schemaVersion": 1,
-  "buildVersion": "1.0.0+tree.6b68cfe48177",
-  "sourceCommit": "tree.6b68cfe48177",
+  "buildVersion": "1.0.0+tree.4d2984d63260",
+  "sourceCommit": "tree.4d2984d63260",
   "entry": "src/enterprise/entry.tsx",
   "exportName": "renderEnterpriseFrogLabel",
   "hostReactExternal": true,
@@ -15,7 +15,7 @@
     "spectrogram worker source",
     "CC BY-SA Green Treefrog tutorial audio"
   ],
-  "minifiedBytes": 948571,
-  "unminifiedBytes": 1281059,
+  "minifiedBytes": 1082652,
+  "unminifiedBytes": 1420185,
   "forbiddenScan": "passed"
 }

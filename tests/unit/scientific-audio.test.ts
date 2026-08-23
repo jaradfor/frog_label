@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import {
   analysisFftSize,
+  boundedSpectrogramMinimumDb,
+  colorizeSpectrogramDb,
   computeSpectrogramAnalysis,
   computeSpectrogramAnalysisCooperative,
   computeWaveformEnvelope,
@@ -13,9 +15,13 @@ import {
   prepareWaveformPeakIndexesCooperative,
   renderSpectrogramPreviewPixels,
   renderSpectrogramPreviewPixelsCooperative,
+  DEFAULT_SPECTROGRAM_OVERLAP_PERCENT,
+  DEFAULT_SPECTROGRAM_WINDOW_FUNCTION,
+  DEFAULT_SPECTROGRAM_WINDOW_MILLISECONDS,
   SPECTROGRAM_DB_FLOOR,
   SPECTROGRAM_PALETTES,
   spectrogramPaletteCssGradient,
+  spectrogramWindow,
   type FrequencyScale,
   type SpectrogramAnalysis,
   type SpectrogramRenderOptions,
@@ -160,14 +166,96 @@ describe('complete calibrated channel analysis', () => {
   });
 
   it('chooses an approximately 20 ms power-of-two Hann window at all supported rates', () => {
+    expect(DEFAULT_SPECTROGRAM_WINDOW_MILLISECONDS).toBe(20);
+    expect(DEFAULT_SPECTROGRAM_OVERLAP_PERCENT).toBe(75);
+    expect(DEFAULT_SPECTROGRAM_WINDOW_FUNCTION).toBe('hann');
     expect(analysisFftSize(44_100)).toBe(1_024);
     expect(analysisFftSize(48_000)).toBe(1_024);
     expect(analysisFftSize(96_000)).toBe(2_048);
     expect(analysisFftSize(192_000)).toBe(4_096);
   });
+
+  it('derives FFT and hop sizes from custom analysis settings', async () => {
+    expect(analysisFftSize(48_000, 10)).toBe(512);
+    expect(analysisFftSize(48_000, 40)).toBe(2_048);
+    expect(analysisFftSize(48_000, 80)).toBe(4_096);
+
+    const source = mono(tone, sampleRateHz);
+    const synchronous = computeSpectrogramAnalysis(source, {
+      windowMilliseconds: 40,
+      overlapPercent: 50,
+      windowFunction: 'blackman',
+    });
+    const cooperative = await computeSpectrogramAnalysisCooperative(source, {
+      windowMilliseconds: 40,
+      overlapPercent: 50,
+      windowFunction: 'blackman',
+      framesPerYield: 7,
+    });
+    expect(synchronous.fftSize).toBe(512);
+    expect(synchronous.hopSamples).toBe(256);
+    expect(cooperative).toEqual(synchronous);
+  });
+
+  it('offers calibrated Hann, Hamming, Blackman, and rectangular windows', () => {
+    const hann = spectrogramWindow(256);
+    const hamming = spectrogramWindow(256, 'hamming');
+    const blackman = spectrogramWindow(256, 'blackman');
+    const rectangular = spectrogramWindow(256, 'rectangular');
+    expect(hann[0]).toBeCloseTo(0, 12);
+    expect(hann.at(-1)).toBeCloseTo(0, 12);
+    expect(hamming[0]).toBeCloseTo(0.08, 12);
+    expect(blackman[0]).toBeCloseTo(0, 12);
+    expect(rectangular.every((value) => value === 1)).toBe(true);
+    expect(hann).not.toEqual(hamming);
+    expect(hamming).not.toEqual(blackman);
+  });
 });
 
 describe('seamless spectrogram rasterization', () => {
+  it('uses a bounded adjustable dB floor without changing the calibrated data floor', () => {
+    const options: SpectrogramRenderOptions = {
+      timeStartSeconds: 0,
+      timeEndSeconds: 1,
+      lowFrequencyHz: 0,
+      highFrequencyHz: 4_000,
+      brightness: 1,
+      contrast: 1,
+      palette: 'grayscale',
+    };
+    const db = new Float32Array([-120, -80, -60, -40, 0]);
+    const fixed = colorizeSpectrogramDb(db, options);
+    const raised = colorizeSpectrogramDb(db, { ...options, minimumDb: -60 });
+    expect(Array.from(raised.slice(0, 8))).toEqual([0, 0, 0, 255, 0, 0, 0, 255]);
+    expect(raised).not.toEqual(fixed);
+    expect(boundedSpectrogramMinimumDb(-200)).toBe(-120);
+    expect(boundedSpectrogramMinimumDb(-20)).toBe(-40);
+    expect(boundedSpectrogramMinimumDb(Number.NaN)).toBe(-120);
+    expect(powerToDb(0)).toBe(SPECTROGRAM_DB_FLOOR);
+  });
+
+  it('changes the scientific raster when adjustable frequency emphasis changes', () => {
+    const options: SpectrogramRenderOptions = {
+      timeStartSeconds: 0,
+      timeEndSeconds: analysis.durationSeconds,
+      lowFrequencyHz: 0,
+      highFrequencyHz: 4_000,
+      brightness: 1,
+      palette: 'grayscale',
+      channelMode: 'average',
+      frequencyScale: 'adjustable',
+    };
+    const lowerEmphasis = poolSpectrogramDb(analysis, 31, 47, {
+      ...options,
+      frequencyWarp: 0.25,
+    });
+    const upperEmphasis = poolSpectrogramDb(analysis, 31, 47, {
+      ...options,
+      frequencyWarp: 0.75,
+    });
+    expect(upperEmphasis).not.toEqual(lowerEmphasis);
+  });
+
   it('keeps every declared palette preview aligned with a non-degenerate renderer LUT', () => {
     expect(SPECTROGRAM_PALETTES.map((palette) => palette.label)).toEqual([
       'Roseus',

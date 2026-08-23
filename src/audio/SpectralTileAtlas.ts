@@ -1,4 +1,5 @@
 import {
+  boundedSpectrogramMinimumDb,
   createSpectrogramPaletteLut,
   type SpectrogramPalette,
   type SpectrogramRenderOptions,
@@ -48,7 +49,8 @@ export interface CachedSpectralTile {
  * silently over-include samples. Including the exact view origin/span and
  * global raster size in the key lets independently computed 256px tiles stitch
  * bit-for-bit with monolithic peak pooling. Palette controls are excluded and
- * therefore remain GPU/Canvas lookup-only operations.
+ * therefore remain GPU/Canvas lookup-only operations. The display dB floor is
+ * likewise excluded because cached tiles retain calibrated dB values.
  */
 export function createSpectralTilePlan(
   audioGeneration: number,
@@ -399,6 +401,7 @@ export class SpectralWebGLAtlas {
   private readonly uvUniform: WebGLUniformLocation;
   private readonly brightnessUniform: WebGLUniformLocation;
   private readonly contrastUniform: WebGLUniformLocation;
+  private readonly minimumDbUniform: WebGLUniformLocation;
   private readonly slots = new Map<string, AtlasSlot>();
   private readonly freeSlots: number[] = [];
   private clock = 0;
@@ -444,6 +447,7 @@ export class SpectralWebGLAtlas {
     this.uvUniform = requiredUniform(gl, this.program, 'u_uv');
     this.brightnessUniform = requiredUniform(gl, this.program, 'u_brightness');
     this.contrastUniform = requiredUniform(gl, this.program, 'u_contrast');
+    this.minimumDbUniform = requiredUniform(gl, this.program, 'u_minimum_db');
 
     gl.bindTexture(gl.TEXTURE_2D, this.atlasTexture);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
@@ -530,6 +534,7 @@ export class SpectralWebGLAtlas {
     gl.uniform1i(gl.getUniformLocation(this.program, 'u_palette'), 1);
     gl.uniform1f(this.brightnessUniform, clamp(options.brightness, 0.25, 3));
     gl.uniform1f(this.contrastUniform, clamp(options.contrast ?? 1, 0.25, 4));
+    gl.uniform1f(this.minimumDbUniform, boundedSpectrogramMinimumDb(options.minimumDb));
     assertWebGlNoError(gl, 'spectral compositor setup');
 
     for (const tile of tiles) {
@@ -709,12 +714,14 @@ uniform sampler2D u_atlas;
 uniform sampler2D u_palette;
 uniform float u_brightness;
 uniform float u_contrast;
+uniform float u_minimum_db;
 in vec2 v_uv;
 out vec4 outputColor;
 void main() {
   float db = texture(u_atlas, v_uv).r;
-  float quantized = floor(clamp((db + 120.0) / 120.0, 0.0, 1.0) * 4095.0 + 0.5);
-  float shifted = (-120.0 + quantized * (120.0 / 4095.0)) + (u_brightness - 1.0) * 18.0;
-  float normalized = clamp(((shifted + 120.0) / 120.0 - 0.5) * u_contrast + 0.5, 0.0, 1.0);
+  float dynamic_range = -u_minimum_db;
+  float quantized = floor(clamp((db - u_minimum_db) / dynamic_range, 0.0, 1.0) * 4095.0 + 0.5);
+  float shifted = (u_minimum_db + quantized * (dynamic_range / 4095.0)) + (u_brightness - 1.0) * 18.0;
+  float normalized = clamp(((shifted - u_minimum_db) / dynamic_range - 0.5) * u_contrast + 0.5, 0.0, 1.0);
   outputColor = texture(u_palette, vec2((normalized * 255.0 + 0.5) / 256.0, 0.5));
 }`;

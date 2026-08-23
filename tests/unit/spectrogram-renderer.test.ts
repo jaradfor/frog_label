@@ -6,7 +6,7 @@ import {
   SpectrogramRenderer,
   type SpectrogramRenderState,
 } from '../../src/audio/SpectrogramRenderer';
-import type { SpectrogramRenderOptions } from '../../src/audio/spectrogram';
+import type { SpectrogramAnalysis, SpectrogramRenderOptions } from '../../src/audio/spectrogram';
 
 class FakeWorker {
   static instances: FakeWorker[] = [];
@@ -233,6 +233,11 @@ describe('SpectrogramRenderer retained surface', () => {
       () => undefined,
       () => undefined,
       (state) => states.push(state),
+      {
+        windowMilliseconds: 40,
+        overlapPercent: 50,
+        windowFunction: 'blackman',
+      },
     );
     const worker = FakeWorker.instances[0];
     const canvas = document.createElement('canvas');
@@ -245,6 +250,21 @@ describe('SpectrogramRenderer retained surface', () => {
         'initialize',
         'render',
       ]);
+    });
+    expect(worker.messages[0]).toMatchObject({
+      type: 'initialize',
+      analysisOptions: {
+        windowMilliseconds: 40,
+        overlapPercent: 50,
+        windowFunction: 'blackman',
+      },
+    });
+    expect(worker.messages[1]).toMatchObject({
+      options: {
+        windowMilliseconds: 40,
+        overlapPercent: 50,
+        windowFunction: 'blackman',
+      },
     });
     const renderMessage = worker.messages[1] as {
       requestId: number;
@@ -283,6 +303,7 @@ describe('SpectrogramRenderer retained surface', () => {
       palette: 'magma',
       brightness: 1.7,
       contrast: 1.2,
+      minimumDb: -60,
     });
     await vi.waitFor(() => {
       expect(states.at(-1)).toMatchObject({
@@ -293,6 +314,133 @@ describe('SpectrogramRenderer retained surface', () => {
       });
     });
     expect(worker.messages).toHaveLength(workerMessageCount);
+    renderer.destroy();
+  });
+
+  it('recolors one cooperative exact pool until the view, channel, or scale changes', async () => {
+    vi.stubGlobal('Worker', undefined);
+    const states: SpectrogramRenderState[] = [];
+    const renderer = new SpectrogramRenderer(
+      loadedAudio(),
+      () => undefined,
+      () => undefined,
+      (state) => states.push(state),
+    );
+    const canvas = sizedCanvas(32, 18);
+    const internals = renderer as unknown as {
+      fallbackAnalysis: SpectrogramAnalysis | null;
+      fallbackPoolTask: object | null;
+    };
+    await vi.waitFor(() => expect(internals.fallbackAnalysis).not.toBeNull(), { timeout: 5_000 });
+
+    const analysis = internals.fallbackAnalysis;
+    if (!analysis) throw new Error('Expected cooperative spectrogram analysis');
+    const channelPowers = analysis.channelPowers;
+    let poolReads = 0;
+    Object.defineProperty(analysis, 'channelPowers', {
+      configurable: true,
+      get: () => {
+        poolReads += 1;
+        return channelPowers;
+      },
+    });
+    const waitForExact = async (requestGeneration: number) => {
+      await vi.waitFor(
+        () => {
+          expect(states.at(-1)).toMatchObject({
+            status: 'ready',
+            quality: 'exact',
+            requestGeneration,
+            paintedRequestGeneration: requestGeneration,
+          });
+        },
+        { timeout: 5_000 },
+      );
+    };
+
+    let options = renderOptions();
+    renderer.render(canvas, options);
+    const sharedPoolTask = internals.fallbackPoolTask;
+    expect(sharedPoolTask).not.toBeNull();
+    options = { ...options, palette: 'magma' };
+    renderer.render(canvas, options);
+    expect(internals.fallbackPoolTask).toBe(sharedPoolTask);
+    options = { ...options, brightness: 1.6, contrast: 1.4, minimumDb: -80 };
+    const latestDisplayRequest = renderer.render(canvas, options);
+    expect(internals.fallbackPoolTask).toBe(sharedPoolTask);
+    await waitForExact(latestDisplayRequest);
+    // All three requests shared the same in-flight pool; only the latest
+    // display transform was allowed to paint.
+    expect(poolReads).toBeGreaterThan(0);
+    expect(contexts.get(canvas)?.putImageData).toHaveBeenCalledOnce();
+
+    poolReads = 0;
+    options = { ...options, palette: 'plasma', brightness: 0.8, contrast: 0.9, minimumDb: -100 };
+    await waitForExact(renderer.render(canvas, options));
+    expect(poolReads).toBe(0);
+    expect(contexts.get(canvas)?.putImageData).toHaveBeenCalledTimes(2);
+
+    poolReads = 0;
+    options = { ...options, timeStartSeconds: 0.1, timeEndSeconds: 0.9 };
+    await waitForExact(renderer.render(canvas, options));
+    expect(poolReads).toBeGreaterThan(0);
+
+    poolReads = 0;
+    options = { ...options, channelMode: 'left' };
+    await waitForExact(renderer.render(canvas, options));
+    expect(poolReads).toBeGreaterThan(0);
+
+    poolReads = 0;
+    options = { ...options, frequencyScale: 'adjustable', frequencyWarp: 0.8 };
+    await waitForExact(renderer.render(canvas, options));
+    expect(poolReads).toBeGreaterThan(0);
+    renderer.destroy();
+  });
+
+  it('paints a latest-wins preview while an adjustable remap waits for exact tiles', async () => {
+    const states: SpectrogramRenderState[] = [];
+    const renderer = new SpectrogramRenderer(
+      loadedAudio(),
+      () => undefined,
+      () => undefined,
+      (state) => states.push(state),
+    );
+    const worker = FakeWorker.instances[0];
+    const canvas = sizedCanvas(32, 18);
+    renderer.render(canvas, renderOptions());
+    worker.emit({ type: 'ready' });
+    await vi.waitFor(() => expect(worker.messages).toHaveLength(2));
+    const initial = tileRenderMessage(worker);
+    emitVisibleTiles(worker, initial);
+    worker.emit({
+      type: 'tiles-complete',
+      requestId: initial.requestId,
+      audioGeneration: initial.tileRequest.audioGeneration,
+      viewKey: initial.tileRequest.viewKey,
+    });
+    await vi.waitFor(() => {
+      expect(states.at(-1)).toMatchObject({ status: 'ready', quality: 'exact' });
+    });
+
+    renderer.render(canvas, {
+      ...renderOptions(),
+      frequencyScale: 'adjustable',
+      frequencyWarp: 0.75,
+    });
+    await vi.waitFor(() => {
+      expect(worker.messages).toHaveLength(3);
+      expect(states.at(-1)).toMatchObject({
+        status: 'preview',
+        quality: 'preview',
+        requestGeneration: 2,
+        paintedRequestGeneration: 2,
+      });
+    });
+    expect(worker.messages[2]).toMatchObject({
+      type: 'render',
+      requestId: 2,
+      options: { frequencyScale: 'adjustable', frequencyWarp: 0.75 },
+    });
     renderer.destroy();
   });
 

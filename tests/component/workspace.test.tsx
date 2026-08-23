@@ -259,13 +259,36 @@ describe('FrogLabelWorkspace controls', () => {
     );
     expect(screen.getByLabelText('Roseus dBFS scale')).toHaveTextContent('-120-90-60-300');
 
+    expect(screen.getByText(/Complete ~20 ms Hann analysis/)).toHaveTextContent(
+      '75% overlap · fixed −120 dBFS floor',
+    );
+    const windowDuration = screen.getByLabelText('Window duration');
+    expect(windowDuration).toHaveValue('20');
+    expect(within(windowDuration).getAllByRole('option')).toHaveLength(4);
+    const windowFunction = screen.getByLabelText('Window function');
+    expect(windowFunction).toHaveValue('hann');
+    expect(within(windowFunction).getAllByRole('option')).toHaveLength(4);
+    const overlap = screen.getByLabelText('Frame overlap');
+    expect(overlap).toHaveValue('75');
+    expect(within(overlap).getAllByRole('option')).toHaveLength(4);
+    const floor = screen.getByRole('slider', { name: 'dBFS floor' });
+    expect(floor).toHaveValue('-120');
+    await user.selectOptions(windowDuration, '40');
+    await user.selectOptions(windowFunction, 'blackman');
+    await user.selectOptions(overlap, '50');
+    fireEvent.change(floor, { target: { value: '-80' } });
+    expect(screen.getByText(/Complete ~40 ms Blackman analysis/)).toHaveTextContent(
+      '50% overlap · fixed −80 dBFS floor',
+    );
+    expect(screen.getByLabelText('Roseus dBFS scale')).toHaveTextContent('-80-60-40-200');
+
     const frequencyScale = screen.getByLabelText('Frequency scale');
     expect(within(frequencyScale).getAllByRole('option')).toHaveLength(3);
     await user.selectOptions(frequencyScale, 'adjustable');
     const emphasis = screen.getByRole('slider', { name: 'Low-frequency emphasis' });
     expect(emphasis).toHaveValue('0.5');
     fireEvent.change(emphasis, { target: { value: '0.75' } });
-    expect(screen.getByText('75%')).toBeVisible();
+    expect(emphasis.closest('label')).toHaveTextContent('75%');
   });
 
   it('resets the actual virtual species-list scroll position when filtering', async () => {

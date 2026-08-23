@@ -2,10 +2,15 @@ import type { LoadedAudio } from './AudioResource';
 import spectrogramWorkerSource from 'virtual:froglabel-spectrogram-worker';
 import {
   colorizeSpectrogramDb,
+  colorizeSpectrogramDbCooperative,
   computeSpectrogramAnalysisCooperative,
-  renderSpectrogramPixelsCooperative,
+  DEFAULT_SPECTROGRAM_OVERLAP_PERCENT,
+  DEFAULT_SPECTROGRAM_WINDOW_FUNCTION,
+  DEFAULT_SPECTROGRAM_WINDOW_MILLISECONDS,
+  poolSpectrogramDbCooperative,
   renderSpectrogramPreviewPixelsCooperative,
   type SpectrogramAnalysis,
+  type SpectrogramAnalysisOptions,
   type SpectrogramRenderOptions,
 } from './spectrogram';
 import {
@@ -64,6 +69,30 @@ interface CurrentTileRender {
   height: number;
 }
 
+interface FallbackPoolView {
+  analysis: SpectrogramAnalysis;
+  width: number;
+  height: number;
+  timeStartSeconds: number;
+  timeEndSeconds: number;
+  lowFrequencyHz: number;
+  highFrequencyHz: number;
+  channelMode: NonNullable<SpectrogramRenderOptions['channelMode']>;
+  frequencyScale: NonNullable<SpectrogramRenderOptions['frequencyScale']>;
+  frequencyWarp: number;
+}
+
+interface FallbackDbFrame {
+  view: FallbackPoolView;
+  db: Float32Array;
+}
+
+interface FallbackPoolTask {
+  view: FallbackPoolView;
+  controller: AbortController;
+  promise: Promise<FallbackDbFrame>;
+}
+
 let nextAudioGeneration = 1;
 
 export type SpectrogramRenderPhase = 'analyzing' | 'firstFrameReady' | 'error';
@@ -93,6 +122,8 @@ export class SpectrogramRenderer {
   private fallbackAnalysis: SpectrogramAnalysis | null = null;
   private fallbackController: AbortController | null = null;
   private fallbackRenderController: AbortController | null = null;
+  private fallbackDbFrame: FallbackDbFrame | null = null;
+  private fallbackPoolTask: FallbackPoolTask | null = null;
   private startupPreviewController: AbortController | null = null;
   private tilePaintController: AbortController | null = null;
   private latestRequestId = 0;
@@ -118,13 +149,21 @@ export class SpectrogramRenderer {
   private quality: SpectrogramRenderQuality = 'none';
   private lifecyclePhase: SpectrogramRenderPhase | null = null;
   private destroyed = false;
+  private readonly analysisOptions: Required<SpectrogramAnalysisOptions>;
 
   constructor(
     private readonly audio: LoadedAudio,
     private readonly onError: (message: string) => void,
     private readonly onPhaseChange: (phase: SpectrogramRenderPhase) => void = () => undefined,
     private readonly onStateChange: (state: SpectrogramRenderState) => void = () => undefined,
+    analysisOptions: SpectrogramAnalysisOptions = {},
   ) {
+    this.analysisOptions = {
+      windowMilliseconds:
+        analysisOptions.windowMilliseconds ?? DEFAULT_SPECTROGRAM_WINDOW_MILLISECONDS,
+      overlapPercent: analysisOptions.overlapPercent ?? DEFAULT_SPECTROGRAM_OVERLAP_PERCENT,
+      windowFunction: analysisOptions.windowFunction ?? DEFAULT_SPECTROGRAM_WINDOW_FUNCTION,
+    };
     if (typeof Worker !== 'undefined') {
       try {
         const revokeObjectUrl = URL.revokeObjectURL.bind(URL);
@@ -148,8 +187,12 @@ export class SpectrogramRenderer {
   render(canvas: HTMLCanvasElement, options: SpectrogramRenderOptions): number {
     if (this.destroyed) return this.latestRequestId;
     const { width, height } = rasterSize(canvas);
+    const effectiveOptions: SpectrogramRenderOptions = {
+      ...options,
+      ...this.analysisOptions,
+    };
     this.latestCanvas = canvas;
-    this.latestOptions = { ...options };
+    this.latestOptions = effectiveOptions;
     this.latestWidth = width;
     this.latestHeight = height;
     this.latestRequestId += 1;
@@ -158,16 +201,20 @@ export class SpectrogramRenderer {
     this.tilePaintController?.abort();
 
     if (!this.hasFrame) this.emitLifecycle('analyzing');
-    const retained = this.reprojectDisplayedFrame(canvas, width, height, options);
+    const mappingChanged = this.frequencyMappingChanged(effectiveOptions);
+    const retained = this.reprojectDisplayedFrame(canvas, width, height, effectiveOptions);
     this.emitState(
       this.hasFrame ? 'refining' : 'initializing',
       retained ? 'retained' : this.quality,
     );
 
     if (this.worker) {
-      if (this.workerReady && this.workerInitialized) this.renderWorker(width, height, options);
-      else this.renderStartupPreview();
+      if (this.workerReady && this.workerInitialized) {
+        if (mappingChanged && !retained) this.renderStartupPreview();
+        this.renderWorker(width, height, effectiveOptions);
+      } else this.renderStartupPreview();
     } else {
+      if (mappingChanged && this.fallbackAnalysis) this.renderStartupPreview();
       this.renderFallback();
     }
     return this.latestRequestId;
@@ -186,6 +233,9 @@ export class SpectrogramRenderer {
     this.fallbackController = null;
     this.fallbackRenderController?.abort();
     this.fallbackRenderController = null;
+    this.fallbackPoolTask?.controller.abort();
+    this.fallbackPoolTask = null;
+    this.fallbackDbFrame = null;
     this.startupPreviewController?.abort();
     this.startupPreviewController = null;
     this.tilePaintController?.abort();
@@ -295,6 +345,7 @@ export class SpectrogramRenderer {
             channelCount: this.audio.analysis.channelCount,
             channels,
           },
+          analysisOptions: this.analysisOptions,
         },
         channels.map((channel) => channel.buffer),
       );
@@ -398,7 +449,12 @@ export class SpectrogramRenderer {
       { signal: controller.signal, sliceMilliseconds: 8 },
     )
       .then((frame) => {
-        if (controller.signal.aborted || this.destroyed || requestId !== this.latestRequestId)
+        if (
+          controller.signal.aborted ||
+          this.destroyed ||
+          requestId !== this.latestRequestId ||
+          (this.paintedRequestGeneration === requestId && this.quality === 'exact')
+        )
           return;
         this.startupPreviewController = null;
         this.paint({
@@ -424,6 +480,7 @@ export class SpectrogramRenderer {
     const controller = new AbortController();
     this.fallbackController = controller;
     void computeSpectrogramAnalysisCooperative(this.audio.analysis, {
+      ...this.analysisOptions,
       signal: controller.signal,
       framesPerYield: 8,
       sliceMilliseconds: 8,
@@ -455,15 +512,21 @@ export class SpectrogramRenderer {
     const targetWidth = this.latestWidth;
     const targetHeight = this.latestHeight;
     const render = analysis
-      ? renderSpectrogramPixelsCooperative(analysis, targetWidth, targetHeight, options, {
-          signal: controller.signal,
-          sliceMilliseconds: 8,
-        }).then((pixels) => ({
-          width: targetWidth,
-          height: targetHeight,
-          quality: 'exact' as const,
-          pixels,
-        }))
+      ? this.getFallbackDbFrame(analysis, targetWidth, targetHeight, options).then(
+          async (frame) => {
+            throwRendererAbort(controller.signal, 'Spectrogram render cancelled');
+            const pixels = await colorizeSpectrogramDbCooperative(frame.db, options, {
+              signal: controller.signal,
+              sliceMilliseconds: 8,
+            });
+            return {
+              width: targetWidth,
+              height: targetHeight,
+              quality: 'exact' as const,
+              pixels,
+            };
+          },
+        )
       : renderSpectrogramPreviewPixelsCooperative(
           this.audio.analysis,
           targetWidth,
@@ -494,6 +557,44 @@ export class SpectrogramRenderer {
           );
         }
       });
+  }
+
+  private getFallbackDbFrame(
+    analysis: SpectrogramAnalysis,
+    width: number,
+    height: number,
+    options: SpectrogramRenderOptions,
+  ): Promise<FallbackDbFrame> {
+    const view = fallbackPoolView(analysis, width, height, options);
+    if (this.fallbackDbFrame && sameFallbackPoolView(this.fallbackDbFrame.view, view)) {
+      return Promise.resolve(this.fallbackDbFrame);
+    }
+    if (this.fallbackPoolTask && sameFallbackPoolView(this.fallbackPoolTask.view, view)) {
+      return this.fallbackPoolTask.promise;
+    }
+
+    this.fallbackPoolTask?.controller.abort();
+    this.fallbackDbFrame = null;
+    const controller = new AbortController();
+    const promise = poolSpectrogramDbCooperative(analysis, width, height, options, {
+      signal: controller.signal,
+      sliceMilliseconds: 8,
+    })
+      .then((db) => {
+        throwRendererAbort(controller.signal, 'Spectrogram render cancelled');
+        const frame = { view, db };
+        if (this.fallbackPoolTask?.controller === controller) {
+          this.fallbackPoolTask = null;
+          this.fallbackDbFrame = frame;
+        }
+        return frame;
+      })
+      .catch((error: unknown) => {
+        if (this.fallbackPoolTask?.controller === controller) this.fallbackPoolTask = null;
+        throw error;
+      });
+    this.fallbackPoolTask = { view, controller, promise };
+    return promise;
   }
 
   private paint(frame: WorkerRenderResult): void {
@@ -689,6 +790,7 @@ export class SpectrogramRenderer {
       prior.palette !== next.palette ||
       prior.brightness !== next.brightness ||
       prior.contrast !== next.contrast ||
+      (prior.minimumDb ?? -120) !== (next.minimumDb ?? -120) ||
       prior.channelMode !== next.channelMode ||
       (prior.frequencyScale ?? 'linear') !== (next.frequencyScale ?? 'linear') ||
       (prior.frequencyWarp ?? 0.5) !== (next.frequencyWarp ?? 0.5)
@@ -758,6 +860,16 @@ export class SpectrogramRenderer {
     return true;
   }
 
+  private frequencyMappingChanged(next: SpectrogramRenderOptions): boolean {
+    const prior = this.displayedOptions;
+    return Boolean(
+      this.hasFrame &&
+      prior &&
+      ((prior.frequencyScale ?? 'linear') !== (next.frequencyScale ?? 'linear') ||
+        (prior.frequencyWarp ?? 0.5) !== (next.frequencyWarp ?? 0.5)),
+    );
+  }
+
   private bufferCanvas(
     owner: HTMLCanvasElement,
     kind: 'pixels' | 'composite',
@@ -810,6 +922,41 @@ function validTileResult(descriptor: SpectralTileDescriptor, db: Float32Array): 
     Number.isInteger(descriptor.height) &&
     db instanceof Float32Array &&
     db.length === descriptor.width * descriptor.height
+  );
+}
+
+function fallbackPoolView(
+  analysis: SpectrogramAnalysis,
+  width: number,
+  height: number,
+  options: SpectrogramRenderOptions,
+): FallbackPoolView {
+  return {
+    analysis,
+    width,
+    height,
+    timeStartSeconds: options.timeStartSeconds,
+    timeEndSeconds: options.timeEndSeconds,
+    lowFrequencyHz: options.lowFrequencyHz,
+    highFrequencyHz: options.highFrequencyHz,
+    channelMode: options.channelMode ?? 'average',
+    frequencyScale: options.frequencyScale ?? 'linear',
+    frequencyWarp: options.frequencyWarp ?? 0.5,
+  };
+}
+
+function sameFallbackPoolView(left: FallbackPoolView, right: FallbackPoolView): boolean {
+  return (
+    left.analysis === right.analysis &&
+    left.width === right.width &&
+    left.height === right.height &&
+    left.timeStartSeconds === right.timeStartSeconds &&
+    left.timeEndSeconds === right.timeEndSeconds &&
+    left.lowFrequencyHz === right.lowFrequencyHz &&
+    left.highFrequencyHz === right.highFrequencyHz &&
+    left.channelMode === right.channelMode &&
+    left.frequencyScale === right.frequencyScale &&
+    left.frequencyWarp === right.frequencyWarp
   );
 }
 

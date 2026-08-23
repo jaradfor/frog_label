@@ -215,16 +215,26 @@ test('switches palettes and adjustable frequency emphasis without blanking', asy
 
   const frequencyScale = page.getByLabel('Frequency scale');
   const scaleGeneration = Number((await shell.getAttribute('data-render-generation')) ?? 0);
+  const scaleRequestGeneration = Number(
+    (await shell.getAttribute('data-render-request-generation')) ?? 0,
+  );
   await frequencyScale.selectOption('adjustable');
+  await expect(shell).toHaveAttribute('data-frequency-scale', 'adjustable');
+  await waitForExactSpectrogramPaint(shell, scaleGeneration, scaleRequestGeneration);
+  const adjustableGeneration = Number((await shell.getAttribute('data-render-generation')) ?? 0);
+  const adjustableRequestGeneration = Number(
+    (await shell.getAttribute('data-render-request-generation')) ?? 0,
+  );
+  const adjustablePixels = await spectrogramPixelDigest(page.locator('canvas.spectrogram-canvas'));
+
   const emphasis = page.getByRole('slider', { name: 'Low-frequency emphasis' });
   await emphasis.fill('0.75');
-  await expect(shell).toHaveAttribute('data-frequency-scale', 'adjustable');
   await expect(shell).toHaveAttribute('data-frequency-warp', '0.75');
-  await expect
-    .poll(async () => Number(await shell.getAttribute('data-render-generation')))
-    .toBeGreaterThan(scaleGeneration);
-  await expect(shell).toHaveAttribute('aria-busy', 'false');
+  await waitForExactSpectrogramPaint(shell, adjustableGeneration, adjustableRequestGeneration);
   await expect(page.locator('.spectrogram-readiness-overlay')).toHaveCount(0);
+  expect(await spectrogramPixelDigest(page.locator('canvas.spectrogram-canvas'))).not.toBe(
+    adjustablePixels,
+  );
 
   const beforeAdjustableZoom = await readViewport(page.locator('canvas.spectrogram-canvas'));
   await page.locator('.spectrogram-stage').focus();
@@ -249,7 +259,7 @@ test('fifty view operations cannot mutate canonical geometry', async ({ page }) 
   await page.mouse.move(rect!.x + 190, rect!.y + 240);
   await page.mouse.up();
   await page.keyboard.press('Digit4');
-  const before = await page.getByRole('row', { name: /GRE — Green Tree Frog/ }).innerText();
+  const before = await page.getByRole('row', { name: /GRE — Green Treefrog/i }).innerText();
   for (let index = 0; index < 10; index += 1) {
     await page.getByRole('button', { name: 'Zoom in spectrogram' }).click();
     await page.getByRole('button', { name: 'Zoom out spectrogram' }).click();
@@ -257,7 +267,7 @@ test('fifty view operations cannot mutate canonical geometry', async ({ page }) 
     await page.getByRole('button', { name: '3 Display' }).click();
     await page.getByRole('button', { name: '3 Display' }).click();
   }
-  expect(await page.getByRole('row', { name: /GRE — Green Tree Frog/ }).innerText()).toBe(before);
+  expect(await page.getByRole('row', { name: /GRE — Green Treefrog/i }).innerText()).toBe(before);
 });
 
 test('WASD, Q/E, and X control both camera axes with painted feedback', async ({ page }) => {
@@ -560,6 +570,31 @@ async function pressAndWaitForPaint(page: Page, shell: Locator, key: string): Pr
     .toBe(true);
 }
 
+async function waitForExactSpectrogramPaint(
+  shell: Locator,
+  beforePaint: number,
+  beforeRequest: number,
+): Promise<void> {
+  await expect
+    .poll(
+      async () => {
+        const paint = Number((await shell.getAttribute('data-render-generation')) ?? 0);
+        const requested = Number((await shell.getAttribute('data-render-request-generation')) ?? 0);
+        const paintedRequest = Number(
+          (await shell.getAttribute('data-render-painted-request-generation')) ?? 0,
+        );
+        return (
+          paint > beforePaint &&
+          requested > beforeRequest &&
+          paintedRequest === requested &&
+          (await shell.getAttribute('data-render-quality')) === 'exact'
+        );
+      },
+      { timeout: 10_000 },
+    )
+    .toBe(true);
+}
+
 async function readViewport(canvas: Locator): Promise<{
   timeStart: number;
   timeEnd: number;
@@ -583,6 +618,22 @@ async function readViewport(canvas: Locator): Promise<{
       lowFrequency: read('data-view-low-frequency-hz'),
       highFrequency: read('data-view-high-frequency-hz'),
     };
+  });
+}
+
+async function spectrogramPixelDigest(canvas: Locator): Promise<number> {
+  return canvas.evaluate((element) => {
+    const source = element as HTMLCanvasElement;
+    const probe = document.createElement('canvas');
+    probe.width = 64;
+    probe.height = 64;
+    const context = probe.getContext('2d', { willReadFrequently: true });
+    if (!context) throw new Error('Could not create a spectrogram pixel probe');
+    context.drawImage(source, 0, 0, probe.width, probe.height);
+    const pixels = context.getImageData(0, 0, probe.width, probe.height).data;
+    let hash = 2_166_136_261;
+    for (const channel of pixels) hash = Math.imul(hash ^ channel, 16_777_619);
+    return hash >>> 0;
   });
 }
 

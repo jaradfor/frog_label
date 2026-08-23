@@ -63,10 +63,16 @@ import {
 } from '../../app/speciesPrefix';
 import { SpectrogramCanvas } from './SpectrogramCanvas';
 import {
+  analysisFftSize,
+  DEFAULT_SPECTROGRAM_OVERLAP_PERCENT,
+  DEFAULT_SPECTROGRAM_WINDOW_FUNCTION,
+  DEFAULT_SPECTROGRAM_WINDOW_MILLISECONDS,
+  overlapSamples,
   SPECTROGRAM_PALETTES,
   spectrogramPaletteCssGradient,
   type FrequencyScale,
   type SpectrogramPalette,
+  type SpectrogramWindowFunction,
 } from '../../audio/spectrogram';
 import {
   DEFAULT_FREQUENCY_WARP,
@@ -104,6 +110,19 @@ interface ActiveBoxAudition {
 }
 
 type QuickSelectableSpecies = SpeciesEntry;
+
+interface SpectrogramSettings {
+  windowMilliseconds: number;
+  overlapPercent: number;
+  windowFunction: SpectrogramWindowFunction;
+  minimumDb: number;
+  brightness: number;
+  contrast: number;
+  palette: SpectrogramPalette;
+  channelMode: AnalysisChannelMode;
+  frequencyScale: FrequencyScale;
+  frequencyWarp: number;
+}
 
 interface ActiveSpeciesCapture {
   catalogRevision: number;
@@ -432,18 +451,11 @@ function WorkspaceCore({
   });
   const pointerAnchorRef = useRef<{ timeRatio: number; frequencyRatio: number } | null>(null);
   const activePointersRef = useRef(new Set<number>());
-  const [settings, setSettings] = useState<{
-    fftSamples: number;
-    overlapPercent: number;
-    brightness: number;
-    contrast: number;
-    palette: SpectrogramPalette;
-    channelMode: AnalysisChannelMode;
-    frequencyScale: FrequencyScale;
-    frequencyWarp: number;
-  }>({
-    fftSamples: 512,
-    overlapPercent: 75,
+  const [settings, setSettings] = useState<SpectrogramSettings>({
+    windowMilliseconds: DEFAULT_SPECTROGRAM_WINDOW_MILLISECONDS,
+    overlapPercent: DEFAULT_SPECTROGRAM_OVERLAP_PERCENT,
+    windowFunction: DEFAULT_SPECTROGRAM_WINDOW_FUNCTION,
+    minimumDb: -120,
     brightness: 1.25,
     contrast: 1,
     palette: 'viridis',
@@ -1419,7 +1431,7 @@ function WorkspaceCore({
   const statusMain = speciesCapture
     ? `SPECIES ${speciesCapture.selection.query || ''}_ → ${captureResolution ? `${captureResolution.winner.code} — ${captureResolution.winner.speciesName}` : 'no match'}${captureAmbiguity}${captureAlternatives ? ` · also ${captureAlternatives}` : ''}${speciesCapture.rejected ? ` · rejected ${speciesCapture.rejected}` : ''} · release Space`
     : `${tool.toUpperCase()} · ${currentSpecies ? `${currentSpecies.code} — ${currentSpecies.speciesName}` : 'NO SPECIES'} · ${isPlaying ? 'PLAYING' : 'PAUSED'} ${playbackRate}×${visualDomain.document?.reviewStatus === 'no_calls' ? ' · NO CALLS' : ''}`;
-  const statusMeta = `${view.timeStartSeconds.toFixed(2)}–${view.timeEndSeconds.toFixed(2)}s · ${Math.round(view.lowFrequencyHz)}–${Math.round(view.highFrequencyHz)}Hz`;
+  const statusMeta = `${view.timeStartSeconds.toFixed(2)}–${view.timeEndSeconds.toFixed(2)}s · ${Math.round(view.lowFrequencyHz)}–${Math.round(view.highFrequencyHz)}Hz · render ${spectrogramRenderStatus} · ${hostStatus.phase}`;
 
   return (
     <main
@@ -1427,6 +1439,7 @@ function WorkspaceCore({
       data-audio-phase={audioPhase === 'loading' ? 'decoding' : audioPhase}
       data-spectrogram-state={spectrogramPhase}
       data-render-status={spectrogramRenderStatus}
+      data-domain-revision={domain.revision}
       data-species-capture={speciesCapture ? 'active' : 'idle'}
       data-species-panel={panels.species ? 'open' : 'closed'}
       data-inspector-panel={panels.details ? 'details' : panels.display ? 'display' : 'closed'}
@@ -1882,6 +1895,7 @@ function WorkspaceCore({
                 onChange={setSettings}
                 view={view}
                 channelCount={audio?.channelCount ?? 1}
+                sampleRateHz={audio?.analysis.sampleRateHz}
                 onMinimum={(lowFrequencyHz) =>
                   setView((current) => {
                     const floor = frequencyFloor(
@@ -2424,32 +2438,116 @@ function DisplayPanel({
   onChange,
   view,
   channelCount,
+  sampleRateHz,
   onMinimum,
   onCutoff,
 }: {
-  settings: {
-    fftSamples: number;
-    overlapPercent: number;
-    brightness: number;
-    contrast: number;
-    palette: SpectrogramPalette;
-    channelMode: AnalysisChannelMode;
-    frequencyScale: FrequencyScale;
-    frequencyWarp: number;
-  };
+  settings: SpectrogramSettings;
   onChange(value: typeof settings): void;
   view: { maximumFrequencyHz: number; lowFrequencyHz: number; highFrequencyHz: number };
   channelCount: number;
+  sampleRateHz?: number;
   onMinimum(value: number): void;
   onCutoff(value: number): void;
 }) {
   const selectedPalette =
     SPECTROGRAM_PALETTES.find((palette) => palette.value === settings.palette) ??
     SPECTROGRAM_PALETTES[0];
+  const fftSamples = sampleRateHz
+    ? analysisFftSize(sampleRateHz, settings.windowMilliseconds)
+    : null;
+  const actualWindowMilliseconds =
+    sampleRateHz && fftSamples ? (fftSamples / sampleRateHz) * 1_000 : settings.windowMilliseconds;
+  const hopSamples = fftSamples
+    ? Math.max(1, fftSamples - overlapSamples(fftSamples, settings.overlapPercent))
+    : null;
+  const actualHopMilliseconds =
+    sampleRateHz && hopSamples ? (hopSamples / sampleRateHz) * 1_000 : null;
+  const windowLabel = spectrogramWindowLabel(settings.windowFunction);
+  const levelTicks = Array.from({ length: 5 }, (_, index) =>
+    Math.round(settings.minimumDb * (1 - index / 4)),
+  );
 
   return (
     <section className="display-panel">
       <PanelHeading number="3" title="Spectrogram" />
+      <fieldset className="spectrogram-analysis-settings">
+        <legend>Analysis</legend>
+        <p className="analysis-summary">
+          Complete ~{settings.windowMilliseconds} ms {windowLabel} analysis ·{' '}
+          {settings.overlapPercent}% overlap · fixed {formatSignedLevel(settings.minimumDb)} dBFS
+          floor
+          {fftSamples && hopSamples && actualHopMilliseconds !== null ? (
+            <span className="analysis-actual">
+              Actual {formatAnalysisMilliseconds(actualWindowMilliseconds)} ms / {fftSamples}-sample
+              FFT · {hopSamples}-sample hop ({formatAnalysisMilliseconds(actualHopMilliseconds)} ms)
+              · {fftSamples / 2 + 1} bins
+            </span>
+          ) : null}
+        </p>
+        <div className="analysis-control-grid">
+          <label>
+            Window duration
+            <select
+              value={settings.windowMilliseconds}
+              onChange={(event) =>
+                onChange({ ...settings, windowMilliseconds: Number(event.target.value) })
+              }
+            >
+              {[10, 20, 40, 80].map((milliseconds) => (
+                <option key={milliseconds} value={milliseconds}>
+                  {milliseconds} ms target
+                </option>
+              ))}
+            </select>
+          </label>
+          <label>
+            Window function
+            <select
+              value={settings.windowFunction}
+              onChange={(event) =>
+                onChange({
+                  ...settings,
+                  windowFunction: event.target.value as SpectrogramWindowFunction,
+                })
+              }
+            >
+              <option value="hann">Hann</option>
+              <option value="hamming">Hamming</option>
+              <option value="blackman">Blackman</option>
+              <option value="rectangular">Rectangular</option>
+            </select>
+          </label>
+          <label>
+            Frame overlap
+            <select
+              value={settings.overlapPercent}
+              onChange={(event) =>
+                onChange({ ...settings, overlapPercent: Number(event.target.value) })
+              }
+            >
+              {[0, 25, 50, 75].map((overlap) => (
+                <option key={overlap} value={overlap}>
+                  {overlap}%
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
+        <label>
+          dBFS floor <output>{formatSignedLevel(settings.minimumDb)} dBFS</output>
+          <input
+            type="range"
+            min="-120"
+            max="-40"
+            step="5"
+            value={settings.minimumDb}
+            aria-label="dBFS floor"
+            onChange={(event) => onChange({ ...settings, minimumDb: Number(event.target.value) })}
+          />
+          <span className="muted">Lower reveals quieter sound; higher suppresses background.</span>
+        </label>
+      </fieldset>
       <fieldset className="palette-picker">
         <legend>Palette</legend>
         <div className="palette-options" role="radiogroup" aria-label="Spectrogram palette">
@@ -2480,7 +2578,7 @@ function DisplayPanel({
             aria-hidden="true"
           />
           <span className="palette-level-ticks" aria-hidden="true">
-            {[-120, -90, -60, -30, 0].map((level) => (
+            {levelTicks.map((level) => (
               <span key={level}>{level}</span>
             ))}
           </span>
@@ -2588,6 +2686,19 @@ function DisplayPanel({
       </label>
     </section>
   );
+}
+
+function spectrogramWindowLabel(windowFunction: SpectrogramWindowFunction): string {
+  if (windowFunction === 'rectangular') return 'Rectangular';
+  return `${windowFunction[0].toUpperCase()}${windowFunction.slice(1)}`;
+}
+
+function formatAnalysisMilliseconds(milliseconds: number): string {
+  return Number.isInteger(milliseconds) ? String(milliseconds) : milliseconds.toFixed(1);
+}
+
+function formatSignedLevel(level: number): string {
+  return level < 0 ? `−${Math.abs(level)}` : String(level);
 }
 
 function DatasetTable({

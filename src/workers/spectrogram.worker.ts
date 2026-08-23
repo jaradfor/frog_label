@@ -4,6 +4,7 @@ import {
   renderSpectrogramPixelsCooperative,
   renderSpectrogramPreviewPixelsCooperative,
   type SpectrogramAnalysis,
+  type SpectrogramAnalysisOptions,
   type SpectrogramRenderOptions,
 } from '../audio/spectrogram';
 import type { SpectralTileDescriptor } from '../audio/SpectralTileAtlas';
@@ -12,6 +13,7 @@ import type { AudioAnalysisSource } from '../domain/types';
 interface InitializeMessage {
   type: 'initialize';
   source: AudioAnalysisSource;
+  analysisOptions?: SpectrogramAnalysisOptions;
 }
 
 interface RenderMessage {
@@ -46,7 +48,7 @@ let exactFrameCacheBytes = 0;
 workerScope.onmessage = (event: MessageEvent<WorkerRequest>) => {
   const message = event.data;
   if (message.type === 'initialize') {
-    beginInitialization(message.source);
+    beginInitialization(message.source, message.analysisOptions);
     return;
   }
   latestRender = message;
@@ -55,7 +57,10 @@ workerScope.onmessage = (event: MessageEvent<WorkerRequest>) => {
   void drainLatestRender();
 };
 
-function beginInitialization(nextSource: AudioAnalysisSource): void {
+function beginInitialization(
+  nextSource: AudioAnalysisSource,
+  analysisOptions: SpectrogramAnalysisOptions = {},
+): void {
   initializationGeneration += 1;
   const generation = initializationGeneration;
   initializationController?.abort();
@@ -72,6 +77,7 @@ function beginInitialization(nextSource: AudioAnalysisSource): void {
   void yieldToWorker()
     .then(() =>
       computeSpectrogramAnalysisCooperative(nextSource, {
+        ...analysisOptions,
         signal: controller.signal,
         framesPerYield: 8,
         sliceMilliseconds: 8,
@@ -236,6 +242,7 @@ function exactFrameCacheKey(message: RenderMessage): string {
     options.channelMode ?? 'average',
     options.frequencyScale ?? 'linear',
     options.frequencyWarp ?? 0.5,
+    options.minimumDb ?? -120,
   ]);
 }
 

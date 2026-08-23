@@ -10,6 +10,7 @@ import {
   prepareWaveformPeakIndexesCooperative,
   type FrequencyScale,
   type SpectrogramPalette,
+  type SpectrogramWindowFunction,
 } from '../../audio/spectrogram';
 import type {
   AnalysisChannelMode,
@@ -59,8 +60,10 @@ interface SpectrogramCanvasProps {
   disabled: boolean;
   view: ViewWindow;
   settings: {
-    fftSamples: number;
+    windowMilliseconds: number;
     overlapPercent: number;
+    windowFunction: SpectrogramWindowFunction;
+    minimumDb: number;
     brightness: number;
     contrast: number;
     palette: SpectrogramPalette;
@@ -227,13 +230,27 @@ export function SpectrogramCanvas({
       },
       reportPhase,
       reportRenderState,
+      {
+        windowMilliseconds: settings.windowMilliseconds,
+        overlapPercent: settings.overlapPercent,
+        windowFunction: settings.windowFunction,
+      },
     );
     rendererRef.current = renderer;
     return () => {
       renderer.destroy();
       if (rendererRef.current === renderer) rendererRef.current = null;
     };
-  }, [audio, onError, reportPhase, reportRenderState, retryVersion]);
+  }, [
+    audio,
+    onError,
+    reportPhase,
+    reportRenderState,
+    retryVersion,
+    settings.overlapPercent,
+    settings.windowFunction,
+    settings.windowMilliseconds,
+  ]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -471,6 +488,10 @@ export function SpectrogramCanvas({
       data-render-painted-request-generation={renderState.paintedRequestGeneration}
       data-frequency-scale={settings.frequencyScale}
       data-frequency-warp={settings.frequencyWarp}
+      data-window-milliseconds={settings.windowMilliseconds}
+      data-window-function={settings.windowFunction}
+      data-overlap-percent={settings.overlapPercent}
+      data-minimum-db={settings.minimumDb}
       data-view-time-start-seconds={view.timeStartSeconds}
       data-view-time-end-seconds={view.timeEndSeconds}
       data-view-low-frequency-hz={view.lowFrequencyHz}

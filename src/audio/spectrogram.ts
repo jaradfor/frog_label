@@ -17,6 +17,17 @@ export type SpectrogramPalette = (typeof SPECTROGRAM_PALETTES)[number]['value'];
 
 export const SPECTROGRAM_DB_FLOOR = -120;
 export const SPECTROGRAM_DB_CEILING = 0;
+export const DEFAULT_SPECTROGRAM_WINDOW_MILLISECONDS = 20;
+export const DEFAULT_SPECTROGRAM_OVERLAP_PERCENT = 75;
+export const DEFAULT_SPECTROGRAM_WINDOW_FUNCTION = 'hann' as const;
+
+export type SpectrogramWindowFunction = 'hann' | 'hamming' | 'blackman' | 'rectangular';
+
+export interface SpectrogramAnalysisOptions {
+  windowMilliseconds?: number;
+  overlapPercent?: number;
+  windowFunction?: SpectrogramWindowFunction;
+}
 
 export interface SpectrogramRenderOptions {
   timeStartSeconds: number;
@@ -29,6 +40,10 @@ export interface SpectrogramRenderOptions {
   channelMode?: AnalysisChannelMode;
   frequencyScale?: FrequencyScale;
   frequencyWarp?: number;
+  windowMilliseconds?: number;
+  overlapPercent?: number;
+  windowFunction?: SpectrogramWindowFunction;
+  minimumDb?: number;
 }
 
 export interface SpectrogramAnalysis {
@@ -106,18 +121,31 @@ const WAVEFORM_BLOCK_SAMPLES = 64;
 const waveformPeakIndexes = new WeakMap<Float32Array, WaveformPeakIndex>();
 const waveformPeakIndexBuilds = new WeakMap<Float32Array, Promise<WaveformPeakIndex>>();
 
-export function analysisFftSize(sampleRateHz: number): number {
-  const target = Math.ceil(sampleRateHz * 0.02);
+export function analysisFftSize(
+  sampleRateHz: number,
+  windowMilliseconds = DEFAULT_SPECTROGRAM_WINDOW_MILLISECONDS,
+): number {
+  const milliseconds =
+    Number.isFinite(windowMilliseconds) && windowMilliseconds > 0
+      ? windowMilliseconds
+      : DEFAULT_SPECTROGRAM_WINDOW_MILLISECONDS;
+  const target = Math.ceil(sampleRateHz * (milliseconds / 1_000));
   return Math.min(4096, Math.max(256, nextPowerOfTwo(target)));
 }
 
 export function overlapSamples(fftSamples: number, overlapPercent: number): number {
-  const bounded = Math.min(100, Math.max(0, overlapPercent));
+  const percent = Number.isFinite(overlapPercent)
+    ? overlapPercent
+    : DEFAULT_SPECTROGRAM_OVERLAP_PERCENT;
+  const bounded = Math.min(100, Math.max(0, percent));
   return Math.min(fftSamples - 1, Math.round((fftSamples * bounded) / 100));
 }
 
-export function computeSpectrogramAnalysis(source: AudioAnalysisSource): SpectrogramAnalysis {
-  const builder = createBuilder(source);
+export function computeSpectrogramAnalysis(
+  source: AudioAnalysisSource,
+  options: SpectrogramAnalysisOptions = {},
+): SpectrogramAnalysis {
+  const builder = createBuilder(source, options);
   for (let channel = 0; channel < source.channelCount; channel += 1) {
     for (let frame = 0; frame < builder.frameCount; frame += 1) {
       analyzeFrame(builder, source.channels[channel], channel, frame);
@@ -128,9 +156,13 @@ export function computeSpectrogramAnalysis(source: AudioAnalysisSource): Spectro
 
 export async function computeSpectrogramAnalysisCooperative(
   source: AudioAnalysisSource,
-  options: { signal?: AbortSignal; framesPerYield?: number; sliceMilliseconds?: number } = {},
+  options: SpectrogramAnalysisOptions & {
+    signal?: AbortSignal;
+    framesPerYield?: number;
+    sliceMilliseconds?: number;
+  } = {},
 ): Promise<SpectrogramAnalysis> {
-  const builder = createBuilder(source);
+  const builder = createBuilder(source, options);
   const framesPerYield = Math.max(1, options.framesPerYield ?? 24);
   const sliceMilliseconds = Math.max(1, options.sliceMilliseconds ?? 8);
   let completed = 0;
@@ -314,8 +346,12 @@ function createSpectrogramPreviewPlan(
   targetHeight: number,
   options: SpectrogramRenderOptions,
 ): SpectrogramPreviewPlan {
-  const fftSize = analysisFftSize(source.sampleRateHz);
-  const hopSamples = fftSize / 4;
+  const fftSize = analysisFftSize(source.sampleRateHz, options.windowMilliseconds);
+  const hopSamples = Math.max(
+    1,
+    fftSize -
+      overlapSamples(fftSize, options.overlapPercent ?? DEFAULT_SPECTROGRAM_OVERLAP_PERCENT),
+  );
   const binCount = fftSize / 2 + 1;
   const operationWeight = fftSize * Math.log2(fftSize) * source.channelCount;
   const maximumColumns = clampInteger(Math.floor(3_000_000 / operationWeight), 32, 256);
@@ -335,7 +371,10 @@ function createSpectrogramPreviewPlan(
   const scale = options.frequencyScale ?? 'linear';
   const channelMode = options.channelMode ?? 'average';
   const binHz = source.sampleRateHz / fftSize;
-  const window = hannWindow(fftSize);
+  const window = spectrogramWindow(
+    fftSize,
+    options.windowFunction ?? DEFAULT_SPECTROGRAM_WINDOW_FUNCTION,
+  );
   const coherentSum = window.reduce((sum, value) => sum + value, 0);
   const real = new Float64Array(fftSize);
   const imaginary = new Float64Array(fftSize);
@@ -413,11 +452,14 @@ export function computeSpectrogramPixels(
   height: number,
   options: SpectrogramRenderOptions,
 ): Uint8ClampedArray {
-  const analysis = computeSpectrogramAnalysis({
-    channels: [channel],
-    channelCount: 1,
-    sampleRateHz,
-  });
+  const analysis = computeSpectrogramAnalysis(
+    {
+      channels: [channel],
+      channelCount: 1,
+      sampleRateHz,
+    },
+    options,
+  );
   return renderSpectrogramPixels(analysis, width, height, options);
 }
 
@@ -637,6 +679,11 @@ export function powerToDb(power: number): number {
   return Math.max(SPECTROGRAM_DB_FLOOR, 10 * Math.log10(Math.max(power, 1e-12)));
 }
 
+export function boundedSpectrogramMinimumDb(minimumDb?: number): number {
+  if (minimumDb === undefined || !Number.isFinite(minimumDb)) return SPECTROGRAM_DB_FLOOR;
+  return clamp(minimumDb, SPECTROGRAM_DB_FLOOR, -40);
+}
+
 interface AnalysisBuilder extends Omit<SpectrogramAnalysis, 'channelPowers'> {
   channelPowers: Float32Array[];
   window: Float64Array;
@@ -645,17 +692,27 @@ interface AnalysisBuilder extends Omit<SpectrogramAnalysis, 'channelPowers'> {
   imaginary: Float64Array;
 }
 
-function createBuilder(source: AudioAnalysisSource): AnalysisBuilder {
+function createBuilder(
+  source: AudioAnalysisSource,
+  options: SpectrogramAnalysisOptions,
+): AnalysisBuilder {
   if (source.channelCount < 1 || source.channelCount > 2) throw new Error('Expected 1–2 channels');
   const length = source.channels[0]?.length ?? 0;
   if (length < 1 || source.channels.some((channel) => channel.length !== length)) {
     throw new Error('Analysis channels must have one equal positive length');
   }
-  const fftSize = analysisFftSize(source.sampleRateHz);
-  const hopSamples = fftSize / 4;
+  const fftSize = analysisFftSize(source.sampleRateHz, options.windowMilliseconds);
+  const hopSamples = Math.max(
+    1,
+    fftSize -
+      overlapSamples(fftSize, options.overlapPercent ?? DEFAULT_SPECTROGRAM_OVERLAP_PERCENT),
+  );
   const frameCount = Math.ceil(length / hopSamples) + 1;
   const binCount = fftSize / 2 + 1;
-  const window = hannWindow(fftSize);
+  const window = spectrogramWindow(
+    fftSize,
+    options.windowFunction ?? DEFAULT_SPECTROGRAM_WINDOW_FUNCTION,
+  );
   return {
     sampleRateHz: source.sampleRateHz,
     fftSize,
@@ -730,11 +787,20 @@ function analyzeSamples(
   }
 }
 
-function hannWindow(fftSize: number): Float64Array {
-  return Float64Array.from(
-    { length: fftSize },
-    (_, index) => 0.5 - 0.5 * Math.cos((2 * Math.PI * index) / (fftSize - 1)),
-  );
+export function spectrogramWindow(
+  fftSize: number,
+  windowFunction: SpectrogramWindowFunction = DEFAULT_SPECTROGRAM_WINDOW_FUNCTION,
+): Float64Array {
+  const denominator = Math.max(1, fftSize - 1);
+  return Float64Array.from({ length: fftSize }, (_, index) => {
+    const phase = (2 * Math.PI * index) / denominator;
+    if (windowFunction === 'hamming') return 0.54 - 0.46 * Math.cos(phase);
+    if (windowFunction === 'blackman') {
+      return 0.42 - 0.5 * Math.cos(phase) + 0.08 * Math.cos(phase * 2);
+    }
+    if (windowFunction === 'rectangular') return 1;
+    return 0.5 - 0.5 * Math.cos(phase);
+  });
 }
 
 function createPoolPlan(
@@ -1014,9 +1080,10 @@ export function colorizeSpectrogramDb(
 ): Uint8ClampedArray {
   const pixels = new Uint8ClampedArray(db.length * 4);
   const lut = colorLut(options);
-  const levelScale = (COLOR_LUT_LEVELS - 1) / (SPECTROGRAM_DB_CEILING - SPECTROGRAM_DB_FLOOR);
+  const minimumDb = boundedSpectrogramMinimumDb(options.minimumDb);
+  const levelScale = (COLOR_LUT_LEVELS - 1) / (SPECTROGRAM_DB_CEILING - minimumDb);
   for (let index = 0; index < db.length; index += 1) {
-    const unboundedLevel = (db[index] - SPECTROGRAM_DB_FLOOR) * levelScale;
+    const unboundedLevel = (db[index] - minimumDb) * levelScale;
     const level =
       unboundedLevel <= 0
         ? 0
@@ -1059,18 +1126,19 @@ export function spectrogramPaletteCssGradient(palette: SpectrogramPalette): stri
     .join(', ')})`;
 }
 
-async function colorizeSpectrogramDbCooperative(
+export async function colorizeSpectrogramDbCooperative(
   db: Float32Array,
   options: SpectrogramRenderOptions,
   cooperative: { signal?: AbortSignal; sliceMilliseconds?: number },
 ): Promise<Uint8ClampedArray> {
   const pixels = new Uint8ClampedArray(db.length * 4);
   const lut = colorLut(options);
-  const levelScale = (COLOR_LUT_LEVELS - 1) / (SPECTROGRAM_DB_CEILING - SPECTROGRAM_DB_FLOOR);
+  const minimumDb = boundedSpectrogramMinimumDb(options.minimumDb);
+  const levelScale = (COLOR_LUT_LEVELS - 1) / (SPECTROGRAM_DB_CEILING - minimumDb);
   const sliceMilliseconds = Math.max(1, cooperative.sliceMilliseconds ?? 8);
   let sliceStartedAt = monotonicNow();
   for (let index = 0; index < db.length; index += 1) {
-    const unboundedLevel = (db[index] - SPECTROGRAM_DB_FLOOR) * levelScale;
+    const unboundedLevel = (db[index] - minimumDb) * levelScale;
     const level =
       unboundedLevel <= 0
         ? 0
@@ -1096,20 +1164,17 @@ async function colorizeSpectrogramDbCooperative(
 function colorLut(options: SpectrogramRenderOptions): Uint8ClampedArray {
   const contrast = clamp(options.contrast ?? 1, 0.25, 4);
   const brightness = clamp(options.brightness, 0.25, 3);
-  const cacheKey = `${options.palette}:${brightness}:${contrast}`;
+  const minimumDb = boundedSpectrogramMinimumDb(options.minimumDb);
+  const cacheKey = `${options.palette}:${brightness}:${contrast}:${minimumDb}`;
   const cached = colorLutCache.get(cacheKey);
   if (cached) return cached;
   const lut = new Uint8ClampedArray(COLOR_LUT_LEVELS * 3);
   const brightnessOffsetDb = (brightness - 1) * 18;
   for (let level = 0; level < COLOR_LUT_LEVELS; level += 1) {
-    const db =
-      SPECTROGRAM_DB_FLOOR +
-      (level / (COLOR_LUT_LEVELS - 1)) * (SPECTROGRAM_DB_CEILING - SPECTROGRAM_DB_FLOOR);
+    const db = minimumDb + (level / (COLOR_LUT_LEVELS - 1)) * (SPECTROGRAM_DB_CEILING - minimumDb);
     const shifted = db + brightnessOffsetDb;
     const normalized = clamp(
-      ((shifted - SPECTROGRAM_DB_FLOOR) / (SPECTROGRAM_DB_CEILING - SPECTROGRAM_DB_FLOOR) - 0.5) *
-        contrast +
-        0.5,
+      ((shifted - minimumDb) / (SPECTROGRAM_DB_CEILING - minimumDb) - 0.5) * contrast + 0.5,
       0,
       1,
     );
