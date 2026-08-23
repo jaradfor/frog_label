@@ -57,11 +57,7 @@ import {
   type SpeciesPrefixIndex,
   type SpeciesPrefixSelection,
 } from '../../app/speciesPrefix';
-import {
-  SpectrogramCanvas,
-  type SpectrogramPointerZoomContext,
-  type SpectrogramZoomScope,
-} from './SpectrogramCanvas';
+import { SpectrogramCanvas } from './SpectrogramCanvas';
 import {
   SPECTROGRAM_PALETTES,
   spectrogramPaletteCssGradient,
@@ -90,6 +86,7 @@ interface TutorialSession {
 }
 
 type BoxAuditionMode = 'raw' | 'band-pass' | 'negative';
+type ViewportZoomScope = 'both' | 'time' | 'frequency';
 
 interface ActiveBoxAudition {
   boxId: string;
@@ -160,7 +157,7 @@ const tutorialSteps = [
   },
   {
     title: 'Zoom, pan, and fit',
-    text: 'Point at the plot to zoom both axes, the waveform for time only, or the frequency ruler for frequency only. Press Q/E to zoom, use WASD to pan, and X to fit. View changes never alter scientific coordinates.',
+    text: 'Press Q/E for combined zoom, Shift+Q/E for time-only zoom, Shift+W/S for frequency-only zoom, WASD to pan, and X to fit. View changes never alter scientific coordinates.',
     anchor: 'zoom',
   },
   {
@@ -426,9 +423,7 @@ function WorkspaceCore({
     lowFrequencyHz: 0,
     highFrequencyHz: 1,
   });
-  const pointerZoomContextRef = useRef<SpectrogramPointerZoomContext | null>(null);
-  const zoomScopeRef = useRef<SpectrogramZoomScope>('both');
-  const [zoomScope, setZoomScope] = useState<SpectrogramZoomScope>('both');
+  const pointerAnchorRef = useRef<{ timeRatio: number; frequencyRatio: number } | null>(null);
   const activePointersRef = useRef(new Set<number>());
   const [settings, setSettings] = useState<{
     fftSamples: number;
@@ -849,24 +844,21 @@ function WorkspaceCore({
   }, [commit, editable, visualDomain.selectedBoxId]);
 
   const zoom = useCallback(
-    (factor: number, requestedScope?: SpectrogramZoomScope) => {
-      const context = requestedScope ? null : pointerZoomContextRef.current;
-      const scope = requestedScope ?? context?.scope ?? 'both';
-      const timeRatio = context?.timeRatio ?? 0.5;
-      const frequencyRatio = context?.frequencyRatio ?? 0.5;
+    (factor: number, scope: ViewportZoomScope = 'both') => {
+      const anchor = pointerAnchorRef.current ?? { timeRatio: 0.5, frequencyRatio: 0.5 };
       setView((current) => {
         if (scope === 'frequency') {
           return {
             ...current,
-            ...zoomFrequencyWindow(current, factor, frequencyRatio, settings.frequencyScale),
+            ...zoomFrequencyWindow(current, factor, anchor.frequencyRatio, settings.frequencyScale),
           };
         }
 
         const timeSpan = current.timeEndSeconds - current.timeStartSeconds;
         const nextTimeSpan = Math.max(0.25, Math.min(current.durationSeconds, timeSpan / factor));
-        const anchorTime = current.timeStartSeconds + timeSpan * timeRatio;
+        const anchorTime = current.timeStartSeconds + timeSpan * anchor.timeRatio;
         const timeStartSeconds = clamp(
-          anchorTime - nextTimeSpan * timeRatio,
+          anchorTime - nextTimeSpan * anchor.timeRatio,
           0,
           Math.max(0, current.durationSeconds - nextTimeSpan),
         );
@@ -882,21 +874,13 @@ function WorkspaceCore({
           ...current,
           timeStartSeconds,
           timeEndSeconds: timeStartSeconds + nextTimeSpan,
-          ...zoomFrequencyWindow(current, factor, frequencyRatio, settings.frequencyScale),
+          ...zoomFrequencyWindow(current, factor, anchor.frequencyRatio, settings.frequencyScale),
         };
       });
       onSemanticEvent('viewport.zoomed');
     },
     [onSemanticEvent, settings.frequencyScale],
   );
-
-  const updatePointerZoomContext = useCallback((context: SpectrogramPointerZoomContext | null) => {
-    pointerZoomContextRef.current = context;
-    const nextScope = context?.scope ?? 'both';
-    if (zoomScopeRef.current === nextScope) return;
-    zoomScopeRef.current = nextScope;
-    setZoomScope(nextScope);
-  }, []);
 
   const panView = useCallback(
     (deltaTimeSeconds: number, deltaFrequencyAxisFraction: number) => {
@@ -1070,6 +1054,18 @@ function WorkspaceCore({
           break;
         case 'viewport.zoomOut':
           zoom(0.8);
+          break;
+        case 'viewport.zoomTimeIn':
+          zoom(1.25, 'time');
+          break;
+        case 'viewport.zoomTimeOut':
+          zoom(0.8, 'time');
+          break;
+        case 'viewport.zoomFrequencyIn':
+          zoom(1.25, 'frequency');
+          break;
+        case 'viewport.zoomFrequencyOut':
+          zoom(0.8, 'frequency');
           break;
         case 'viewport.panUp':
           panByViewFraction(0, 0.1);
@@ -1512,20 +1508,20 @@ function WorkspaceCore({
         <div className="toolbar-separator" />
         <button
           type="button"
-          onClick={() => zoom(1.25, 'both')}
+          onClick={() => runCommand('viewport.zoomIn')}
           disabled={!audio}
           data-tutorial="zoom"
           aria-label="Zoom in spectrogram (Q)"
-          title="Click for centered combined zoom. Q follows the pointer: plot = both, waveform = time, frequency ruler = frequency"
+          title="Q/E zoom both axes; Shift+Q/E zoom time; Shift+W/S zoom frequency"
         >
           <span className="toolbar-label">Zoom in</span> <kbd>Q</kbd>
         </button>
         <button
           type="button"
-          onClick={() => zoom(0.8, 'both')}
+          onClick={() => runCommand('viewport.zoomOut')}
           disabled={!audio}
           aria-label="Zoom out spectrogram (E)"
-          title="Click for centered combined zoom. E follows the pointer: plot = both, waveform = time, frequency ruler = frequency"
+          title="Q/E zoom both axes; Shift+Q/E zoom time; Shift+W/S zoom frequency"
         >
           <span className="toolbar-label">Zoom out</span> <kbd>E</kbd>
         </button>
@@ -1767,7 +1763,9 @@ function WorkspaceCore({
                     )
                   }
                   onPanView={panView}
-                  onPointerZoomContextChange={updatePointerZoomContext}
+                  onPointerAnchorChange={(anchor) => {
+                    pointerAnchorRef.current = anchor;
+                  }}
                   onError={setMutationError}
                   onSemanticEvent={onSemanticEvent}
                   onLifecycleChange={setSpectrogramPhase}
@@ -1882,14 +1880,6 @@ function WorkspaceCore({
         <div className="expert-status-main">
           {speciesCapture ? <strong>{statusMain}</strong> : statusMain}
         </div>
-        <span
-          className="zoom-context-status"
-          data-zoom-scope={zoomScope}
-          aria-label={`Q and E zoom target: ${zoomScope === 'both' ? 'both axes' : zoomScope}`}
-        >
-          <kbd>Q/E</kbd>
-          <span>{zoomScope === 'both' ? 'BOTH' : zoomScope === 'time' ? 'TIME X' : 'FREQ Y'}</span>
-        </span>
         <div className="expert-status-meta">{statusMeta}</div>
       </div>
 

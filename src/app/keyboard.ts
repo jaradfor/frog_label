@@ -9,6 +9,10 @@ export type WorkspaceCommandId =
   | 'viewport.panRight'
   | 'viewport.zoomIn'
   | 'viewport.zoomOut'
+  | 'viewport.zoomTimeIn'
+  | 'viewport.zoomTimeOut'
+  | 'viewport.zoomFrequencyIn'
+  | 'viewport.zoomFrequencyOut'
   | 'viewport.fit'
   | 'audio.playPause'
   | 'audio.faster'
@@ -82,16 +86,48 @@ export const WORKSPACE_COMMANDS: readonly WorkspaceCommandDefinition[] = [
   },
   {
     id: 'viewport.zoomIn',
-    label: 'Zoom in at pointer target',
+    label: 'Zoom both axes in',
     shortcut: 'Q',
     code: 'KeyQ',
     repeatable: true,
   },
   {
     id: 'viewport.zoomOut',
-    label: 'Zoom out at pointer target',
+    label: 'Zoom both axes out',
     shortcut: 'E',
     code: 'KeyE',
+    repeatable: true,
+  },
+  {
+    id: 'viewport.zoomTimeIn',
+    label: 'Zoom time in',
+    shortcut: 'Shift+Q',
+    code: 'KeyQ',
+    shift: true,
+    repeatable: true,
+  },
+  {
+    id: 'viewport.zoomTimeOut',
+    label: 'Zoom time out',
+    shortcut: 'Shift+E',
+    code: 'KeyE',
+    shift: true,
+    repeatable: true,
+  },
+  {
+    id: 'viewport.zoomFrequencyIn',
+    label: 'Zoom frequency in',
+    shortcut: 'Shift+W',
+    code: 'KeyW',
+    shift: true,
+    repeatable: true,
+  },
+  {
+    id: 'viewport.zoomFrequencyOut',
+    label: 'Zoom frequency out',
+    shortcut: 'Shift+S',
+    code: 'KeyS',
+    shift: true,
     repeatable: true,
   },
   { id: 'viewport.fit', label: 'Fit complete recording', shortcut: 'X', code: 'KeyX' },

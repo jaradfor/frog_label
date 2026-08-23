@@ -291,62 +291,49 @@ test('WASD, Q/E, and X control both camera axes with painted feedback', async ({
   );
 });
 
-test('Q/E zoom follows the plot, waveform, and frequency-ruler pointer context', async ({
-  page,
-}) => {
+test('modifier zoom isolates time and frequency while Q/E remains combined', async ({ page }) => {
   await page.goto('./');
   const shell = page.locator('.spectrogram-shell');
   const canvas = page.locator('canvas.spectrogram-canvas');
-  const zoomStatus = page.locator('.zoom-context-status');
   await waitForSpectrogramFrame(shell);
   const fitted = await readViewport(canvas);
-  await expect(zoomStatus).toHaveAttribute('data-zoom-scope', 'both');
+  const plot = await elementRectangle(canvas);
+  await page.mouse.move(plot.x + plot.width / 2, plot.y + plot.height / 2);
 
-  const waveform = await elementRectangle(page.locator('.waveform-strip'));
-  await page.mouse.move(waveform.x + waveform.width * 0.25, waveform.y + waveform.height / 2);
-  await expect(zoomStatus).toHaveAttribute('data-zoom-scope', 'time');
   const beforeTimeZoom = await readViewport(canvas);
-  await pressAndWaitForPaint(page, shell, 'KeyQ');
+  await pressAndWaitForPaint(page, shell, 'Shift+KeyQ');
   const timeZoom = await readViewport(canvas);
   expect(timeZoom.timeEnd - timeZoom.timeStart).toBeLessThan(
     beforeTimeZoom.timeEnd - beforeTimeZoom.timeStart,
   );
   expect(timeZoom.lowFrequency).toBe(beforeTimeZoom.lowFrequency);
   expect(timeZoom.highFrequency).toBe(beforeTimeZoom.highFrequency);
+  await pressAndWaitForPaint(page, shell, 'Shift+KeyE');
+  const timeZoomedOut = await readViewport(canvas);
+  expect(timeZoomedOut.timeEnd - timeZoomedOut.timeStart).toBeGreaterThan(
+    timeZoom.timeEnd - timeZoom.timeStart,
+  );
+  expect(timeZoomedOut.lowFrequency).toBe(timeZoom.lowFrequency);
+  expect(timeZoomedOut.highFrequency).toBe(timeZoom.highFrequency);
   await pressAndWaitForPaint(page, shell, 'KeyX');
 
-  const zoomButton = page.getByRole('button', { name: 'Zoom in spectrogram' });
-  await zoomButton.focus();
-  const beforeButtonZoom = await readViewport(canvas);
-  await pressAndWaitForPaint(page, shell, 'Enter');
-  const buttonZoom = await readViewport(canvas);
-  expect(buttonZoom.timeEnd - buttonZoom.timeStart).toBeLessThan(
-    beforeButtonZoom.timeEnd - beforeButtonZoom.timeStart,
-  );
-  expect(buttonZoom.highFrequency - buttonZoom.lowFrequency).toBeLessThan(
-    beforeButtonZoom.highFrequency - beforeButtonZoom.lowFrequency,
-  );
-  await pressAndWaitForPaint(page, shell, 'KeyX');
-
-  const frequencyAxis = await elementRectangle(page.locator('.frequency-axis'));
-  await page.mouse.move(
-    frequencyAxis.x + frequencyAxis.width / 2,
-    frequencyAxis.y + frequencyAxis.height * 0.25,
-  );
-  await expect(zoomStatus).toHaveAttribute('data-zoom-scope', 'frequency');
   const beforeFrequencyZoom = await readViewport(canvas);
-  await pressAndWaitForPaint(page, shell, 'KeyQ');
+  await pressAndWaitForPaint(page, shell, 'Shift+KeyW');
   const frequencyZoom = await readViewport(canvas);
   expect(frequencyZoom.highFrequency - frequencyZoom.lowFrequency).toBeLessThan(
     beforeFrequencyZoom.highFrequency - beforeFrequencyZoom.lowFrequency,
   );
   expect(frequencyZoom.timeStart).toBe(beforeFrequencyZoom.timeStart);
   expect(frequencyZoom.timeEnd).toBe(beforeFrequencyZoom.timeEnd);
+  await pressAndWaitForPaint(page, shell, 'Shift+KeyS');
+  const frequencyZoomedOut = await readViewport(canvas);
+  expect(frequencyZoomedOut.highFrequency - frequencyZoomedOut.lowFrequency).toBeGreaterThan(
+    frequencyZoom.highFrequency - frequencyZoom.lowFrequency,
+  );
+  expect(frequencyZoomedOut.timeStart).toBe(frequencyZoom.timeStart);
+  expect(frequencyZoomedOut.timeEnd).toBe(frequencyZoom.timeEnd);
   await pressAndWaitForPaint(page, shell, 'KeyX');
 
-  const plot = await elementRectangle(canvas);
-  await page.mouse.move(plot.x + plot.width / 2, plot.y + plot.height / 2);
-  await expect(zoomStatus).toHaveAttribute('data-zoom-scope', 'both');
   const beforeCombinedZoom = await readViewport(canvas);
   await pressAndWaitForPaint(page, shell, 'KeyQ');
   const combinedZoom = await readViewport(canvas);
@@ -357,8 +344,6 @@ test('Q/E zoom follows the plot, waveform, and frequency-ruler pointer context',
     beforeCombinedZoom.highFrequency - beforeCombinedZoom.lowFrequency,
   );
 
-  await page.mouse.move(1, 1);
-  await expect(zoomStatus).toHaveAttribute('data-zoom-scope', 'both');
   await pressAndWaitForPaint(page, shell, 'KeyX');
   expect(await readViewport(canvas)).toEqual(fitted);
 });

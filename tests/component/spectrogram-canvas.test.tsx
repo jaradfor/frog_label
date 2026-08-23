@@ -353,52 +353,6 @@ describe('SpectrogramCanvas camera gestures', () => {
       initialTop,
     );
   });
-
-  it('reports plot, waveform, and frequency-ruler zoom contexts without making them sticky', () => {
-    const onPointerZoomContextChange = vi.fn();
-    const result = render(
-      <SpectrogramCanvas
-        {...canvasProps()}
-        onPointerZoomContextChange={onPointerZoomContextChange}
-      />,
-    );
-    const shell = result.container.querySelector('.spectrogram-shell') as HTMLDivElement;
-    const waveform = result.container.querySelector('.waveform-strip') as HTMLDivElement;
-    const frequencyAxis = result.container.querySelector('.frequency-axis') as HTMLDivElement;
-    const stage = result.container.querySelector('.spectrogram-stage') as HTMLDivElement;
-    stubRectangle(shell, { left: 0, top: 0, width: 448, height: 258 });
-    stubRectangle(waveform, { left: 48, top: 0, width: 400, height: 58 });
-    stubRectangle(frequencyAxis, { left: 0, top: 58, width: 48, height: 200 });
-    stubRectangle(stage, { left: 48, top: 58, width: 400, height: 200 });
-
-    fireEvent.pointerMove(waveform, { clientX: 148, clientY: 29 });
-    expect(onPointerZoomContextChange).toHaveBeenLastCalledWith({
-      scope: 'time',
-      timeRatio: 0.25,
-      frequencyRatio: 0.5,
-    });
-    expect(shell).toHaveAttribute('data-pointer-zoom-scope', 'time');
-
-    fireEvent.pointerMove(frequencyAxis, { clientX: 24, clientY: 108 });
-    expect(onPointerZoomContextChange).toHaveBeenLastCalledWith({
-      scope: 'frequency',
-      timeRatio: 0.5,
-      frequencyRatio: 0.75,
-    });
-    expect(shell).toHaveAttribute('data-pointer-zoom-scope', 'frequency');
-
-    fireEvent.pointerMove(stage, { clientX: 348, clientY: 108 });
-    expect(onPointerZoomContextChange).toHaveBeenLastCalledWith({
-      scope: 'both',
-      timeRatio: 0.75,
-      frequencyRatio: 0.75,
-    });
-    expect(shell).toHaveAttribute('data-pointer-zoom-scope', 'both');
-
-    fireEvent.pointerLeave(shell, { clientX: 500, clientY: 300 });
-    expect(onPointerZoomContextChange).toHaveBeenLastCalledWith(null);
-    expect(shell).toHaveAttribute('data-pointer-zoom-scope', 'idle');
-  });
 });
 
 function renderCanvas() {
@@ -410,23 +364,6 @@ function resizeStage(container: HTMLElement): void {
   Object.defineProperty(stage, 'clientWidth', { configurable: true, value: 400 });
   Object.defineProperty(stage, 'clientHeight', { configurable: true, value: 200 });
   act(() => resizeCallback([], {} as ResizeObserver));
-}
-
-function stubRectangle(
-  element: HTMLElement,
-  rectangle: { left: number; top: number; width: number; height: number },
-): void {
-  vi.spyOn(element, 'getBoundingClientRect').mockReturnValue({
-    x: rectangle.left,
-    y: rectangle.top,
-    left: rectangle.left,
-    top: rectangle.top,
-    right: rectangle.left + rectangle.width,
-    bottom: rectangle.top + rectangle.height,
-    width: rectangle.width,
-    height: rectangle.height,
-    toJSON: () => ({}),
-  });
 }
 
 function canvasProps(overrides: { boxes?: ReturnType<typeof annotationBox>[] } = {}) {
