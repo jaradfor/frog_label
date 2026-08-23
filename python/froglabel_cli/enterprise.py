@@ -19,6 +19,7 @@ from .models import (
     LabelStudioResult,
     SpeciesCatalog,
     SpeciesEntry,
+    SpeciesEntryV1,
 )
 
 STATE_FILENAME = ".froglabel-enterprise-state.json"
@@ -38,7 +39,7 @@ class EnterpriseState(BaseModel):
         extra="forbid",
     )
 
-    schema_version: Literal[1] = 1
+    schema_version: Literal[1, 2] = 2
     kind: Literal["froglabel.enterprise-project-state"] = "froglabel.enterprise-project-state"
     catalog_id: str = Field(min_length=1, max_length=256)
     catalog_revision: int = Field(ge=1)
@@ -46,24 +47,38 @@ class EnterpriseState(BaseModel):
     initialized_by: str = Field(min_length=1, max_length=256)
     default_species_id: str | None = Field(default=None, min_length=1, max_length=256)
     config_managed_species_ids: list[str] = Field(default_factory=list, max_length=10_000)
-    species: list[SpeciesEntry] = Field(default_factory=list, max_length=10_000)
+    species: list[SpeciesEntry | SpeciesEntryV1] = Field(default_factory=list, max_length=10_000)
 
     @model_validator(mode="after")
     def validate_catalog_state(self) -> EnterpriseState:
-        catalog = self.catalog()
-        ids = {entry.species_id for entry in catalog.species}
+        ids = {entry.species_id for entry in self.species}
+        if len(ids) != len(self.species):
+            raise ValueError("duplicate speciesId")
+        codes = [entry.code.casefold() for entry in self.species]
+        if len(codes) != len(set(codes)):
+            raise ValueError("duplicate current species code")
         if not set(self.config_managed_species_ids).issubset(ids):
             raise ValueError("configManagedSpeciesIds references an absent species")
+        if self.default_species_id not in ids | {None}:
+            raise ValueError("defaultSpeciesId references an absent species")
+        if any(entry.schema_version != self.schema_version for entry in self.species):
+            raise ValueError("Enterprise state and species schema versions must match")
         return self
 
     def catalog(self) -> SpeciesCatalog:
+        active = [entry for entry in self.species if isinstance(entry, SpeciesEntry)]
+        historical = [entry for entry in self.species if isinstance(entry, SpeciesEntryV1)]
+        active_ids = {entry.species_id for entry in active}
         return SpeciesCatalog(
             catalog_id=self.catalog_id,
             initialized_at=self.initialized_at,
             initialized_by=self.initialized_by,
             catalog_revision=self.catalog_revision,
-            default_species_id=self.default_species_id,
-            species=self.species,
+            default_species_id=(
+                self.default_species_id if self.default_species_id in active_ids else None
+            ),
+            species=active,
+            historical_species=historical or None,
         )
 
 
@@ -242,6 +257,12 @@ def plan_enterprise_sync(
         desired = configured.get(species_id)
         before = species_fields(prior)
         if desired is None:
+            if prior.schema_version != 2:
+                raise FrogLabelCliError(
+                    "ENTERPRISE_V2_MAPPING_REQUIRED",
+                    f"Legacy species {species_id} must appear in catalog.species with an "
+                    "administrator-assigned V2 code",
+                )
             changes.append(
                 EnterpriseChange(
                     action="retain",
@@ -253,6 +274,11 @@ def plan_enterprise_sync(
             )
             reserve_code(codes, prior.code, species_id)
             continue
+        if prior.schema_version != 2 and "selection_priority" not in desired.model_fields_set:
+            raise FrogLabelCliError(
+                "ENTERPRISE_V2_PRIORITY_REQUIRED",
+                f"Legacy species {species_id} requires an explicit selectionPriority",
+            )
         if species_id not in managed and not desired.adopt_existing:
             raise FrogLabelCliError(
                 "ENTERPRISE_UNMANAGED_ID_COLLISION",
@@ -261,7 +287,7 @@ def plan_enterprise_sync(
             )
         managed_after.add(species_id)
         after = configured_fields(desired)
-        changed = before != after or species_id not in managed
+        changed = before != after or species_id not in managed or prior.schema_version != 2
         changes.append(
             EnterpriseChange(
                 action="update" if changed else "retain",
@@ -358,17 +384,20 @@ def apply_enterprise_plan(
                 if desired.external_taxon
                 else None
             )
-            current[change.species_id] = prior.model_copy(
-                update={
-                    "code": desired.code,
-                    "species_name": desired.species_name,
-                    "scientific_name": desired.scientific_name,
-                    "external_taxon": taxon,
-                    "updated_at": now,
-                }
+            current[change.species_id] = SpeciesEntry(
+                species_id=prior.species_id,
+                code=desired.code,
+                selection_priority=desired.selection_priority,
+                species_name=desired.species_name,
+                scientific_name=desired.scientific_name,
+                external_taxon=taxon,
+                added_after_initialization=prior.added_after_initialization,
+                created_at=prior.created_at,
+                updated_at=now,
             )
     return state.model_copy(
         update={
+            "schema_version": 2,
             "catalog_revision": plan.next_revision,
             "default_species_id": plan.default_change["after"],
             "config_managed_species_ids": plan.managed_species_ids_after,
@@ -542,6 +571,7 @@ def reconcile_enterprise_export(state: EnterpriseState, source: Path) -> dict[st
             {
                 "speciesId": species_id,
                 "code": snapshot["code"],
+                "selectionPriority": 0,
                 "speciesName": snapshot["speciesName"],
                 **(
                     {"scientificName": snapshot["scientificName"]}
@@ -640,6 +670,7 @@ def configured_species(configured: Any, now: datetime, *, added: bool) -> Specie
     return SpeciesEntry(
         species_id=configured.species_id,
         code=configured.code,
+        selection_priority=configured.selection_priority,
         species_name=configured.species_name,
         scientific_name=configured.scientific_name,
         external_taxon=taxon,
@@ -652,6 +683,7 @@ def configured_species(configured: Any, now: datetime, *, added: bool) -> Specie
 def configured_fields(entry: Any) -> dict[str, Any]:
     return {
         "code": entry.code,
+        "selectionPriority": entry.selection_priority,
         "speciesName": entry.species_name,
         "scientificName": entry.scientific_name,
         "externalTaxon": (
@@ -662,9 +694,10 @@ def configured_fields(entry: Any) -> dict[str, Any]:
     }
 
 
-def species_fields(entry: SpeciesEntry) -> dict[str, Any]:
+def species_fields(entry: SpeciesEntry | SpeciesEntryV1) -> dict[str, Any]:
     return {
         "code": entry.code,
+        "selectionPriority": getattr(entry, "selection_priority", 0),
         "speciesName": entry.species_name,
         "scientificName": entry.scientific_name,
         "externalTaxon": (

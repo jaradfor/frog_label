@@ -1,26 +1,9 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://froglabel.local/schemas/species.schema.json",
-  "title": "FrogLabel Species Entry V1",
-  "type": "object",
-  "additionalProperties": false,
-  "required": [
-    "schemaVersion",
-    "kind",
-    "speciesId",
-    "code",
-    "speciesName",
-    "addedAfterInitialization",
-    "createdAt",
-    "updatedAt"
-  ],
-  "properties": {
-    "schemaVersion": { "const": 1 },
-    "kind": { "const": "froglabel.species" },
-    "speciesId": { "type": "string", "minLength": 1, "maxLength": 256 },
-    "code": { "type": "string", "pattern": "^[A-Z]{3}$" },
-    "speciesName": { "type": "string", "minLength": 1, "maxLength": 256 },
-    "scientificName": { "type": "string", "minLength": 1, "maxLength": 256 },
+  "title": "FrogLabel Species Entry",
+  "oneOf": [{ "$ref": "#/$defs/v1" }, { "$ref": "#/$defs/v2" }],
+  "$defs": {
     "externalTaxon": {
       "type": "object",
       "additionalProperties": false,
@@ -30,8 +13,80 @@
         "id": { "type": "string", "minLength": 1, "maxLength": 256 }
       }
     },
-    "addedAfterInitialization": { "type": "boolean" },
-    "createdAt": { "type": "string", "format": "date-time" },
-    "updatedAt": { "type": "string", "format": "date-time" }
+    "common": {
+      "type": "object",
+      "required": [
+        "schemaVersion",
+        "kind",
+        "speciesId",
+        "code",
+        "speciesName",
+        "addedAfterInitialization",
+        "createdAt",
+        "updatedAt"
+      ],
+      "properties": {
+        "schemaVersion": { "type": "integer", "minimum": 1, "maximum": 2 },
+        "kind": { "const": "froglabel.species" },
+        "speciesId": { "type": "string", "minLength": 1, "maxLength": 256 },
+        "code": { "type": "string", "minLength": 1, "maxLength": 6 },
+        "speciesName": { "type": "string", "minLength": 1, "maxLength": 256 },
+        "scientificName": { "type": "string", "minLength": 1, "maxLength": 256 },
+        "externalTaxon": { "$ref": "#/$defs/externalTaxon" },
+        "addedAfterInitialization": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      }
+    },
+    "v1": {
+      "title": "FrogLabel Species Entry V1 (legacy read-only)",
+      "allOf": [
+        { "$ref": "#/$defs/common" },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "schemaVersion": { "const": 1 },
+            "kind": { "const": "froglabel.species" },
+            "speciesId": { "type": "string", "minLength": 1, "maxLength": 256 },
+            "code": { "type": "string", "pattern": "^[A-Z]{3}$" },
+            "speciesName": { "type": "string", "minLength": 1, "maxLength": 256 },
+            "scientificName": { "type": "string", "minLength": 1, "maxLength": 256 },
+            "externalTaxon": { "$ref": "#/$defs/externalTaxon" },
+            "addedAfterInitialization": { "type": "boolean" },
+            "createdAt": { "type": "string", "format": "date-time" },
+            "updatedAt": { "type": "string", "format": "date-time" }
+          }
+        }
+      ]
+    },
+    "v2": {
+      "title": "FrogLabel Species Entry V2",
+      "allOf": [
+        { "$ref": "#/$defs/common" },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["selectionPriority"],
+          "properties": {
+            "schemaVersion": { "const": 2 },
+            "kind": { "const": "froglabel.species" },
+            "speciesId": { "type": "string", "minLength": 1, "maxLength": 256 },
+            "code": { "type": "string", "pattern": "^[QWERTASDFGZXCVB]{1,6}$" },
+            "selectionPriority": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 1000000
+            },
+            "speciesName": { "type": "string", "minLength": 1, "maxLength": 256 },
+            "scientificName": { "type": "string", "minLength": 1, "maxLength": 256 },
+            "externalTaxon": { "$ref": "#/$defs/externalTaxon" },
+            "addedAfterInitialization": { "type": "boolean" },
+            "createdAt": { "type": "string", "format": "date-time" },
+            "updatedAt": { "type": "string", "format": "date-time" }
+          }
+        }
+      ]
+    }
   }
 }

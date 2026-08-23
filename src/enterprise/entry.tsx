@@ -12,14 +12,14 @@ import {
 } from '../adapters/enterprise/EnterpriseInterfacePort';
 import { HostAudioSourcePort } from '../adapters/reactcode/HostAudioSourcePort';
 import { FrogLabelWorkspace } from '../components/workspace/FrogLabelWorkspace';
-import type { SpeciesCatalogV1 } from '../domain/types';
+import type { SpeciesCatalog } from '../domain/types';
 import { embeddedTutorialAudioUrl } from './tutorialAudio';
 
 declare const __FROGLABEL_BUILD_VERSION__: string;
 
 interface EnterpriseApplicationProps {
   host: EnterpriseInterfaceHostProps;
-  catalog: SpeciesCatalogV1;
+  catalog: SpeciesCatalog;
 }
 
 function EnterpriseApplication({ host, catalog }: EnterpriseApplicationProps) {
@@ -78,7 +78,7 @@ function EnterpriseApplication({ host, catalog }: EnterpriseApplicationProps) {
 
 export function renderEnterpriseFrogLabel(
   host: EnterpriseInterfaceHostProps,
-  catalog: SpeciesCatalogV1,
+  catalog: SpeciesCatalog,
 ) {
   return <EnterpriseApplication host={host} catalog={catalog} />;
 }

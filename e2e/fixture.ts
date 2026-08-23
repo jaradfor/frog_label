@@ -12,6 +12,7 @@ type Species = {
   kind: string;
   speciesId: string;
   code: string;
+  selectionPriority: number;
   speciesName: string;
   addedAfterInitialization: boolean;
   createdAt: string;
@@ -33,7 +34,7 @@ function initialCatalog(): { descriptor: object; species: Species[] } {
   const now = '2026-08-20T00:00:00.000Z';
   return {
     descriptor: {
-      schemaVersion: 1,
+      schemaVersion: 2,
       kind: 'froglabel.species-catalog',
       catalogId: 'fake-host:project:42',
       initializedAt: now,
@@ -43,12 +44,13 @@ function initialCatalog(): { descriptor: object; species: Species[] } {
     },
     species: [
       ['fake:gre', 'GRE', 'Green Tree Frog'],
-      ['fake:per', 'PER', "Peron's Tree Frog"],
+      ['fake:per', 'ETF', "Peron's Tree Frog"],
     ].map(([speciesId, code, speciesName]) => ({
-      schemaVersion: 1,
+      schemaVersion: 2,
       kind: 'froglabel.species',
       speciesId,
       code,
+      selectionPriority: 0,
       speciesName,
       addedAfterInitialization: false,
       createdAt: now,
@@ -124,11 +126,16 @@ export const test = base.extend({
         }
         if (url.pathname === '/froglabel/api/projects/42/catalog/' && request.method() === 'POST') {
           const command = request.postDataJSON() as {
-            species: { code: string; speciesName: string; scientificName?: string };
+            species: {
+              code: string;
+              selectionPriority: number;
+              speciesName: string;
+              scientificName?: string;
+            };
           };
           const now = new Date().toISOString();
           const created: Species = {
-            schemaVersion: 1,
+            schemaVersion: 2,
             kind: 'froglabel.species',
             speciesId: `fake:${command.species.code.toLowerCase()}`,
             ...command.species,

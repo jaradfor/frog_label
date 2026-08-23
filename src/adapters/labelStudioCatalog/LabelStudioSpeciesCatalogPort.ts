@@ -1,6 +1,7 @@
 import { IntegrationError, ValidationError } from '../../domain/errors';
-import type { SpeciesCatalogV1, SpeciesEntryV1 } from '../../domain/types';
-import { assertCatalog, normalizeSpeciesCode, normalizeSpeciesName } from '../../domain/validation';
+import type { SpeciesCatalog, SpeciesEntry } from '../../domain/types';
+import { readCatalogWithHistory } from '../../domain/migrations';
+import { normalizeSpeciesCode, normalizeSpeciesName } from '../../domain/validation';
 import type { CreateSpeciesInput, SpeciesCatalogPort } from '../../ports/SpeciesCatalogPort';
 
 interface CatalogResponse {
@@ -23,14 +24,14 @@ export class LabelStudioSpeciesCatalogPort implements SpeciesCatalogPort {
     }
   }
 
-  async read(signal?: AbortSignal): Promise<SpeciesCatalogV1> {
+  async read(signal?: AbortSignal): Promise<SpeciesCatalog> {
     this.ensureAlive();
     const response = await this.fetchSameOrigin(this.endpoint(), { signal });
     if (!response.ok) throw await responseError(response, 'Project catalog could not be read.');
     return this.acceptCatalog(await parseResponse(response));
   }
 
-  async create(input: CreateSpeciesInput, signal?: AbortSignal): Promise<SpeciesEntryV1> {
+  async create(input: CreateSpeciesInput, signal?: AbortSignal): Promise<SpeciesEntry> {
     this.ensureAlive();
     if (!this.createAllowed) {
       throw new IntegrationError(
@@ -43,8 +44,8 @@ export class LabelStudioSpeciesCatalogPort implements SpeciesCatalogPort {
     const scientificName = input.scientificName
       ? normalizeSpeciesName(input.scientificName)
       : undefined;
-    if (!/^[A-Z]{3}$/u.test(code)) {
-      throw new ValidationError('Code must contain exactly three letters A–Z');
+    if (!/^[QWERTASDFGZXCVB]{1,6}$/u.test(code)) {
+      throw new ValidationError('Code must contain 1–6 left-hand letters');
     }
     if (!speciesName) throw new ValidationError('Full Species Name is required');
 
@@ -63,6 +64,7 @@ export class LabelStudioSpeciesCatalogPort implements SpeciesCatalogPort {
           expectedRevision: catalog.catalogRevision,
           species: {
             code,
+            selectionPriority: input.selectionPriority ?? 0,
             speciesName,
             ...(scientificName ? { scientificName } : {}),
           },
@@ -108,16 +110,23 @@ export class LabelStudioSpeciesCatalogPort implements SpeciesCatalogPort {
     this.destroyed = true;
   }
 
-  private acceptCatalog(body: CatalogResponse): SpeciesCatalogV1 {
-    assertCatalog(body.catalog);
+  private acceptCatalog(body: CatalogResponse): SpeciesCatalog {
+    const catalog = readCatalogWithHistory(body.catalog);
     if (body.permissions && typeof body.permissions.createSpecies === 'boolean') {
       this.createAllowed = body.permissions.createSpecies;
     }
     return {
-      ...structuredClone(body.catalog),
-      species: [...body.catalog.species].sort((left, right) =>
+      ...catalog,
+      species: [...catalog.species].sort((left, right) =>
         left.code.localeCompare(right.code, 'en', { sensitivity: 'base' }),
       ),
+      ...(catalog.historicalSpecies
+        ? {
+            historicalSpecies: [...catalog.historicalSpecies].sort((left, right) =>
+              left.code.localeCompare(right.code, 'en', { sensitivity: 'base' }),
+            ),
+          }
+        : {}),
     };
   }
 
@@ -143,17 +152,17 @@ export class LabelStudioSpeciesCatalogPort implements SpeciesCatalogPort {
   }
 }
 
-function matchingCode(catalog: SpeciesCatalogV1, code: string): SpeciesEntryV1 | undefined {
+function matchingCode(catalog: SpeciesCatalog, code: string): SpeciesEntry | undefined {
   return catalog.species.find(
     (entry) => entry.code.toLocaleLowerCase('en') === code.toLocaleLowerCase('en'),
   );
 }
 
 function reconcileExisting(
-  existing: SpeciesEntryV1,
+  existing: SpeciesEntry,
   speciesName: string,
   scientificName: string | undefined,
-): SpeciesEntryV1 {
+): SpeciesEntry {
   if (
     existing.speciesName !== speciesName ||
     (existing.scientificName ?? undefined) !== scientificName

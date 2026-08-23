@@ -1,4 +1,4 @@
-schemaVersion: 1
+schemaVersion: 2
 project:
   hostProjectId: 1
   defaultSpeciesId: local:green-tree-frog
@@ -6,6 +6,7 @@ catalog:
   species:
     - speciesId: local:green-tree-frog
       code: GRE
+      selectionPriority: 0
       speciesName: Green Tree Frog
       scientificName: Ranoidea caerulea
 audio:

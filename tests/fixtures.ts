@@ -1,25 +1,26 @@
 import type {
   AudioBounds,
-  FrogLabelDocumentV1,
-  SpeciesCatalogV1,
-  SpeciesEntryV1,
+  FrogLabelDocument,
+  SpeciesCatalog,
+  SpeciesEntry,
 } from '../src/domain/types';
 
 export const bounds: AudioBounds = { durationSeconds: 30, maximumFrequencyHz: 22050 };
 
-export const per: SpeciesEntryV1 = {
-  schemaVersion: 1,
+export const per: SpeciesEntry = {
+  schemaVersion: 2,
   kind: 'froglabel.species',
   speciesId: 'local:per',
-  code: 'PER',
+  code: 'ETF',
+  selectionPriority: 0,
   speciesName: "Peron's Tree Frog",
   addedAfterInitialization: false,
   createdAt: '2026-08-20T00:00:00.000Z',
   updatedAt: '2026-08-20T00:00:00.000Z',
 };
 
-export const catalog: SpeciesCatalogV1 = {
-  schemaVersion: 1,
+export const catalog: SpeciesCatalog = {
+  schemaVersion: 2,
   kind: 'froglabel.species-catalog',
   catalogId: 'catalog:test',
   initializedAt: '2026-08-20T00:00:00.000Z',
@@ -29,9 +30,9 @@ export const catalog: SpeciesCatalogV1 = {
   species: [per],
 };
 
-export const document: FrogLabelDocumentV1 = {
+export const document: FrogLabelDocument = {
   kind: 'froglabel.annotation-set',
-  schemaVersion: 1,
+  schemaVersion: 2,
   catalogId: catalog.catalogId,
   reviewStatus: 'calls_present',
   boxes: [

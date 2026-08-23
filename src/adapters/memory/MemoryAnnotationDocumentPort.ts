@@ -1,7 +1,7 @@
 import { cloneDocument } from '../../domain/document';
 import { assertDocument } from '../../domain/validation';
 import type {
-  FrogLabelDocumentV1,
+  FrogLabelDocument,
   HostCapabilities,
   HostSnapshot,
   HostStatus,
@@ -16,7 +16,7 @@ export class MemoryAnnotationDocumentPort implements AnnotationDocumentPort {
   private destroyed = false;
 
   constructor(
-    document: FrogLabelDocumentV1 | null,
+    document: FrogLabelDocument | null,
     options: {
       data?: HostSnapshot['data'];
       tag?: string;
@@ -63,7 +63,7 @@ export class MemoryAnnotationDocumentPort implements AnnotationDocumentPort {
     return this.snapshot.epoch;
   }
 
-  async replaceDocument(next: FrogLabelDocumentV1 | null, _reason: MutationReason): Promise<void> {
+  async replaceDocument(next: FrogLabelDocument | null, _reason: MutationReason): Promise<void> {
     this.ensureAlive();
     if (this.snapshot.locked) throw new Error('The annotation is read-only.');
     if (next && !this.trustValidatedMutations) assertDocument(next);

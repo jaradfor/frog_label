@@ -35,6 +35,8 @@ export async function runCompleteTutorialWorkflow(
   const coach = surface.locator('.coachmark');
   await coach.focus();
   await coach.press('Space');
+  await expect(coach).toHaveAttribute('data-tutorial-step', '1');
+  await coach.press('Enter');
   await assertStep(surface, 2, geometry);
   await surface.getByRole('button', { name: 'Back', exact: true }).click();
   await assertStep(surface, 1, geometry);
@@ -42,14 +44,14 @@ export async function runCompleteTutorialWorkflow(
   await assertStep(surface, 2, geometry);
   await playOnce(surface);
   await next(surface);
-  await choosePer(surface);
+  await chooseEtf(page, surface);
   await next(surface);
-  await surface.getByRole('button', { name: /Draw Box/ }).click();
+  await ensureDrawTool(surface, true);
   await next(surface);
   await drawCenteredBox(page, surface);
   await assertPracticeBoxCoversCall(surface);
   await next(surface);
-  await surface.getByRole('button', { name: 'Select V' }).click();
+  await ensureDrawTool(surface, false);
   await next(surface);
   const firstResize = await resizeSelectedBox(page, surface);
   await expect(practiceLocator(surface, '.spectrogram-stage')).toHaveAttribute(
@@ -64,16 +66,13 @@ export async function runCompleteTutorialWorkflow(
     'data-box-count',
     '0',
   );
-  await expect(surface.getByRole('button', { name: 'Select V' })).toHaveAttribute(
-    'aria-pressed',
-    'true',
+  await expect(
+    surface.getByRole('button', { name: 'Toggle Select and Draw tools (T)' }),
+  ).toHaveAttribute('aria-pressed', 'false');
+  await expect(practiceRoot(surface).getByLabel('Current species').locator('strong')).toHaveText(
+    '—',
   );
-  await expect(surface.getByRole('button', { name: /Draw Box/ })).toHaveAttribute(
-    'aria-pressed',
-    'false',
-  );
-  await expect(practiceRoot(surface).getByLabel('Current species')).toHaveValue('');
-  await expect(surface.getByRole('button', { name: /Play Audio/ })).toBeVisible();
+  await expect(surface.getByRole('button', { name: 'Play or pause audio (V)' })).toBeVisible();
   await expect(practiceLocator(surface, '.annotation-box.selected')).toHaveCount(0);
   await waitForFirstFrame(surface);
 
@@ -82,10 +81,10 @@ export async function runCompleteTutorialWorkflow(
   await playOnce(surface);
   await next(surface);
   await assertStep(surface, 3, geometry);
-  await choosePer(surface);
+  await chooseEtf(page, surface);
   await next(surface);
   await assertStep(surface, 4, geometry);
-  await surface.getByRole('button', { name: /Draw Box/ }).click();
+  await ensureDrawTool(surface, true);
   await next(surface);
   await assertStep(surface, 5, geometry);
   await drawCenteredBox(page, surface);
@@ -95,7 +94,7 @@ export async function runCompleteTutorialWorkflow(
   expect(stableBoxId).toBeTruthy();
   await next(surface);
   await assertStep(surface, 6, geometry);
-  await surface.getByRole('button', { name: 'Select V' }).click();
+  await ensureDrawTool(surface, false);
   await next(surface);
   await assertStep(surface, 7, geometry);
   const resized = await resizeSelectedBox(page, surface);
@@ -117,38 +116,37 @@ export async function runCompleteTutorialWorkflow(
   await expect(practiceRoot(surface).getByLabel('Low (Hz)')).toHaveValue(/^\d+$/u);
 
   const datasetBeforeView = await surface
-    .getByRole('row', { name: /PER — Peron's Tree Frog/ })
+    .getByRole('row', { name: /ETF — Peron's Tree Frog/ })
     .innerText();
   await next(surface);
   await assertStep(surface, 9, geometry);
   await surface.getByRole('button', { name: 'Zoom in spectrogram' }).click();
   await waitForFirstFrame(surface);
-  await surface.getByRole('button', { name: 'Pan P' }).click();
   const stage = practiceLocator(surface, '.spectrogram-stage');
   const stageRectangle = await stage.boundingBox();
   if (!stageRectangle) throw new Error('Tutorial spectrogram stage has no bounding box');
   const centerX = stageRectangle.x + stageRectangle.width / 2;
   const centerY = stageRectangle.y + stageRectangle.height / 2;
   await page.mouse.move(centerX, centerY);
-  await page.mouse.down();
+  await page.mouse.down({ button: 'middle' });
   await page.mouse.move(centerX + 45, centerY, { steps: 6 });
-  await page.mouse.up();
+  await page.mouse.up({ button: 'middle' });
   await surface.getByRole('button', { name: 'Reset and fit spectrogram view' }).click();
   await waitForFirstFrame(surface);
-  expect(await surface.getByRole('row', { name: /PER — Peron's Tree Frog/ }).innerText()).toBe(
+  expect(await surface.getByRole('row', { name: /ETF — Peron's Tree Frog/ }).innerText()).toBe(
     datasetBeforeView,
   );
 
   await next(surface);
   await assertStep(surface, 10, geometry);
   await surface.getByRole('button', { name: /Add missing species/ }).click();
-  await expect(practiceRoot(surface).getByLabel('Three-letter code')).toBeVisible();
+  await expect(practiceRoot(surface).getByLabel('Left-hand code (1–6 letters)')).toBeVisible();
   await surface.getByRole('button', { name: 'Cancel' }).click();
-  await expect(practiceRoot(surface).getByLabel('Three-letter code')).toHaveCount(0);
+  await expect(practiceRoot(surface).getByLabel('Left-hand code (1–6 letters)')).toHaveCount(0);
 
   await next(surface);
   await assertStep(surface, 11, geometry);
-  await expect(surface.getByRole('button', { name: 'No calls present (Shift+N)' })).toBeVisible();
+  await expect(surface.getByRole('button', { name: 'No calls present (Shift+X)' })).toBeVisible();
   await expect(stage).toHaveAttribute('data-box-count', '1');
   await next(surface);
   await assertStep(surface, 12, geometry);
@@ -161,7 +159,7 @@ export async function runCompleteTutorialWorkflow(
     String(expectedLiveBoxCount),
   );
   await waitForLiveFirstFrame(surface);
-  await expect(surface.getByRole('button', { name: /Play Audio/ })).toBeEnabled();
+  await expect(surface.getByRole('button', { name: 'Play or pause audio (V)' })).toBeEnabled();
   await options.afterExit?.();
 
   await startTutorial(surface);
@@ -191,13 +189,27 @@ async function next(surface: TutorialSurface): Promise<void> {
 
 async function playOnce(surface: TutorialSurface): Promise<void> {
   await waitForFirstFrame(surface);
-  await surface.getByRole('button', { name: /Play Audio/ }).click();
-  await expect(surface.getByRole('button', { name: /Pause/ })).toBeVisible();
-  await surface.getByRole('button', { name: /Pause/ }).click();
+  const play = surface.getByRole('button', { name: 'Play or pause audio (V)' });
+  await play.click();
+  await expect(play).toHaveAttribute('aria-pressed', 'true');
+  await expect(play).toContainText('Play');
+  await expect(play).not.toContainText('Pause');
+  await play.click();
+  await expect(play).toHaveAttribute('aria-pressed', 'false');
 }
 
-async function choosePer(surface: TutorialSurface): Promise<void> {
-  await surface.getByRole('option', { name: "PER Peron's Tree Frog" }).click();
+async function chooseEtf(page: Page, surface: TutorialSurface): Promise<void> {
+  await surface.locator('.coachmark').focus();
+  await page.keyboard.down('Space');
+  await page.keyboard.press('KeyE');
+  await page.keyboard.up('Space');
+  await expect(practiceRoot(surface).getByLabel('Current species')).toContainText('ETF');
+  await ensureDrawTool(surface, true);
+}
+
+async function ensureDrawTool(surface: TutorialSurface, draw: boolean): Promise<void> {
+  const tool = surface.getByRole('button', { name: 'Toggle Select and Draw tools (T)' });
+  if ((await tool.getAttribute('aria-pressed')) !== String(draw)) await tool.click();
 }
 
 async function drawCenteredBox(page: Page, surface: TutorialSurface): Promise<void> {
@@ -220,10 +232,13 @@ async function drawCenteredBox(page: Page, surface: TutorialSurface): Promise<vo
 }
 
 async function assertPracticeBoxCoversCall(surface: TutorialSurface): Promise<void> {
-  const cells = await surface
-    .getByRole('row', { name: /PER — Peron's Tree Frog/ })
-    .locator('td')
-    .allTextContents();
+  const dataset = surface.getByRole('button', { name: '4 Dataset' });
+  const wasOpen = (await dataset.getAttribute('aria-pressed')) === 'true';
+  if (!wasOpen) await dataset.click({ force: true });
+  const row = surface.getByRole('row', { name: /ETF — Peron's Tree Frog/ });
+  await expect(row).toBeVisible();
+  const cells = await row.locator('td').allTextContents();
+  if (!wasOpen) await dataset.click({ force: true });
   const [start, end, low, high] = cells.slice(0, 4).map(Number);
   expect(start).toBeLessThanOrEqual(3.6);
   expect(end).toBeGreaterThanOrEqual(4.4);

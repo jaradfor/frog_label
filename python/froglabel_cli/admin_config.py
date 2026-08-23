@@ -22,7 +22,7 @@ from pydantic import (
 from .errors import ErrorContext, FrogLabelCliError
 
 Identifier = Annotated[str, StringConstraints(min_length=1, max_length=256)]
-SpeciesCode = Annotated[str, StringConstraints(pattern=r"^[A-Z]{3}$")]
+SpeciesCode = Annotated[str, StringConstraints(pattern=r"^[QWERTASDFGZXCVB]{1,6}$")]
 ShortText = Annotated[str, StringConstraints(min_length=1, max_length=256)]
 Target = Literal["ce", "enterprise"]
 SECRET_KEY = re.compile(r"(?:password|secret|token|credential|api[_-]?key)", re.IGNORECASE)
@@ -50,6 +50,7 @@ class ConfiguredExternalTaxon(StrictModel):
 class ConfiguredSpecies(StrictModel):
     species_id: Identifier
     code: SpeciesCode
+    selection_priority: int = Field(default=0, ge=0, le=1_000_000)
     species_name: ShortText
     scientific_name: ShortText | None = None
     external_taxon: ConfiguredExternalTaxon | None = None
@@ -105,7 +106,10 @@ class UiIntent(StrictModel):
 
 
 class ProjectConfiguration(StrictModel):
-    schema_version: Literal[1] = 1
+    # Configuration-envelope V1 remains readable, but every configured species
+    # describes desired active V2 state. Legacy storage still requires explicit
+    # code and selectionPriority intent during administrative promotion.
+    schema_version: Literal[1, 2] = 2
     project: ProjectIntent = Field(default_factory=ProjectIntent)
     catalog: CatalogIntent = Field(default_factory=CatalogIntent)
     audio: AudioLimitsIntent = Field(default_factory=AudioLimitsIntent)

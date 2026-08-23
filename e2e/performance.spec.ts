@@ -5,10 +5,12 @@ import path from 'node:path';
 
 import { test } from './fixture';
 
-const BOX_COUNT = 2_000;
+const BOX_COUNT = 5_000;
 const SAMPLE_COUNT = 100;
+const EXACT_SAMPLE_COUNT = 30;
 const MAXIMUM_P95_MILLISECONDS = 100;
-const MAXIMUM_LONG_TASK_MILLISECONDS = 250;
+const MAXIMUM_FIRST_PREVIEW_MILLISECONDS = 100;
+const MAXIMUM_LONG_TASK_MILLISECONDS = 50;
 const AUDIO_SHA256 = '87f07fbd056bccc8354e0dfb3c781ff35025fc468f9be8d562a1bf38cc377f17';
 const AUDIO_BYTES = 705_644;
 const TIMESTAMP = '2026-08-20T00:00:00.000Z';
@@ -26,7 +28,7 @@ interface BrowserLatency {
 // metrics artifact and measures the production page without recorder overhead.
 test.use({ trace: 'off', screenshot: 'off', video: 'off' });
 
-test('keeps the 2,000-box workspace responsive and enforces the POC ceiling', async ({
+test('keeps the 5,000-box workspace responsive and enforces the rendering ceilings', async ({
   page,
 }, testInfo) => {
   test.setTimeout(180_000);
@@ -51,6 +53,7 @@ test('keeps the 2,000-box workspace responsive and enforces the POC ceiling', as
   });
 
   await page.goto('./froglabel-local/');
+  await installFirstFrameObserver(page);
   const audioInput = page.locator('input[type="file"][accept*="audio/wav"]');
   await audioInput.setInputFiles(
     path.resolve(import.meta.dirname, '../public/audio/synthetic-frog-practice.wav'),
@@ -61,9 +64,27 @@ test('keeps the 2,000-box workspace responsive and enforces the POC ceiling', as
     'firstFrameReady',
     { timeout: 15_000 },
   );
+  const spectrogramShell = page.locator('.spectrogram-shell');
+  await expect
+    .poll(async () => renderGeneration(spectrogramShell), { timeout: 15_000 })
+    .toBeGreaterThan(0);
+  const firstPreviewAfterDecodedMilliseconds = await page.evaluate(() => {
+    const timing = (
+      globalThis as typeof globalThis & {
+        __froglabelFirstFrameTiming?: {
+          decodedAt: number | null;
+          paintedAt: number | null;
+        };
+      }
+    ).__froglabelFirstFrameTiming;
+    if (timing?.decodedAt === null || timing?.paintedAt === null || !timing) {
+      throw new Error('First-frame timing did not observe decoded audio and a canvas paint');
+    }
+    return Math.max(0, timing.paintedAt - timing.decodedAt);
+  });
 
   await page.locator('input[type="file"][accept*="application/json"]').setInputFiles({
-    name: 'two-thousand-boxes.froglabel.json',
+    name: 'five-thousand-boxes.froglabel.json',
     mimeType: 'application/json',
     buffer: Buffer.from(`${JSON.stringify(benchmarkLocalFile())}\n`),
   });
@@ -75,16 +96,14 @@ test('keeps the 2,000-box workspace responsive and enforces the POC ceiling', as
   // canvas workflow instead of 2,000 accessible table rows.
   const datasetButton = page.getByRole('button', { name: '4 Dataset' });
   if ((await datasetButton.getAttribute('aria-pressed')) === 'true') await datasetButton.click();
-  await expect(page.locator('.spectrogram-shell')).toHaveAttribute(
-    'data-spectrogram-state',
-    'firstFrameReady',
-    { timeout: 15_000 },
-  );
+  await expect(spectrogramShell).toHaveAttribute('data-spectrogram-state', 'firstFrameReady', {
+    timeout: 15_000,
+  });
 
   const stageRectangle = await stage.boundingBox();
   if (!stageRectangle) throw new Error('Benchmark spectrogram stage has no bounding box');
   const warmupPoint = {
-    x: stageRectangle.x + (3.94 / 8) * stageRectangle.width,
+    x: stageRectangle.x + (4 / 8) * stageRectangle.width,
     y: stageRectangle.y + ((22_050 - 11_000) / 22_050) * stageRectangle.height,
   };
   await page.mouse.click(warmupPoint.x, warmupPoint.y);
@@ -99,23 +118,26 @@ test('keeps the 2,000-box workspace responsive and enforces the POC ceiling', as
     await page.mouse.move(warmupX + delta, warmupY + delta);
     await page.mouse.up();
   }
-  await page.locator('button[aria-label="Zoom in spectrogram"]').click();
-  await page.getByRole('button', { name: /^Pan P$/u }).click();
+  let renderBefore = await renderGeneration(spectrogramShell);
+  await page.locator('button[aria-label^="Zoom in spectrogram"]').click();
+  await waitForRenderAfter(spectrogramShell, renderBefore);
   await page.mouse.move(stageRectangle.x + stageRectangle.width / 2, warmupPoint.y);
-  await page.mouse.down();
+  renderBefore = await renderGeneration(spectrogramShell);
+  await page.mouse.down({ button: 'middle' });
   await page.mouse.move(stageRectangle.x + stageRectangle.width / 2 + 3, warmupPoint.y);
-  await page.mouse.up();
+  await page.mouse.up({ button: 'middle' });
+  await waitForRenderAfter(spectrogramShell, renderBefore);
+  renderBefore = await renderGeneration(spectrogramShell);
   await page.getByRole('button', { name: 'Reset and fit spectrogram view' }).click();
-  await page.getByRole('button', { name: /^Select V$/u }).click();
+  await waitForRenderAfter(spectrogramShell, renderBefore);
   await page.mouse.click(
     stageRectangle.x + stageRectangle.width / 2,
     stageRectangle.y + stageRectangle.height - 2,
   );
-  // Resetting the viewport schedules the production spectrogram worker after
-  // its 180 ms debounce. Let that final warm-up render and its canvas upload
-  // settle before clearing the long-task buffer; the gate below is intended
-  // to measure the 300 user interactions, not deferred setup work.
-  await page.waitForTimeout(1_200);
+  // Do not begin the gate while a preview/refinement is pending. These DOM
+  // attributes advance only after pixels have been written to the live canvas,
+  // so this replaces the old fixed delay and ARIA-label proxy.
+  await waitForExactRender(spectrogramShell);
 
   // Initial import/render is bounded separately. Interaction samples begin
   // after the workspace has painted the complete document and initialized
@@ -132,9 +154,9 @@ test('keeps the 2,000-box workspace responsive and enforces the POC ceiling', as
   // selected box's resize handle and is correctly classified as a drag target.
   const selectionRectangles = Array.from({ length: SAMPLE_COUNT + 1 }, (_, sampleIndex) => {
     const gridIndex = sampleIndex % SAMPLE_COUNT;
-    const timeCell = 5 + (gridIndex % 10) * 9;
+    const timeCell = 5 + (gridIndex % 10) * 24;
     const frequencyCell = 1 + Math.floor(gridIndex / 10) * 2;
-    const timeCenter = 0.04 + timeCell * 0.078;
+    const timeCenter = 0.01 + timeCell * (7.96 / 250) + 0.009;
     const frequencyCenter = 500 + frequencyCell * 1_050;
     return {
       x: stageRectangle.x + (timeCenter / 8) * stageRectangle.width,
@@ -170,8 +192,9 @@ test('keeps the 2,000-box workspace responsive and enforces the POC ceiling', as
   }
 
   const panDriverMilliseconds: number[] = [];
-  await page.locator('button[aria-label="Zoom in spectrogram"]').click();
-  await page.getByRole('button', { name: /^Pan P$/u }).click();
+  renderBefore = await renderGeneration(spectrogramShell);
+  await page.locator('button[aria-label^="Zoom in spectrogram"]').click();
+  await waitForRenderAfter(spectrogramShell, renderBefore);
   const canvasRectangle = await page.locator('canvas.spectrogram-canvas').boundingBox();
   if (!canvasRectangle) throw new Error('Benchmark canvas has no bounding box');
   const centerX = canvasRectangle.x + canvasRectangle.width / 2;
@@ -181,12 +204,36 @@ test('keeps the 2,000-box workspace responsive and enforces the POC ceiling', as
   for (let index = 0; index < SAMPLE_COUNT; index += 1) {
     const delta = index % 2 === 0 ? 3 : -3;
     const started = performance.now();
-    await page.mouse.down();
+    const generation = await renderGeneration(spectrogramShell);
+    await page.mouse.down({ button: 'middle' });
     await page.mouse.move(panX + delta, centerY);
-    await page.mouse.up();
-    await nextPaint(page);
+    await page.mouse.up({ button: 'middle' });
+    await waitForRenderAfter(spectrogramShell, generation);
     panDriverMilliseconds.push(performance.now() - started);
     panX += delta;
+  }
+
+  await waitForExactRender(spectrogramShell);
+  const rapidNavigation = await exerciseRapidKeyboardNavigation(page, SAMPLE_COUNT);
+  expect(rapidNavigation.samples).toBe(SAMPLE_COUNT);
+  expect(rapidNavigation.missedNextFrameFeedback).toBe(0);
+  expect(rapidNavigation.blankFrames).toBe(0);
+  expect(rapidNavigation.overlayFrames).toBe(0);
+  expect(rapidNavigation.requestGenerationDelta).toBeGreaterThanOrEqual(SAMPLE_COUNT);
+  await waitForExactRender(spectrogramShell);
+  const newestRequestedGeneration = Number(
+    (await spectrogramShell.getAttribute('data-render-request-generation')) ?? 0,
+  );
+  const newestPaintedGeneration = Number(
+    (await spectrogramShell.getAttribute('data-render-painted-request-generation')) ?? 0,
+  );
+  expect(newestPaintedGeneration).toBe(newestRequestedGeneration);
+
+  const exactRefinementMilliseconds: number[] = [];
+  for (let index = 0; index < EXACT_SAMPLE_COUNT; index += 1) {
+    exactRefinementMilliseconds.push(
+      await measureExactKeyboardRefinement(page, index % 2 === 0 ? 'KeyQ' : 'KeyE'),
+    );
   }
 
   const observed = await page.evaluate(() => {
@@ -207,6 +254,7 @@ test('keeps the 2,000-box workspace responsive and enforces the POC ceiling', as
     browser: await page.evaluate(() => navigator.userAgent),
     boxCount: BOX_COUNT,
     samplesPerInteraction: SAMPLE_COUNT,
+    firstPreviewAfterDecodedMilliseconds,
     selection: summarize(observed.latency.selection.slice(-SAMPLE_COUNT)),
     drag: summarize(observed.latency.drag),
     pan: summarize(observed.latency.pan),
@@ -215,25 +263,33 @@ test('keeps the 2,000-box workspace responsive and enforces the POC ceiling', as
       drag: summarize(dragDriverMilliseconds),
       pan: summarize(panDriverMilliseconds),
     },
+    exactRefinement: summarize(exactRefinementMilliseconds),
+    rapidNavigation: {
+      ...rapidNavigation,
+      newestRequestedGeneration,
+      newestPaintedGeneration,
+    },
     longTasks: {
       count: observed.longTasks.length,
       maximumMilliseconds: Math.max(0, ...observed.longTasks),
       durationsMilliseconds: observed.longTasks,
     },
     limits: {
+      firstPreviewAfterDecodedMilliseconds: MAXIMUM_FIRST_PREVIEW_MILLISECONDS,
       p95Milliseconds: MAXIMUM_P95_MILLISECONDS,
+      exactRefinementP95Milliseconds: MAXIMUM_P95_MILLISECONDS,
       individualLongTaskMilliseconds: MAXIMUM_LONG_TASK_MILLISECONDS,
-      importedBoxes: 5_000,
+      importedBoxes: BOX_COUNT,
     },
   };
 
   const evidenceDirectory = path.resolve('test-results/performance');
   await mkdir(evidenceDirectory, { recursive: true });
   await writeFile(
-    path.join(evidenceDirectory, 'workspace-2000-boxes.json'),
+    path.join(evidenceDirectory, 'workspace-5000-boxes.json'),
     `${JSON.stringify(result, null, 2)}\n`,
   );
-  await testInfo.attach('workspace-2000-boxes.json', {
+  await testInfo.attach('workspace-5000-boxes.json', {
     body: Buffer.from(JSON.stringify(result, null, 2)),
     contentType: 'application/json',
   });
@@ -241,15 +297,20 @@ test('keeps the 2,000-box workspace responsive and enforces the POC ceiling', as
   expect(result.selection.p95Milliseconds).toBeLessThanOrEqual(MAXIMUM_P95_MILLISECONDS);
   expect(result.drag.p95Milliseconds).toBeLessThanOrEqual(MAXIMUM_P95_MILLISECONDS);
   expect(result.pan.p95Milliseconds).toBeLessThanOrEqual(MAXIMUM_P95_MILLISECONDS);
+  expect(result.exactRefinement.p95Milliseconds).toBeLessThanOrEqual(MAXIMUM_P95_MILLISECONDS);
+  expect(result.firstPreviewAfterDecodedMilliseconds).toBeLessThanOrEqual(
+    MAXIMUM_FIRST_PREVIEW_MILLISECONDS,
+  );
   expect(result.longTasks.maximumMilliseconds).toBeLessThanOrEqual(MAXIMUM_LONG_TASK_MILLISECONDS);
 });
 
 function benchmarkLocalFile() {
   const species = {
-    schemaVersion: 1,
+    schemaVersion: 2,
     kind: 'froglabel.species',
     speciesId: 'local:benchmark-green-tree-frog',
     code: 'GRE',
+    selectionPriority: 0,
     speciesName: 'Green Tree Frog',
     scientificName: 'Ranoidea caerulea',
     addedAfterInitialization: false,
@@ -257,9 +318,9 @@ function benchmarkLocalFile() {
     updatedAt: TIMESTAMP,
   };
   const boxes = Array.from({ length: BOX_COUNT }, (_, index) => {
-    const timeCell = index % 100;
-    const frequencyCell = Math.floor(index / 100);
-    const startTimeSeconds = 0.02 + timeCell * 0.078;
+    const timeCell = index % 250;
+    const frequencyCell = Math.floor(index / 250);
+    const startTimeSeconds = 0.01 + timeCell * (7.96 / 250);
     const lowFrequencyHz = 150 + frequencyCell * 1_050;
     return {
       id: `box:benchmark-${index.toString().padStart(4, '0')}`,
@@ -271,7 +332,7 @@ function benchmarkLocalFile() {
         addedAfterInitialization: false,
       },
       startTimeSeconds,
-      endTimeSeconds: startTimeSeconds + 0.04,
+      endTimeSeconds: startTimeSeconds + 0.018,
       lowFrequencyHz,
       highFrequencyHz: lowFrequencyHz + 700,
       createdAt: TIMESTAMP,
@@ -281,7 +342,7 @@ function benchmarkLocalFile() {
   });
   return {
     kind: 'froglabel.local-file',
-    schemaVersion: 1,
+    schemaVersion: 2,
     audio: {
       filename: 'synthetic-frog-practice.wav',
       sizeBytes: AUDIO_BYTES,
@@ -298,7 +359,7 @@ function benchmarkLocalFile() {
     catalogSnapshot: [species],
     document: {
       kind: 'froglabel.annotation-set',
-      schemaVersion: 1,
+      schemaVersion: 2,
       catalogId: 'local:benchmark',
       reviewStatus: 'calls_present',
       boxes,
@@ -306,10 +367,149 @@ function benchmarkLocalFile() {
   };
 }
 
+async function exerciseRapidKeyboardNavigation(
+  page: Page,
+  sampleCount: number,
+): Promise<{
+  samples: number;
+  blankFrames: number;
+  overlayFrames: number;
+  missedNextFrameFeedback: number;
+  maximumFeedbackMilliseconds: number;
+  requestGenerationDelta: number;
+}> {
+  return page.evaluate(async (count) => {
+    const shell = document.querySelector<HTMLElement>('.spectrogram-shell');
+    const canvas = document.querySelector<HTMLCanvasElement>('canvas.spectrogram-canvas');
+    if (!shell || !canvas) throw new Error('Rapid-navigation probe cannot find the spectrogram');
+    const probe = document.createElement('canvas');
+    probe.width = 32;
+    probe.height = 18;
+    const probeContext = probe.getContext('2d', { alpha: false });
+    if (!probeContext) throw new Error('Rapid-navigation probe cannot create a 2D context');
+    const keys = ['KeyQ', 'KeyD', 'KeyW', 'KeyA', 'KeyS', 'KeyE'] as const;
+    let blankFrames = 0;
+    let overlayFrames = 0;
+    let missedNextFrameFeedback = 0;
+    let maximumFeedbackMilliseconds = 0;
+    const initialRequestGeneration = Number(shell.dataset.renderRequestGeneration ?? 0);
+
+    for (let index = 0; index < count; index += 1) {
+      const code = keys[index % keys.length];
+      const priorPaint = Number(shell.dataset.renderGeneration ?? 0);
+      const priorRequest = Number(shell.dataset.renderRequestGeneration ?? 0);
+      const started = performance.now();
+      window.dispatchEvent(
+        new KeyboardEvent('keydown', { bubbles: true, cancelable: true, code, key: code.at(-1) }),
+      );
+      window.dispatchEvent(
+        new KeyboardEvent('keyup', { bubbles: true, cancelable: true, code, key: code.at(-1) }),
+      );
+      await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+      maximumFeedbackMilliseconds = Math.max(
+        maximumFeedbackMilliseconds,
+        performance.now() - started,
+      );
+      const requested = Number(shell.dataset.renderRequestGeneration ?? 0);
+      const paintedRequest = Number(shell.dataset.renderPaintedRequestGeneration ?? 0);
+      if (
+        Number(shell.dataset.renderGeneration ?? 0) <= priorPaint ||
+        requested <= priorRequest ||
+        paintedRequest !== requested
+      ) {
+        missedNextFrameFeedback += 1;
+      }
+      probeContext.drawImage(canvas, 0, 0, probe.width, probe.height);
+      const pixels = probeContext.getImageData(0, 0, probe.width, probe.height).data;
+      let visiblePixels = 0;
+      for (let offset = 0; offset < pixels.length; offset += 4) {
+        if (
+          pixels[offset + 3] > 0 &&
+          pixels[offset] + pixels[offset + 1] + pixels[offset + 2] > 8
+        ) {
+          visiblePixels += 1;
+        }
+      }
+      if (visiblePixels === 0) blankFrames += 1;
+      if (shell.querySelector('.spectrogram-readiness-overlay')) overlayFrames += 1;
+    }
+    return {
+      samples: count,
+      blankFrames,
+      overlayFrames,
+      missedNextFrameFeedback,
+      maximumFeedbackMilliseconds,
+      requestGenerationDelta:
+        Number(shell.dataset.renderRequestGeneration ?? 0) - initialRequestGeneration,
+    };
+  }, sampleCount);
+}
+
+async function measureExactKeyboardRefinement(page: Page, code: 'KeyQ' | 'KeyE'): Promise<number> {
+  return page.evaluate(async (keyboardCode) => {
+    const shell = document.querySelector<HTMLElement>('.spectrogram-shell');
+    if (!shell) throw new Error('Exact-refinement probe cannot find the spectrogram shell');
+    const priorRequest = Number(shell.dataset.renderRequestGeneration ?? 0);
+    const started = performance.now();
+    const completed = new Promise<void>((resolve, reject) => {
+      const timeout = window.setTimeout(() => {
+        observer.disconnect();
+        reject(new Error(`Exact refinement did not finish after ${keyboardCode}`));
+      }, 15_000);
+      const check = () => {
+        const requested = Number(shell.dataset.renderRequestGeneration ?? 0);
+        const painted = Number(shell.dataset.renderPaintedRequestGeneration ?? 0);
+        if (
+          requested > priorRequest &&
+          painted === requested &&
+          shell.dataset.renderStatus === 'ready' &&
+          shell.dataset.renderQuality === 'exact'
+        ) {
+          window.clearTimeout(timeout);
+          observer.disconnect();
+          resolve();
+        }
+      };
+      const observer = new MutationObserver(check);
+      observer.observe(shell, {
+        attributes: true,
+        attributeFilter: [
+          'data-render-request-generation',
+          'data-render-painted-request-generation',
+          'data-render-status',
+          'data-render-quality',
+        ],
+      });
+      check();
+    });
+    const key = keyboardCode === 'KeyQ' ? 'q' : 'e';
+    window.dispatchEvent(
+      new KeyboardEvent('keydown', {
+        bubbles: true,
+        cancelable: true,
+        code: keyboardCode,
+        key,
+      }),
+    );
+    window.dispatchEvent(
+      new KeyboardEvent('keyup', {
+        bubbles: true,
+        cancelable: true,
+        code: keyboardCode,
+        key,
+      }),
+    );
+    await completed;
+    return performance.now() - started;
+  }, code);
+}
+
 async function installBrowserLatencyObserver(page: Page): Promise<void> {
   await page.evaluate(() => {
     const stage = document.querySelector<HTMLElement>('.spectrogram-stage');
+    const shell = document.querySelector<HTMLElement>('.spectrogram-shell');
     if (!stage) throw new Error('Latency observer cannot find the spectrogram stage');
+    if (!shell) throw new Error('Latency observer cannot find the spectrogram shell');
     const latency: BrowserLatency = { selection: [], drag: [], pan: [], phase: null, started: 0 };
     Object.defineProperty(globalThis, '__froglabelLatency', {
       configurable: true,
@@ -329,7 +529,11 @@ async function installBrowserLatencyObserver(page: Page): Promise<void> {
         if (target?.closest('.resize-handle')) {
           latency.phase = 'drag';
           latency.started = 0;
-        } else if (stage.classList.contains('tool-pan')) {
+        } else if (
+          event.button === 1 ||
+          event.button === 2 ||
+          stage.classList.contains('tool-pan')
+        ) {
           latency.phase = 'pan';
           latency.started = 0;
         } else if (stage.classList.contains('tool-select')) {
@@ -375,30 +579,105 @@ async function installBrowserLatencyObserver(page: Page): Promise<void> {
       ) {
         finish('drag');
       }
-      if (
-        latency.phase === 'pan' &&
-        records.some(
+      if (latency.phase === 'pan') {
+        const painted = records.some(
           (record) =>
             record.type === 'attributes' &&
-            record.attributeName === 'aria-label' &&
-            record.target instanceof Element &&
-            record.target.classList.contains('spectrogram-canvas'),
-        )
-      ) {
-        finish('pan');
+            record.attributeName === 'data-render-generation' &&
+            record.target === shell,
+        );
+        // The renderer increments this attribute only after writing pixels to
+        // the live canvas. Record synchronously so a fast next gesture cannot
+        // overwrite the pending phase before an extra animation frame runs.
+        if (painted) finish('pan');
       }
     });
-    observer.observe(stage, {
+    observer.observe(shell, {
       attributes: true,
-      attributeFilter: ['aria-label', 'class', 'data-selected-box-id', 'style'],
+      attributeFilter: ['class', 'data-render-generation', 'data-selected-box-id', 'style'],
       childList: true,
       subtree: true,
     });
   });
 }
 
+async function installFirstFrameObserver(page: Page): Promise<void> {
+  await page.evaluate(() => {
+    const timing = { decodedAt: null as number | null, paintedAt: null as number | null };
+    Object.defineProperty(globalThis, '__froglabelFirstFrameTiming', {
+      configurable: true,
+      value: timing,
+    });
+    const sample = () => {
+      const now = performance.now();
+      const app = document.querySelector<HTMLElement>('.froglabel-app');
+      if (timing.decodedAt === null && app?.dataset.audioPhase === 'ready') {
+        timing.decodedAt = now;
+      }
+      const shell = document.querySelector<HTMLElement>('.spectrogram-shell');
+      if (
+        timing.decodedAt !== null &&
+        timing.paintedAt === null &&
+        Number(shell?.dataset.renderGeneration ?? 0) > 0 &&
+        shell?.dataset.renderQuality === 'preview'
+      ) {
+        timing.paintedAt = now;
+        observer.disconnect();
+      }
+    };
+    const observer = new MutationObserver(sample);
+    observer.observe(document.documentElement, {
+      attributeFilter: ['data-audio-phase', 'data-render-generation', 'data-render-quality'],
+      attributes: true,
+      childList: true,
+      subtree: true,
+    });
+    sample();
+  });
+}
+
 async function nextPaint(page: Page): Promise<void> {
   await page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => resolve())));
+}
+
+async function renderGeneration(shell: import('@playwright/test').Locator): Promise<number> {
+  return Number((await shell.getAttribute('data-render-generation')) ?? 0);
+}
+
+async function waitForRenderAfter(
+  shell: import('@playwright/test').Locator,
+  generation: number,
+): Promise<void> {
+  await expect
+    .poll(
+      async () => {
+        const paint = await renderGeneration(shell);
+        const requested = Number((await shell.getAttribute('data-render-request-generation')) ?? 0);
+        const paintedRequest = Number(
+          (await shell.getAttribute('data-render-painted-request-generation')) ?? 0,
+        );
+        return paint > generation && requested > 0 && paintedRequest === requested;
+      },
+      {
+        message: `expected a canvas paint after generation ${generation}`,
+        timeout: 5_000,
+      },
+    )
+    .toBe(true);
+}
+
+async function waitForExactRender(shell: import('@playwright/test').Locator): Promise<void> {
+  await expect(shell).toHaveAttribute('data-render-status', 'ready', { timeout: 15_000 });
+  await expect(shell).toHaveAttribute('data-render-quality', 'exact', { timeout: 15_000 });
+  await expect
+    .poll(async () => {
+      const requested = Number((await shell.getAttribute('data-render-request-generation')) ?? 0);
+      const painted = Number(
+        (await shell.getAttribute('data-render-painted-request-generation')) ?? 0,
+      );
+      return requested > 0 && painted === requested;
+    })
+    .toBe(true);
 }
 
 function summarize(samples: number[]) {

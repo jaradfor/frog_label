@@ -9,7 +9,11 @@ import pytest
 import froglabel_cli.cli as cli
 from froglabel_cli.admin_config import ProjectConfiguration, load_project_configuration
 from froglabel_cli.catalog import CatalogDescriptor, LiveCatalog, StoredSpecies, plan_catalog_sync
-from froglabel_cli.enterprise import EnterpriseProjectAdministrator
+from froglabel_cli.enterprise import (
+    EnterpriseProjectAdministrator,
+    EnterpriseState,
+    plan_enterprise_sync,
+)
 from froglabel_cli.errors import FrogLabelCliError
 from froglabel_cli.exports import export_label_studio_project
 from froglabel_cli.label_config import generate_ce_label_config, load_document_schema
@@ -112,6 +116,134 @@ def test_catalog_sync_is_idempotent_and_retains_omitted_entries(catalog) -> None
     assert plan.semantic_change is False
     assert plan.next_revision == 3
     assert retained["fixture:per"].note == "retained (deletion unsupported)"
+
+
+def test_legacy_ce_catalog_is_readable_history_but_requires_complete_admin_mapping(catalog) -> None:
+    descriptor = CatalogDescriptor(
+        schemaVersion=1,
+        adapterVersion=1,
+        hostProjectId=7,
+        catalogId="fixture:legacy",
+        catalogRevision=4,
+        initializedAt=catalog.initialized_at,
+        initializedBy="legacy tests",
+        defaultSpeciesId="fixture:red",
+        configManagedSpeciesIds=[],
+    )
+    live = LiveCatalog(
+        descriptor=descriptor,
+        species=[
+            StoredSpecies(
+                schemaVersion=1,
+                hostProjectId=7,
+                catalogId="fixture:legacy",
+                speciesId="fixture:red",
+                code="RED",
+                speciesName="Legacy Red Frog",
+                addedAfterInitialization=False,
+                createdAt=catalog.initialized_at,
+                updatedAt=catalog.initialized_at,
+            )
+        ],
+    )
+
+    readable = live.canonical()
+    assert readable.species == []
+    assert readable.default_species_id is None
+    assert readable.historical_species is not None
+    assert readable.historical_species[0].code == "RED"
+
+    with pytest.raises(FrogLabelCliError, match=r"must appear in catalog\.species"):
+        plan_catalog_sync(live, configuration(target="ce"))
+
+    implicit_priority = ProjectConfiguration.model_validate(
+        {
+            "schemaVersion": 2,
+            "project": {"hostProjectId": 7},
+            "catalog": {
+                "species": [
+                    {
+                        "speciesId": "fixture:red",
+                        "code": "RED",
+                        "speciesName": "Legacy Red Frog",
+                        "adoptExisting": True,
+                    }
+                ]
+            },
+            "audio": {},
+            "ui": {},
+        }
+    )
+    with pytest.raises(FrogLabelCliError, match="explicit selectionPriority"):
+        plan_catalog_sync(live, implicit_priority)
+
+    explicit_priority = ProjectConfiguration.model_validate(
+        {
+            **implicit_priority.model_dump(by_alias=True),
+            "catalog": {
+                "species": [
+                    {
+                        **implicit_priority.catalog.species[0].model_dump(by_alias=True),
+                        "selectionPriority": 0,
+                    }
+                ]
+            },
+        }
+    )
+    assert plan_catalog_sync(live, explicit_priority).semantic_change is True
+
+
+def test_legacy_enterprise_state_embeds_history_without_activating_it(catalog) -> None:
+    state = EnterpriseState.model_validate(
+        {
+            "schemaVersion": 1,
+            "catalogId": "fixture:legacy-enterprise",
+            "catalogRevision": 2,
+            "initializedAt": catalog.initialized_at,
+            "initializedBy": "legacy tests",
+            "defaultSpeciesId": "fixture:red",
+            "configManagedSpeciesIds": [],
+            "species": [
+                {
+                    "schemaVersion": 1,
+                    "kind": "froglabel.species",
+                    "speciesId": "fixture:red",
+                    "code": "RED",
+                    "speciesName": "Legacy Red Frog",
+                    "addedAfterInitialization": False,
+                    "createdAt": catalog.initialized_at,
+                    "updatedAt": catalog.initialized_at,
+                }
+            ],
+        }
+    )
+
+    readable = state.catalog()
+    assert readable.species == []
+    assert readable.default_species_id is None
+    assert readable.historical_species is not None
+    assert readable.historical_species[0].species_id == "fixture:red"
+
+    implicit_priority = ProjectConfiguration.model_validate(
+        {
+            "schemaVersion": 2,
+            "project": {},
+            "catalog": {
+                "species": [
+                    {
+                        "speciesId": "fixture:red",
+                        "code": "RED",
+                        "speciesName": "Legacy Red Frog",
+                        "adoptExisting": True,
+                    }
+                ]
+            },
+            "audio": {},
+            "ui": {},
+        }
+    )
+    with pytest.raises(FrogLabelCliError, match="explicit selectionPriority"):
+        plan_enterprise_sync(state, implicit_priority)
 
 
 def test_enterprise_artifact_render_is_byte_deterministic_from_applied_state(

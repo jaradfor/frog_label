@@ -1,26 +1,26 @@
 import type { CreateSpeciesInput, SpeciesCatalogPort } from '../../ports/SpeciesCatalogPort';
-import type { SpeciesCatalogV1, SpeciesEntryV1 } from '../../domain/types';
+import type { SpeciesCatalog, SpeciesEntry } from '../../domain/types';
 import { assertCatalog, normalizeSpeciesCode, normalizeSpeciesName } from '../../domain/validation';
 import { ValidationError } from '../../domain/errors';
 
 export class MemorySpeciesCatalogPort implements SpeciesCatalogPort {
-  private catalog: SpeciesCatalogV1;
+  private catalog: SpeciesCatalog;
   private destroyed = false;
 
   constructor(
-    catalog: SpeciesCatalogV1,
+    catalog: SpeciesCatalog,
     private readonly writable = true,
   ) {
     assertCatalog(catalog);
     this.catalog = structuredClone(catalog);
   }
 
-  async read(): Promise<SpeciesCatalogV1> {
+  async read(): Promise<SpeciesCatalog> {
     this.ensureAlive();
     return structuredClone(this.catalog);
   }
 
-  async create(input: CreateSpeciesInput): Promise<SpeciesEntryV1> {
+  async create(input: CreateSpeciesInput): Promise<SpeciesEntry> {
     this.ensureAlive();
     if (!this.writable) throw new ValidationError('This catalog is read-only');
     const code = normalizeSpeciesCode(input.code);
@@ -28,23 +28,24 @@ export class MemorySpeciesCatalogPort implements SpeciesCatalogPort {
     const scientificName = input.scientificName
       ? normalizeSpeciesName(input.scientificName)
       : undefined;
-    if (!/^[A-Z]{3}$/u.test(code)) {
-      throw new ValidationError('Code must contain exactly three letters A–Z');
+    if (!/^[QWERTASDFGZXCVB]{1,6}$/u.test(code)) {
+      throw new ValidationError('Code must contain 1–6 left-hand letters');
     }
     if (!speciesName) throw new ValidationError('Full Species Name is required');
     if (
-      this.catalog.species.some(
+      [...this.catalog.species, ...(this.catalog.historicalSpecies ?? [])].some(
         (entry) => entry.code.toLocaleLowerCase('en') === code.toLocaleLowerCase('en'),
       )
     ) {
       throw new ValidationError(`Code ${code} already exists`);
     }
     const now = new Date().toISOString();
-    const entry: SpeciesEntryV1 = {
-      schemaVersion: 1,
+    const entry: SpeciesEntry = {
+      schemaVersion: 2,
       kind: 'froglabel.species',
       speciesId: `local:${crypto.randomUUID()}`,
       code,
+      selectionPriority: input.selectionPriority ?? 0,
       speciesName,
       ...(scientificName ? { scientificName } : {}),
       addedAfterInitialization: true,

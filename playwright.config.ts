@@ -7,6 +7,9 @@ export default defineConfig({
   testDir: './e2e',
   outputDir: './test-results/playwright',
   fullyParallel: false,
+  // This suite contains a real-time rendering benchmark. Running unrelated
+  // browser workers beside it measures scheduler contention, not FrogLabel.
+  workers: 1,
   forbidOnly: Boolean(process.env.CI),
   retries: process.env.CI ? 1 : 0,
   reporter: [['line'], ['html', { outputFolder: 'playwright-report', open: 'never' }]],

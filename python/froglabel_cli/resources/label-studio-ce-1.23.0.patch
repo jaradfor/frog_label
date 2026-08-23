@@ -542,7 +542,7 @@ new file mode 100644
 index 0000000..dbb758d
 --- /dev/null
 +++ b/web/libs/editor/src/integrations/froglabel-reactcode-ce/index.jsx
-@@ -0,0 +1,396 @@
+@@ -0,0 +1,399 @@
 +import { AudioOutlined } from '@ant-design/icons';
 +import { reaction } from 'mobx';
 +import { getRoot, types } from 'mobx-state-tree';
@@ -875,7 +875,7 @@ index 0000000..dbb758d
 +    !value ||
 +    typeof value !== 'object' ||
 +    value.kind !== 'froglabel.annotation-set' ||
-+    value.schemaVersion !== 1 ||
++    ![1, 2].includes(value.schemaVersion) ||
 +    typeof value.catalogId !== 'string' ||
 +    value.catalogId.length < 1 ||
 +    value.catalogId.length > 256 ||
@@ -895,7 +895,9 @@ index 0000000..dbb758d
 +      ids.has(box.id) ||
 +      !box.species ||
 +      typeof box.species.speciesId !== 'string' ||
-+      !/^[A-Z]{3}$/.test(box.species.code) ||
++      !(value.schemaVersion === 1
++        ? /^[A-Z]{3}$/.test(box.species.code)
++        : /^(?:[A-Z]{3}|[QWERTASDFGZXCVB]{1,6})$/.test(box.species.code)) ||
 +      typeof box.species.speciesName !== 'string' ||
 +      typeof box.species.addedAfterInitialization !== 'boolean' ||
 +      !finiteOrdered(box.startTimeSeconds, box.endTimeSeconds, 0) ||
@@ -913,7 +915,8 @@ index 0000000..dbb758d
 +  if (!validDocument(value)) return 'FrogLabel annotation';
 +  if (value.reviewStatus === 'no_calls') return 'FrogLabel · No calls present';
 +  const codes = [...new Set(value.boxes.map((box) => box.species.code))];
-+  const species = codes.length > 3 ? `${codes.slice(0, 3).join(', ')} +${codes.length - 3}` : codes.join(', ');
++  const species =
++    codes.length > 3 ? `${codes.slice(0, 3).join(', ')} +${codes.length - 3}` : codes.join(', ');
 +  return `${value.boxes.length} box${value.boxes.length === 1 ? '' : 'es'} · ${species}`;
 +}
 +

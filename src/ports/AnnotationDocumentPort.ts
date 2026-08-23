@@ -1,5 +1,5 @@
 import type {
-  FrogLabelDocumentV1,
+  FrogLabelDocument,
   HostCapabilities,
   HostSnapshot,
   HostStatus,
@@ -10,7 +10,7 @@ export interface AnnotationDocumentPort {
   subscribe(listener: (snapshot: HostSnapshot) => void): () => void;
   getSnapshot(): HostSnapshot;
   getEpoch(): number;
-  replaceDocument(next: FrogLabelDocumentV1 | null, reason: MutationReason): Promise<void>;
+  replaceDocument(next: FrogLabelDocument | null, reason: MutationReason): Promise<void>;
   getStatus(): HostStatus;
   getCapabilities(): HostCapabilities;
   destroy(): void;

@@ -2,7 +2,7 @@ import { cloneDocument, deterministicSerialize } from '../../domain/document';
 import { IntegrationError, ValidationError } from '../../domain/errors';
 import { migrateDocument } from '../../domain/migrations';
 import type {
-  FrogLabelDocumentV1,
+  FrogLabelDocument,
   FrogLabelHostDataV1,
   HostCapabilities,
   HostRegion,
@@ -42,7 +42,7 @@ type HostMessage =
 
 interface PendingEcho {
   epoch: number;
-  expected: FrogLabelDocumentV1 | null;
+  expected: FrogLabelDocument | null;
   resolve: () => void;
   reject: (error: Error) => void;
   timer: ReturnType<typeof setTimeout>;
@@ -117,7 +117,7 @@ export class ReactCodeSrcPort implements AnnotationDocumentPort {
     };
   }
 
-  replaceDocument(next: FrogLabelDocumentV1 | null, reason: MutationReason): Promise<void> {
+  replaceDocument(next: FrogLabelDocument | null, reason: MutationReason): Promise<void> {
     this.ensureAlive();
     const operation = () => this.performMutation(cloneDocument(next), reason);
     const queued = this.mutationTail.then(operation, operation);
@@ -280,7 +280,7 @@ export class ReactCodeSrcPort implements AnnotationDocumentPort {
   }
 
   private async performMutation(
-    next: FrogLabelDocumentV1 | null,
+    next: FrogLabelDocument | null,
     _reason: MutationReason,
   ): Promise<void> {
     if (this.snapshot.locked || this.status.phase === 'read-only') {
@@ -416,10 +416,7 @@ function readRegion(value: unknown): HostRegion {
   return candidate as HostRegion;
 }
 
-function documentsEqual(
-  left: FrogLabelDocumentV1 | null,
-  right: FrogLabelDocumentV1 | null,
-): boolean {
+function documentsEqual(left: FrogLabelDocument | null, right: FrogLabelDocument | null): boolean {
   return left === null || right === null
     ? left === right
     : deterministicSerialize(left) === deterministicSerialize(right);

@@ -179,8 +179,8 @@ def main() -> None:
             stage / "results/standalone-browser-last-run.json",
         )
         copy(
-            ROOT / "test-results/performance/workspace-2000-boxes.json",
-            stage / "results/workspace-2000-boxes.json",
+            ROOT / "test-results/performance/workspace-5000-boxes.json",
+            stage / "results/workspace-5000-boxes.json",
         )
         copy(
             ROOT / "test-results/playwright/gre-annotation.png",
@@ -202,10 +202,10 @@ def main() -> None:
         verification = {
             "schemaVersion": 1,
             "finalCommit": commit,
-            "unitPropertyProtocol": {"passed": 49, "failed": 0},
-            "component": {"passed": 3, "failed": 0},
-            "python": {"passed": 20, "failed": 0},
-            "standaloneProductionBrowser": {"passed": 7, "failed": 0},
+            "unitPropertyProtocol": {"passed": 128, "failed": 0},
+            "component": {"passed": 16, "failed": 0},
+            "python": {"passed": 33, "failed": 0},
+            "standaloneProductionBrowser": {"passed": 12, "failed": 0},
             "exactPagesArtifactBrowser": {"passed": 6, "failed": 0},
             "ceNormalHttpFreshRuns": {"passed": 2, "failed": 0},
             "ceEmbeddedFrame": {"width": 851, "height": 790},

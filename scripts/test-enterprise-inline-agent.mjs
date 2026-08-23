@@ -144,8 +144,10 @@ async function listen() {
 
 async function drawBox(page) {
   await waitForFirstSpectrogramFrame(page.locator('.spectrogram-shell'));
+  await ensurePanelOpen(page, '1 Species');
   await page.getByRole('option', { name: 'GRE Green Tree Frog' }).click();
-  await page.getByRole('button', { name: /Draw Box/ }).click();
+  await page.getByRole('button', { name: '1 Species' }).click();
+  await ensureDrawTool(page, true);
   const rectangle = await page.locator('canvas.spectrogram-canvas').boundingBox();
   if (!rectangle) throw new Error('Enterprise Interface spectrogram has no bounding box');
   await page.mouse.move(rectangle.x + rectangle.width * 0.2, rectangle.y + rectangle.height * 0.2);
@@ -158,7 +160,18 @@ async function drawBox(page) {
     },
   );
   await page.mouse.up();
+  await ensurePanelOpen(page, '4 Dataset');
   await page.getByRole('row', { name: /GRE — Green Tree Frog/ }).waitFor();
+}
+
+async function ensurePanelOpen(page, name) {
+  const button = page.getByRole('button', { name });
+  if ((await button.getAttribute('aria-pressed')) !== 'true') await button.click();
+}
+
+async function ensureDrawTool(page, draw) {
+  const button = page.getByRole('button', { name: 'Toggle Select and Draw tools (T)' });
+  if ((await button.getAttribute('aria-pressed')) !== String(draw)) await button.click();
 }
 
 async function waitForFirstSpectrogramFrame(shell) {
@@ -229,14 +242,23 @@ try {
   page.on('console', (message) => {
     const entry = `console:${message.type()} ${message.text()}`;
     browserEvents.push(entry);
-    if (['warning', 'error'].includes(message.type())) fatal.push(entry);
+    if (
+      ['warning', 'error'].includes(message.type()) &&
+      !isBenignSoftwareWebGlWarning(message.type(), message.text())
+    )
+      fatal.push(entry);
   });
+
+  function isBenignSoftwareWebGlWarning(type, text) {
+    return type === 'warning' && text.includes('GPU stall due to ReadPixels');
+  }
   page.on('pageerror', (error) => {
     const entry = `pageerror:${error.stack ?? error.message}`;
     browserEvents.push(entry);
     fatal.push(entry);
   });
   await page.goto(origin, { waitUntil: 'domcontentloaded' });
+  await page.getByRole('button', { name: '1 Species' }).click();
   await page.getByRole('option', { name: 'GRE Green Tree Frog' }).waitFor({ timeout: 180_000 });
   const startupMilliseconds = Date.now() - startedAt;
   recordAction('execute exact Interface source', 'shared workspace reached ready state');
@@ -259,7 +281,7 @@ try {
   const beforeResize = await page.evaluate(() => window.__enterpriseHarness.annotations());
   const stableOuterId = beforeResize[0].id;
 
-  await page.getByRole('button', { name: 'Select V' }).click();
+  await ensureDrawTool(page, false);
   await page.getByRole('row', { name: /GRE — Green Tree Frog/ }).click();
   const resize = page.getByRole('button', { name: 'Resize GRE box from SE corner' });
   const rectangle = await resize.boundingBox();
@@ -296,7 +318,8 @@ try {
   }
   recordAction('authoritative reload', 'canonical submitted bytes preserved');
   await page.getByRole('row', { name: /GRE — Green Tree Frog/ }).click();
-  await page.getByRole('button', { name: 'Play selected box' }).click();
+  await ensurePanelOpen(page, '2 Details');
+  await page.getByRole('button', { name: /Replay box raw/i }).click();
   await page.getByRole('button', { name: 'Help and tutorial' }).click();
   await page.getByRole('button', { name: /Start 2-minute tutorial/ }).click();
   await page.keyboard.press('Space');
@@ -318,7 +341,7 @@ try {
 
   await page.getByRole('button', { name: 'Delete GRE box' }).click();
   await waitForRegions(page, 0);
-  await page.getByRole('button', { name: 'No calls present (Shift+N)' }).click();
+  await page.getByRole('button', { name: 'No calls present (Shift+X)' }).click();
   await waitForRegions(page, 1);
   const noCalls = await page.evaluate(() => window.__enterpriseHarness.annotations()[0]);
   if (noCalls.value.reviewStatus !== 'no_calls' || noCalls.value.boxes?.length !== 0) {
@@ -328,7 +351,7 @@ try {
   await page.getByTestId('host-reload').click();
   if (
     (await page
-      .getByRole('button', { name: 'No calls present (Shift+N)' })
+      .getByRole('button', { name: 'No calls present (Shift+X)' })
       .getAttribute('aria-pressed')) !== 'true'
   ) {
     throw new Error('Enterprise No calls did not survive authoritative reload');
@@ -337,16 +360,17 @@ try {
 
   await page.getByTestId('host-lock').click();
   await page.getByText('Read-only', { exact: true }).waitFor();
-  if (await page.getByRole('button', { name: 'No calls present (Shift+N)' }).isEnabled()) {
+  if (await page.getByRole('button', { name: 'No calls present (Shift+X)' }).isEnabled()) {
     throw new Error('Enterprise viewState lock left domain mutation enabled');
   }
   await page.getByTestId('host-lock').click();
   await page.getByTestId('host-switch').click();
+  await ensurePanelOpen(page, '1 Species');
   await page.getByRole('option', { name: 'GRE Green Tree Frog' }).waitFor({ timeout: 180_000 });
   if ((await page.getByTestId('host-region-count').innerText()) !== '0 region(s)') {
     throw new Error('Enterprise task switch retained a region from the prior epoch');
   }
-  await page.getByRole('button', { name: 'No calls present (Shift+N)' }).click();
+  await page.getByRole('button', { name: 'No calls present (Shift+X)' }).click();
   await waitForRegions(page, 1);
   recordAction(
     'task epoch switch and new No calls',

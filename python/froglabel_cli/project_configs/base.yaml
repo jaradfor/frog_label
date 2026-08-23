@@ -4,5 +4,5 @@ defaults:
   - ui: default
   - _self_
 
-schemaVersion: 1
+schemaVersion: 2
 project: {}

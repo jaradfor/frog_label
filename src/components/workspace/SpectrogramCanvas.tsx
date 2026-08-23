@@ -1,22 +1,35 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { LoadedAudio } from '../../audio/AudioResource';
-import { SpectrogramRenderer, type SpectrogramRenderPhase } from '../../audio/SpectrogramRenderer';
+import {
+  SpectrogramRenderer,
+  type SpectrogramRenderPhase,
+  type SpectrogramRenderState,
+} from '../../audio/SpectrogramRenderer';
 import {
   computeWaveformEnvelope,
+  prepareWaveformPeakIndexesCooperative,
   type FrequencyScale,
   type SpectrogramPalette,
 } from '../../audio/spectrogram';
 import type {
   AnalysisChannelMode,
-  FrogLabelBoxV1,
+  FrogLabelBoxV2,
   PixelPoint,
   ViewportTransform,
 } from '../../domain/types';
-import { canonicalToPixel, geometryFromDrag } from '../../domain/projection';
+import { boxToPixelRect, canonicalToPixel, geometryFromDrag } from '../../domain/projection';
 
 type Tool = 'select' | 'draw' | 'pan';
 type ResizeHandle = 'nw' | 'ne' | 'sw' | 'se';
 const DENSE_ANNOTATION_THRESHOLD = 500;
+const INITIAL_RENDER_STATE: SpectrogramRenderState = {
+  status: 'initializing',
+  quality: 'none',
+  requestGeneration: 0,
+  paintedRequestGeneration: 0,
+  paintGeneration: 0,
+  hasFrame: false,
+};
 
 interface ViewWindow {
   durationSeconds: number;
@@ -38,7 +51,7 @@ interface Gesture {
 
 interface SpectrogramCanvasProps {
   audio: LoadedAudio;
-  boxes: FrogLabelBoxV1[];
+  boxes: FrogLabelBoxV2[];
   selectedBoxId: string | null;
   tool: Tool;
   canDraw: boolean;
@@ -58,21 +71,29 @@ interface SpectrogramCanvasProps {
   cancelVersion: number;
   onCreate(
     geometry: Pick<
-      FrogLabelBoxV1,
+      FrogLabelBoxV2,
       'startTimeSeconds' | 'endTimeSeconds' | 'lowFrequencyHz' | 'highFrequencyHz'
     >,
   ): Promise<boolean> | boolean;
   onResize(
     boxId: string,
     geometry: Pick<
-      FrogLabelBoxV1,
+      FrogLabelBoxV2,
       'startTimeSeconds' | 'endTimeSeconds' | 'lowFrequencyHz' | 'highFrequencyHz'
     >,
   ): Promise<boolean> | boolean;
-  onPan(deltaSeconds: number): void;
+  onPan?(deltaSeconds: number): void;
+  onPanView?(deltaTimeSeconds: number, deltaFrequencyAxisFraction: number): void;
+  onPointerAnchorChange?(
+    anchor: {
+      timeRatio: number;
+      frequencyRatio: number;
+    } | null,
+  ): void;
   onError(message: string): void;
   onSemanticEvent(event: string, detail?: string): void;
   onLifecycleChange?(phase: SpectrogramRenderPhase): void;
+  onRenderStateChange?(state: SpectrogramRenderState): void;
 }
 
 export function SpectrogramCanvas({
@@ -90,9 +111,12 @@ export function SpectrogramCanvas({
   onCreate,
   onResize,
   onPan,
+  onPanView,
+  onPointerAnchorChange,
   onError,
   onSemanticEvent,
   onLifecycleChange,
+  onRenderStateChange,
 }: SpectrogramCanvasProps) {
   const rootRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -101,9 +125,12 @@ export function SpectrogramCanvas({
   const rendererRef = useRef<SpectrogramRenderer | null>(null);
   const gestureRef = useRef<Gesture | null>(null);
   const [gesture, setGesture] = useState<Gesture | null>(null);
-  const [size, setSize] = useState({ width: 1, height: 1 });
+  const [size, setSize] = useState({ width: 0, height: 0 });
   const [overlapStack, setOverlapStack] = useState<string[]>([]);
   const [renderPhase, setRenderPhase] = useState<SpectrogramRenderPhase>('analyzing');
+  const [renderState, setRenderState] = useState<SpectrogramRenderState>(INITIAL_RENDER_STATE);
+  const [paintedViewport, setPaintedViewport] = useState<ViewportTransform | null>(null);
+  const [waveformIndexVersion, setWaveformIndexVersion] = useState(0);
   const [retryVersion, setRetryVersion] = useState(0);
   const clickCycleRef = useRef<{
     key: string;
@@ -114,12 +141,33 @@ export function SpectrogramCanvas({
   } | null>(null);
 
   const viewport = useMemo<ViewportTransform>(
-    () => ({ ...view, widthPixels: size.width, heightPixels: size.height }),
-    [size, view],
+    () => ({
+      ...view,
+      frequencyScale: settings.frequencyScale,
+      widthPixels: Math.max(1, size.width),
+      heightPixels: Math.max(1, size.height),
+    }),
+    [settings.frequencyScale, size, view],
   );
-  const visibleBoxes = useMemo(() => projectVisibleBoxes(boxes, viewport), [boxes, viewport]);
+  const requestedViewportRef = useRef<ViewportTransform | null>(null);
+  const projectionViewport = useMemo(() => {
+    if (!paintedViewport || sameViewportProjection(paintedViewport, viewport)) return viewport;
+    // The retained bitmap is CSS-scaled immediately with its stage. Preserve
+    // its scientific transform while following the current stage dimensions
+    // so boxes stay registered through a resize as well as a view transition.
+    return {
+      ...paintedViewport,
+      widthPixels: viewport.widthPixels,
+      heightPixels: viewport.heightPixels,
+    };
+  }, [paintedViewport, viewport]);
+  const visibleBoxes = useMemo(
+    () => projectVisibleBoxes(boxes, projectionViewport),
+    [boxes, projectionViewport],
+  );
   const denseAnnotations = boxes.length > DENSE_ANNOTATION_THRESHOLD;
-  const annotationGesturesReady = renderPhase === 'firstFrameReady';
+  const annotationGesturesReady =
+    renderState.hasFrame && sameViewportProjection(projectionViewport, viewport);
 
   const reportPhase = useCallback(
     (phase: SpectrogramRenderPhase) => {
@@ -127,6 +175,25 @@ export function SpectrogramCanvas({
       onLifecycleChange?.(phase);
     },
     [onLifecycleChange],
+  );
+
+  const reportRenderState = useCallback(
+    (state: SpectrogramRenderState) => {
+      setRenderState(state);
+      if (
+        state.hasFrame &&
+        state.requestGeneration > 0 &&
+        state.paintedRequestGeneration === state.requestGeneration &&
+        requestedViewportRef.current
+      ) {
+        const painted = requestedViewportRef.current;
+        setPaintedViewport((current) =>
+          current && sameViewportProjection(current, painted) ? current : { ...painted },
+        );
+      }
+      onRenderStateChange?.(state);
+    },
+    [onRenderStateChange],
   );
 
   useEffect(() => {
@@ -147,6 +214,8 @@ export function SpectrogramCanvas({
 
   useEffect(() => {
     reportPhase('analyzing');
+    setRenderState(INITIAL_RENDER_STATE);
+    setPaintedViewport(null);
     const renderer = new SpectrogramRenderer(
       audio,
       (message) => {
@@ -154,35 +223,54 @@ export function SpectrogramCanvas({
         onError(message);
       },
       reportPhase,
+      reportRenderState,
     );
     rendererRef.current = renderer;
     return () => {
       renderer.destroy();
       if (rendererRef.current === renderer) rendererRef.current = null;
     };
-  }, [audio, onError, reportPhase, retryVersion]);
+  }, [audio, onError, reportPhase, reportRenderState, retryVersion]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
-    if (!canvas) return;
-    reportPhase('analyzing');
-    const timer = window.setTimeout(
-      () => rendererRef.current?.render(canvas, { ...view, ...settings }),
-      180,
-    );
-    return () => window.clearTimeout(timer);
-  }, [audio, reportPhase, settings, size, view]);
+    if (!canvas || size.width < 1 || size.height < 1) return;
+    requestedViewportRef.current = viewport;
+    rendererRef.current?.render(canvas, { ...view, ...settings });
+  }, [audio, retryVersion, settings, size, view, viewport]);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    setWaveformIndexVersion(0);
+    void prepareWaveformPeakIndexesCooperative(audio.analysis, {
+      signal: controller.signal,
+      sliceMilliseconds: 8,
+    })
+      .then(() => {
+        if (!controller.signal.aborted) setWaveformIndexVersion((version) => version + 1);
+      })
+      .catch((error) => {
+        if (!controller.signal.aborted) {
+          onError(
+            `Waveform indexing failed. ${error instanceof Error ? error.message : 'Unknown error'}`,
+          );
+        }
+      });
+    return () => controller.abort();
+  }, [audio, onError]);
 
   useEffect(() => {
     const canvas = waveformRef.current;
-    if (!canvas) return;
+    if (!canvas || size.width < 1) return;
     paintWaveform(canvas, audio, view, settings.channelMode);
-  }, [audio, settings.channelMode, size.width, view]);
+  }, [audio, settings.channelMode, size.width, view, waveformIndexVersion]);
 
   useEffect(() => {
     const canvas = annotationCanvasRef.current;
     if (!canvas || !denseAnnotations) return;
-    paintDenseAnnotations(canvas, visibleBoxes, size);
+    const controller = new AbortController();
+    void paintDenseAnnotationsCooperative(canvas, visibleBoxes, size, controller.signal);
+    return () => controller.abort();
   }, [denseAnnotations, size, visibleBoxes]);
 
   const viewKey = `${view.timeStartSeconds}:${view.timeEndSeconds}:${view.lowFrequencyHz}:${view.highFrequencyHz}:${size.width}:${size.height}`;
@@ -193,30 +281,59 @@ export function SpectrogramCanvas({
     setGesture(null);
     const root = rootRef.current;
     if (root?.hasPointerCapture(active.pointerId)) root.releasePointerCapture(active.pointerId);
-  }, [cancelVersion, disabled, tool, viewKey]);
+  }, [cancelVersion, disabled, tool]);
+
+  useEffect(() => {
+    const active = gestureRef.current;
+    if (!active) return;
+    if (active.kind === 'pan') {
+      gestureRef.current = { ...active, viewport: structuredClone(viewport) };
+      return;
+    }
+    gestureRef.current = null;
+    setGesture(null);
+    const root = rootRef.current;
+    if (root?.hasPointerCapture(active.pointerId)) root.releasePointerCapture(active.pointerId);
+  }, [viewKey, viewport]);
 
   const pointForEvent = (event: React.PointerEvent): PixelPoint => {
     const rect = rootRef.current?.getBoundingClientRect();
     return { x: event.clientX - (rect?.left ?? 0), y: event.clientY - (rect?.top ?? 0) };
   };
 
+  const reportPointerAnchor = (event: React.PointerEvent) => {
+    const rect = rootRef.current?.getBoundingClientRect();
+    if (!rect || rect.width <= 0 || rect.height <= 0) return;
+    onPointerAnchorChange?.({
+      timeRatio: clampRatio((event.clientX - rect.left) / rect.width),
+      frequencyRatio: clampRatio(1 - (event.clientY - rect.top) / rect.height),
+    });
+  };
+
   const begin = (event: React.PointerEvent<HTMLDivElement>) => {
-    if (disabled || event.button !== 0) return;
+    if (event.button !== 0 && event.button !== 1 && event.button !== 2) return;
+    event.currentTarget.focus({ preventScroll: true });
+    reportPointerAnchor(event);
     const point = pointForEvent(event);
-    if (tool === 'select') {
+    const cameraPan = event.button === 1 || event.button === 2 || tool === 'pan';
+    if (!cameraPan && tool === 'select') {
       selectAtPoint(event, null);
       return;
     }
-    if (tool === 'draw' && !canDraw) {
+    if (!cameraPan && disabled) {
+      onError('Drawing is locked. Selection and camera controls remain available.');
+      return;
+    }
+    if (!cameraPan && tool === 'draw' && !canDraw) {
       onError('Select a species before drawing a new box. Existing boxes remain selectable.');
       return;
     }
-    if (tool === 'draw' && !annotationGesturesReady) {
+    if (!cameraPan && tool === 'draw' && !annotationGesturesReady) {
       onError('Building spectrogram… Drawing will be available after the first frame is ready.');
       return;
     }
     const next: Gesture = {
-      kind: tool === 'pan' ? 'pan' : 'draw',
+      kind: cameraPan ? 'pan' : 'draw',
       pointerId: event.pointerId,
       start: point,
       current: point,
@@ -224,6 +341,7 @@ export function SpectrogramCanvas({
     };
     gestureRef.current = next;
     setGesture(next);
+    event.preventDefault();
     event.currentTarget.setPointerCapture(event.pointerId);
   };
 
@@ -255,7 +373,7 @@ export function SpectrogramCanvas({
 
   const beginResize = (
     event: React.PointerEvent<HTMLButtonElement>,
-    box: FrogLabelBoxV1,
+    box: FrogLabelBoxV2,
     handle: ResizeHandle,
   ) => {
     if (disabled || !annotationGesturesReady || event.button !== 0) return;
@@ -281,11 +399,26 @@ export function SpectrogramCanvas({
   };
 
   const move = (event: React.PointerEvent<HTMLDivElement>) => {
+    reportPointerAnchor(event);
     const active = gestureRef.current;
     if (!active || active.pointerId !== event.pointerId) return;
-    const next = { ...active, current: pointForEvent(event) };
+    const point = pointForEvent(event);
+    const next = { ...active, current: point };
     gestureRef.current = next;
     setGesture(next);
+    if (active.kind === 'pan') {
+      const secondsPerPixel =
+        (active.viewport.timeEndSeconds - active.viewport.timeStartSeconds) /
+        active.viewport.widthPixels;
+      const deltaTimeSeconds = -(point.x - active.current.x) * secondsPerPixel;
+      const deltaFrequencyAxisFraction =
+        (point.y - active.current.y) / active.viewport.heightPixels;
+      if (deltaTimeSeconds !== 0 || deltaFrequencyAxisFraction !== 0) {
+        if (onPanView) onPanView(deltaTimeSeconds, deltaFrequencyAxisFraction);
+        else onPan?.(deltaTimeSeconds);
+      }
+      event.preventDefault();
+    }
   };
 
   const finish = async (event: React.PointerEvent<HTMLDivElement>) => {
@@ -297,10 +430,6 @@ export function SpectrogramCanvas({
     if (rootRef.current?.hasPointerCapture(event.pointerId))
       rootRef.current.releasePointerCapture(event.pointerId);
     if (active.kind === 'pan') {
-      const secondsPerPixel =
-        (completed.viewport.timeEndSeconds - completed.viewport.timeStartSeconds) /
-        completed.viewport.widthPixels;
-      onPan(-(completed.current.x - completed.start.x) * secondsPerPixel);
       onSemanticEvent('viewport.panned');
       return;
     }
@@ -321,6 +450,7 @@ export function SpectrogramCanvas({
     if (gestureRef.current?.pointerId !== event.pointerId) return;
     gestureRef.current = null;
     setGesture(null);
+    onPointerAnchorChange?.(null);
   };
 
   const previewRect =
@@ -331,7 +461,17 @@ export function SpectrogramCanvas({
       className="spectrogram-shell"
       data-tutorial="spectrogram"
       data-spectrogram-state={renderPhase}
-      aria-busy={renderPhase === 'analyzing'}
+      data-render-status={renderState.status}
+      data-render-quality={renderState.quality}
+      data-render-generation={renderState.paintGeneration}
+      data-render-request-generation={renderState.requestGeneration}
+      data-render-painted-request-generation={renderState.paintedRequestGeneration}
+      data-frequency-scale={settings.frequencyScale}
+      data-view-time-start-seconds={view.timeStartSeconds}
+      data-view-time-end-seconds={view.timeEndSeconds}
+      data-view-low-frequency-hz={view.lowFrequencyHz}
+      data-view-high-frequency-hz={view.highFrequencyHz}
+      aria-busy={!renderState.hasFrame && renderState.status !== 'error'}
     >
       <div className="waveform-strip" role="img" aria-label="Waveform aligned with the spectrogram">
         <canvas ref={waveformRef} aria-hidden="true" />
@@ -352,6 +492,8 @@ export function SpectrogramCanvas({
       <div
         ref={rootRef}
         className={`spectrogram-stage tool-${tool}`}
+        tabIndex={-1}
+        data-workspace-command-surface
         data-box-count={boxes.length}
         data-selected-box-id={selectedBoxId ?? ''}
         data-annotation-gestures-ready={annotationGesturesReady}
@@ -360,6 +502,10 @@ export function SpectrogramCanvas({
         onPointerUp={(event) => void finish(event)}
         onPointerCancel={cancel}
         onLostPointerCapture={cancel}
+        onPointerLeave={() => {
+          if (!gestureRef.current) onPointerAnchorChange?.(null);
+        }}
+        onContextMenu={(event) => event.preventDefault()}
       >
         <canvas
           ref={canvasRef}
@@ -367,28 +513,19 @@ export function SpectrogramCanvas({
           role="img"
           aria-label={`Spectrogram from ${view.timeStartSeconds.toFixed(2)} to ${view.timeEndSeconds.toFixed(2)} seconds and ${Math.round(view.lowFrequencyHz)} to ${Math.round(view.highFrequencyHz)} hertz`}
         />
-        {renderPhase !== 'firstFrameReady' && (
-          <div
-            className={`spectrogram-readiness-overlay ${renderPhase === 'error' ? 'error' : ''}`}
-            role={renderPhase === 'error' ? 'alert' : 'status'}
-          >
-            <strong>
-              {renderPhase === 'error'
-                ? 'Spectrogram could not be built.'
-                : 'Building spectrogram…'}
-            </strong>
-            {renderPhase === 'error' && (
-              <button
-                type="button"
-                onClick={(event) => {
-                  event.stopPropagation();
-                  reportPhase('analyzing');
-                  setRetryVersion((version) => version + 1);
-                }}
-              >
-                Retry
-              </button>
-            )}
+        {renderPhase === 'error' && !renderState.hasFrame && (
+          <div className="spectrogram-readiness-overlay error" role="alert">
+            <strong>Spectrogram could not be built.</strong>
+            <button
+              type="button"
+              onClick={(event) => {
+                event.stopPropagation();
+                reportPhase('analyzing');
+                setRetryVersion((version) => version + 1);
+              }}
+            >
+              Retry
+            </button>
           </div>
         )}
         {denseAnnotations && (
@@ -424,8 +561,9 @@ export function SpectrogramCanvas({
                   pointerEvents: tool === 'select' ? 'auto' : 'none',
                 }}
                 onPointerDown={(event) => {
-                  if (tool !== 'select') return;
+                  if (tool !== 'select' || event.button !== 0) return;
                   event.stopPropagation();
+                  rootRef.current?.focus({ preventScroll: true });
                   selectAtPoint(event, box.id);
                 }}
               >
@@ -492,53 +630,84 @@ function pointInside(
   );
 }
 
-function paintDenseAnnotations(
+function clampRatio(value: number): number {
+  return Math.min(1, Math.max(0, value));
+}
+
+function sameViewportProjection(left: ViewportTransform, right: ViewportTransform): boolean {
+  return (
+    left.timeStartSeconds === right.timeStartSeconds &&
+    left.timeEndSeconds === right.timeEndSeconds &&
+    left.lowFrequencyHz === right.lowFrequencyHz &&
+    left.highFrequencyHz === right.highFrequencyHz &&
+    left.frequencyScale === right.frequencyScale &&
+    left.widthPixels === right.widthPixels &&
+    left.heightPixels === right.heightPixels
+  );
+}
+
+async function paintDenseAnnotationsCooperative(
   canvas: HTMLCanvasElement,
   boxes: Array<{
-    box: FrogLabelBoxV1;
+    box: FrogLabelBoxV2;
     rect: { left: number; top: number; width: number; height: number };
   }>,
   size: { width: number; height: number },
-): void {
+  signal: AbortSignal,
+): Promise<void> {
+  // Effects run after React commits but still share the originating browser
+  // task. Start dense raster work in a fresh task so a large-document reducer
+  // commit and its annotation repaint cannot combine into one >50 ms task.
+  await yieldToAnnotationHost();
+  if (signal.aborted) return;
   const pixelRatio = Math.max(1, window.devicePixelRatio || 1);
   const width = Math.max(1, Math.round(size.width * pixelRatio));
   const height = Math.max(1, Math.round(size.height * pixelRatio));
-  if (canvas.width !== width) canvas.width = width;
-  if (canvas.height !== height) canvas.height = height;
-  const context = canvas.getContext('2d');
+  const buffer = canvas.ownerDocument.createElement('canvas');
+  buffer.width = width;
+  buffer.height = height;
+  const context = buffer.getContext('2d');
   if (!context) return;
   context.setTransform(pixelRatio, 0, 0, pixelRatio, 0, 0);
   context.clearRect(0, 0, size.width, size.height);
   context.fillStyle = 'rgba(30, 200, 100, 0.16)';
   context.strokeStyle = '#70e6a1';
   context.lineWidth = 2;
-  context.beginPath();
-  for (const { rect } of boxes) {
-    const boxWidth = Math.max(1, rect.width);
-    const boxHeight = Math.max(1, rect.height);
-    context.rect(rect.left, rect.top, boxWidth, boxHeight);
+  let sliceStartedAt = performance.now();
+  const boxesPerBatch = 128;
+  for (let start = 0; start < boxes.length; start += boxesPerBatch) {
+    if (signal.aborted) return;
+    context.beginPath();
+    const end = Math.min(boxes.length, start + boxesPerBatch);
+    for (let index = start; index < end; index += 1) {
+      const rect = boxes[index].rect;
+      context.rect(rect.left, rect.top, Math.max(1, rect.width), Math.max(1, rect.height));
+    }
+    context.fill();
+    context.stroke();
+    if (performance.now() - sliceStartedAt >= 4) {
+      await yieldToAnnotationHost();
+      sliceStartedAt = performance.now();
+    }
   }
-  context.fill();
-  context.stroke();
+  if (signal.aborted) return;
+  if (canvas.width !== width) canvas.width = width;
+  if (canvas.height !== height) canvas.height = height;
+  const visibleContext = canvas.getContext('2d');
+  if (!visibleContext) return;
+  visibleContext.setTransform(1, 0, 0, 1, 0, 0);
+  visibleContext.clearRect(0, 0, width, height);
+  visibleContext.drawImage(buffer, 0, 0);
 }
 
-function projectVisibleBoxes(boxes: FrogLabelBoxV1[], viewport: ViewportTransform) {
-  const timeScale = viewport.widthPixels / (viewport.timeEndSeconds - viewport.timeStartSeconds);
-  const frequencyScale =
-    viewport.heightPixels / (viewport.highFrequencyHz - viewport.lowFrequencyHz);
+function yieldToAnnotationHost(): Promise<void> {
+  return new Promise((resolve) => globalThis.setTimeout(resolve, 0));
+}
+
+function projectVisibleBoxes(boxes: FrogLabelBoxV2[], viewport: ViewportTransform) {
   return boxes
     .map((box) => {
-      const left = (box.startTimeSeconds - viewport.timeStartSeconds) * timeScale;
-      const top = (viewport.highFrequencyHz - box.highFrequencyHz) * frequencyScale;
-      return {
-        box,
-        rect: {
-          left,
-          top,
-          width: (box.endTimeSeconds - box.startTimeSeconds) * timeScale,
-          height: (box.highFrequencyHz - box.lowFrequencyHz) * frequencyScale,
-        },
-      };
+      return { box, rect: boxToPixelRect(box, viewport) };
     })
     .filter(
       ({ rect }) =>

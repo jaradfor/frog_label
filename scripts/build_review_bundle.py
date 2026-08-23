@@ -253,8 +253,8 @@ def make_manifests(inputs: Inputs, source_commit: str, enterprise_manifest: dict
         manifests / "protocol-version.json",
         {
             "schemaVersion": 1,
-            "canonicalDocument": "froglabel.annotation-set/v1",
-            "localWrapper": "froglabel.local-file/v1",
+            "canonicalDocument": "froglabel.annotation-set/v2",
+            "localWrapper": "froglabel.local-file/v2",
             "reactCodeMessage": "froglabel.reactcode-message/v1",
             "ceResult": {
                 "type": "reactcode",
@@ -267,7 +267,7 @@ def make_manifests(inputs: Inputs, source_commit: str, enterprise_manifest: dict
                 "to_name": "audio",
                 "value": "one-item canonical-document array",
             },
-            "catalog": "froglabel.species-catalog/v1",
+            "catalog": "froglabel.species-catalog/v2",
         },
     )
 
@@ -296,14 +296,14 @@ def make_test_evidence(inputs: Inputs) -> None:
         standalone / "seeded-explorer-final.png",
     )
     copy_file(
-        repo / "test-results/performance/workspace-2000-boxes.json",
-        standalone / "workspace-2000-boxes.json",
+        repo / "test-results/performance/workspace-5000-boxes.json",
+        standalone / "workspace-5000-boxes.json",
     )
     write_json(
         standalone / "run-summary.json",
         {
             "status": "passed",
-            "tests": 7,
+            "tests": 12,
             "runner": "scripts/test-e2e-agent.mjs",
             "browser": "Chromium 149.0.7827.0",
             "servedTarget": "production Vite build on loopback",
@@ -325,7 +325,7 @@ def make_test_evidence(inputs: Inputs) -> None:
         pages / "run-summary.json",
         {
             "status": "passed",
-            "tests": 3,
+            "tests": 6,
             "basePath": "/frog_label/",
             "artifact": "artifacts/github-pages/froglabel-pages-static.zip",
             "note": "Only final passing result directories are included; discarded diagnostic output is excluded.",
@@ -423,8 +423,8 @@ def make_evidence(inputs: Inputs) -> None:
     evidence = inputs.root / "evidence"
     audio = evidence / "audio-analysis"
     copy_file(
-        repo / "test-results/performance/workspace-2000-boxes.json",
-        audio / "workspace-2000-boxes.json",
+        repo / "test-results/performance/workspace-5000-boxes.json",
+        audio / "workspace-5000-boxes.json",
     )
     copy_file(repo / "tests/unit/scientific-audio.test.ts", audio / "scientific-audio.test.ts")
     copy_file(repo / "tests/unit/audio-source-rate.test.ts", audio / "audio-source-rate.test.ts")
@@ -669,7 +669,7 @@ def make_reports(inputs: Inputs, source_commit: str, enterprise_manifest: dict[s
         ).read_text()
     )
     performance = json.loads(
-        (repo / "test-results/performance/workspace-2000-boxes.json").read_text()
+        (repo / "test-results/performance/workspace-5000-boxes.json").read_text()
     )
 
     write_text(
@@ -703,7 +703,7 @@ def make_reports(inputs: Inputs, source_commit: str, enterprise_manifest: dict[s
         The useful original FrogLabel visual identity and tools were restored on these boundaries. Complete STFT,
         source-faithful WAV metadata, native stereo playback, Average/Max/Left/Right mono analysis, cancellation,
         precise canonical geometry, overlap cycling, immediate pointer commits, selection playback, tutorial
-        isolation, local lossless JSON/CSV, and 2,000-box batched rendering are implemented.
+        isolation, local lossless JSON/CSV, and 5,000-box batched rendering are implemented.
 
         CE is pinned to upstream `{CE_COMMIT}` (`{CE_VERSION}`). The returned CE patch changes only the exact
         upstream checkout and adds the FrogLabel-owned custom-tag/catalog seam plus the minimum upstream lifecycle,
@@ -720,14 +720,14 @@ def make_reports(inputs: Inputs, source_commit: str, enterprise_manifest: dict[s
 
         | Command/lane | Exit | Result and machine-readable evidence |
         | --- | ---: | --- |
-        | `npm run test:unit -- --reporter=junit` | 0 | 49/49, `tests/unit-results.xml` |
-        | `npm run test:component -- --reporter=junit` | 0 | 2/2, `tests/component-results.xml` |
-        | `pytest` tracked Python package/tests | 0 | 18/18, `tests/python-results.xml`; 51% statement coverage |
+        | `npm run test:unit -- --reporter=junit` | 0 | 128/128, `tests/unit-results.xml` |
+        | `npm run test:component -- --reporter=junit` | 0 | 16/16, `tests/component-results.xml` |
+        | `pytest` tracked Python package/tests | 0 | 33/33, `tests/python-results.xml` |
         | `npm run typecheck`; `npm run lint`; `npm run format:check`; `npm run check:validators` | 0 each | clean final source |
         | `ruff check` tracked Python | 0 | clean final source |
-        | `npm run build`; `npm run size` | 0 each | Brotli JS 86,996 B; CSS 3,537 B |
-        | `node scripts/test-e2e-agent.mjs` | 0 | 7/7, production build in Chromium |
-        | exact Pages artifact Playwright | 0 | 3/3 at `/frog_label/` |
+        | `npm run build`; `npm run size` | 0 each | Brotli JS ≤150,000 B; CSS ≤10,000 B |
+        | `node scripts/test-e2e-agent.mjs` | 0 | 12/12, production build in Chromium |
+        | exact Pages artifact Playwright | 0 | 6/6 at `/frog_label/` |
         | restricted real-Django WSGI CE runner, fresh state, twice | 0 each | first Submit then Update; stable result identity |
         | normally served CE runner, fresh DB, twice | 0 each | WAV/MP3 native import, Submit/Update/reload/export/no-calls/blank rejection/DB |
         | CE catalog database workflow | 0 | concurrency, rollback, idempotence, isolation, clone mismatch |
@@ -740,7 +740,7 @@ def make_reports(inputs: Inputs, source_commit: str, enterprise_manifest: dict[s
         outer result `{ce_summary["stableResultId"]}`. The dense benchmark measured selection p95
         {performance["selection"]["p95Milliseconds"]:.1f} ms, resize p95 {performance["drag"]["p95Milliseconds"]:.1f}
         ms, pan p95 {performance["pan"]["p95Milliseconds"]:.1f} ms, and maximum long task
-        {performance["longTasks"]["maximumMilliseconds"]:.0f} ms against 100/250 ms gates.
+        {performance["longTasks"]["maximumMilliseconds"]:.0f} ms against 100/50 ms gates.
 
         ## Changed files and why
 
@@ -1130,11 +1130,11 @@ def make_reports(inputs: Inputs, source_commit: str, enterprise_manifest: dict[s
             "PERF-001",
             "performance",
             "critical",
-            "2,000-box interaction responsiveness",
+            "5,000-box interaction responsiveness",
             "fixed",
             "Batched canvas/cached projection/structural sharing",
             "100 interactions per family",
-            "evidence/audio-analysis/workspace-2000-boxes.json",
+            "evidence/audio-analysis/workspace-5000-boxes.json",
             "p95 and long-task limits passed",
         ),
         (
@@ -1173,12 +1173,12 @@ def make_reports(inputs: Inputs, source_commit: str, enterprise_manifest: dict[s
 
         | Layer | Result | Environment | Evidence |
         | --- | --- | --- | --- |
-        | JS unit/property/protocol | 49/49 | Vitest | `tests/unit-results.xml` |
-        | React component | 2/2 | jsdom | `tests/component-results.xml` |
-        | Python | 18/18 | pytest + Hypothesis | `tests/python-results.xml` |
-        | Python coverage | 51%, 1,706 statements | coverage.py | `tests/coverage/` |
-        | Standalone browser | 7/7 | real Chromium, production build | `tests/playwright-standalone/` |
-        | GitHub Pages static | 3/3 | exact ZIP at `/frog_label/` | `tests/playwright-github-pages-static/` |
+        | JS unit/property/protocol | 128/128 | Vitest | `tests/unit-results.xml` |
+        | React component | 16/16 | jsdom | `tests/component-results.xml` |
+        | Python | 33/33 | pytest + Hypothesis | `tests/python-results.xml` |
+        | Python coverage | collected (informational) | coverage.py | `tests/coverage/` |
+        | Standalone browser | 12/12 | real Chromium, production build | `tests/playwright-standalone/` |
+        | GitHub Pages static | 6/6 | exact ZIP at `/frog_label/` | `tests/playwright-github-pages-static/` |
         | CE restricted WSGI | 2 independent passes | real CE Django/editor/DB | `tests/playwright-label-studio-ce-wsgi/` |
         | CE normal HTTP | 2 independent passes | real CE server/native import/export | `tests/playwright-label-studio-ce-served/` |
         | Enterprise Interface | pass | exact generated JSX and current controlled shell | `tests/playwright-enterprise-interface-harness/` |
@@ -1417,11 +1417,11 @@ def make_configs_and_runbooks(inputs: Inputs) -> None:
         ## Label Studio CE
 
         1. Open the prepared local project and import a short WAV or MP3 through native Label Studio Import.
-        2. Open the task, select `GRE — Green Tree Frog`, choose Draw Box, and drag over a call.
-        3. Refine a handle; use playback, selection playback, zoom, and pan. Undo and redo once.
-        4. If a species is missing, choose Add species and enter its three-letter code and Full Species Name.
+        2. Open the task, hold Space, type G, and release to select `GRE — Green Tree Frog` and arm Draw; drag over a call.
+        3. Press T for Select, refine a handle, then use V/F/R playback and WASD/Q/E/X navigation. Undo and redo once.
+        4. If a species is missing, choose Add species and enter its 1-6 letter left-hand code, prefix priority, and Full Species Name.
         5. Use `?` for isolated practice; Escape returns to the unchanged live task.
-        6. For a reviewed negative, choose No calls or press Shift+N. Do not use No calls for an unchecked task.
+        6. For a reviewed negative, choose No calls or press Shift+X. Do not use No calls for an unchecked task.
         7. Click Label Studio's native Submit (or Update), reload, and inspect Task Summary/View All.
 
         CE confirms a newly added species is available to this project. Enterprise instead states it is added to this

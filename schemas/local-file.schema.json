@@ -1,13 +1,9 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://froglabel.local/schemas/local-file.schema.json",
-  "title": "FrogLabel Local File V1",
-  "type": "object",
-  "additionalProperties": false,
-  "required": ["kind", "schemaVersion", "audio", "catalogSnapshot", "document"],
-  "properties": {
-    "kind": { "const": "froglabel.local-file" },
-    "schemaVersion": { "const": 1 },
+  "title": "FrogLabel Local File",
+  "oneOf": [{ "$ref": "#/$defs/v1" }, { "$ref": "#/$defs/v2" }],
+  "$defs": {
     "audio": {
       "type": "object",
       "additionalProperties": false,
@@ -24,11 +20,7 @@
         "sizeBytes": { "type": "integer", "minimum": 1, "maximum": 134217728 },
         "mimeType": { "type": "string", "maxLength": 128 },
         "durationSeconds": { "type": "number", "exclusiveMinimum": 0, "maximum": 30 },
-        "sampleRateHz": {
-          "type": "number",
-          "exclusiveMinimum": 0,
-          "maximum": 192000
-        },
+        "sampleRateHz": { "type": "number", "exclusiveMinimum": 0, "maximum": 192000 },
         "channelCount": { "type": "integer", "minimum": 1, "maximum": 2 },
         "fingerprint": {
           "type": "object",
@@ -42,16 +34,55 @@
         }
       }
     },
-    "catalogSnapshot": {
-      "type": "array",
-      "maxItems": 10000,
-      "items": { "$ref": "https://froglabel.local/schemas/species.schema.json" }
+    "v1": {
+      "title": "FrogLabel Local File V1 (legacy read-only)",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "schemaVersion", "audio", "catalogSnapshot", "document"],
+      "properties": {
+        "kind": { "const": "froglabel.local-file" },
+        "schemaVersion": { "const": 1 },
+        "audio": { "$ref": "#/$defs/audio" },
+        "catalogSnapshot": {
+          "type": "array",
+          "maxItems": 10000,
+          "items": { "$ref": "https://froglabel.local/schemas/species.schema.json#/$defs/v1" }
+        },
+        "document": {
+          "oneOf": [
+            { "$ref": "https://froglabel.local/schemas/document.schema.json#/$defs/documentV1" },
+            { "type": "null" }
+          ]
+        }
+      }
     },
-    "document": {
-      "oneOf": [
-        { "$ref": "https://froglabel.local/schemas/document.schema.json" },
-        { "type": "null" }
-      ]
+    "v2": {
+      "title": "FrogLabel Local File V2",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "schemaVersion", "audio", "catalogSnapshot", "document"],
+      "properties": {
+        "kind": { "const": "froglabel.local-file" },
+        "schemaVersion": { "const": 2 },
+        "audio": { "$ref": "#/$defs/audio" },
+        "catalogSnapshot": {
+          "type": "array",
+          "maxItems": 10000,
+          "items": { "$ref": "https://froglabel.local/schemas/species.schema.json#/$defs/v2" }
+        },
+        "historicalCatalogSnapshot": {
+          "description": "Unmapped V1 entries retained for display but excluded from active selection.",
+          "type": "array",
+          "maxItems": 10000,
+          "items": { "$ref": "https://froglabel.local/schemas/species.schema.json#/$defs/v1" }
+        },
+        "document": {
+          "oneOf": [
+            { "$ref": "https://froglabel.local/schemas/document.schema.json#/$defs/documentV2" },
+            { "type": "null" }
+          ]
+        }
+      }
     }
   }
 }

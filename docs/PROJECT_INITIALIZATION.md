@@ -1,6 +1,6 @@
 # Project initialization and synchronization
 
-Hydra composes operator intent once; strict Pydantic validation completes before any target mutation. Codes are uppercase three-letter ASCII and unique case-insensitively. Full Species Name and immutable `speciesId` are required. Empty catalog and no default are valid.
+Hydra composes operator intent once; strict Pydantic validation completes before any target mutation. Active codes contain 1–6 uppercase letters from `QWERTASDFGZXCVB`, are unique, and carry an explicit `selectionPriority` (default `0`). Full Species Name and immutable `speciesId` are required. Empty catalog and no default are valid. Every V1 entry must be mapped explicitly by immutable ID in the configuration before synchronization, including legacy codes that already happen to contain only left-hand letters. Until the complete transaction is applied, runtime readers expose those records as visible `historicalSpecies` and never include them in chord selection.
 
 ## CE 1.23.0
 

@@ -1,18 +1,18 @@
 import { ValidationError } from '../../domain/errors';
-import type { SpeciesCatalogV1, SpeciesEntryV1, SpeciesSnapshotV1 } from '../../domain/types';
+import type { SpeciesCatalog, SpeciesEntry, SpeciesSnapshotV2 } from '../../domain/types';
 import { assertCatalog, normalizeSpeciesCode, normalizeSpeciesName } from '../../domain/validation';
 import type { AnnotationDocumentPort } from '../../ports/AnnotationDocumentPort';
 import type { CreateSpeciesInput, SpeciesCatalogPort } from '../../ports/SpeciesCatalogPort';
 
 /** Enterprise's seed catalog plus additions snapshotted in this annotation only. */
 export class EmbeddedCatalogPort implements SpeciesCatalogPort {
-  private readonly additions = new Map<string, SpeciesEntryV1>();
+  private readonly additions = new Map<string, SpeciesEntry>();
   private readonly unsubscribe: () => void;
   private epoch = -1;
   private destroyed = false;
 
   constructor(
-    private readonly seed: SpeciesCatalogV1,
+    private readonly seed: SpeciesCatalog,
     annotation: AnnotationDocumentPort,
   ) {
     assertCatalog(seed);
@@ -26,7 +26,7 @@ export class EmbeddedCatalogPort implements SpeciesCatalogPort {
     });
   }
 
-  async read(): Promise<SpeciesCatalogV1> {
+  async read(): Promise<SpeciesCatalog> {
     this.ensureAlive();
     const species = mergeSpecies(this.seed.species, [...this.additions.values()]);
     const catalog = { ...structuredClone(this.seed), species };
@@ -34,18 +34,26 @@ export class EmbeddedCatalogPort implements SpeciesCatalogPort {
     return catalog;
   }
 
-  async create(input: CreateSpeciesInput): Promise<SpeciesEntryV1> {
+  async create(input: CreateSpeciesInput): Promise<SpeciesEntry> {
     this.ensureAlive();
     const code = normalizeSpeciesCode(input.code);
     const speciesName = normalizeSpeciesName(input.speciesName);
     const scientificName = input.scientificName
       ? normalizeSpeciesName(input.scientificName)
       : undefined;
-    if (!/^[A-Z]{3}$/u.test(code)) {
-      throw new ValidationError('Code must contain exactly three letters A–Z');
+    if (!/^[QWERTASDFGZXCVB]{1,6}$/u.test(code)) {
+      throw new ValidationError('Code must contain 1–6 left-hand letters');
     }
     if (!speciesName) throw new ValidationError('Full Species Name is required');
     const catalog = await this.read();
+    const historical = catalog.historicalSpecies?.find(
+      (entry) => entry.code.toLocaleLowerCase('en') === code.toLocaleLowerCase('en'),
+    );
+    if (historical) {
+      throw new ValidationError(
+        `Code ${code} belongs to historical species ${historical.speciesName}; migrate it explicitly before use`,
+      );
+    }
     const existing = catalog.species.find(
       (entry) => entry.code.toLocaleLowerCase('en') === code.toLocaleLowerCase('en'),
     );
@@ -59,11 +67,12 @@ export class EmbeddedCatalogPort implements SpeciesCatalogPort {
       throw new ValidationError(`Code ${code} already belongs to ${existing.speciesName}`);
     }
     const now = new Date().toISOString();
-    const created: SpeciesEntryV1 = {
-      schemaVersion: 1,
+    const created: SpeciesEntry = {
+      schemaVersion: 2,
       kind: 'froglabel.species',
       speciesId: `local:${crypto.randomUUID()}`,
       code,
+      selectionPriority: input.selectionPriority ?? 0,
       speciesName,
       ...(scientificName ? { scientificName } : {}),
       addedAfterInitialization: true,
@@ -85,15 +94,19 @@ export class EmbeddedCatalogPort implements SpeciesCatalogPort {
     this.additions.clear();
   }
 
-  private remember(snapshot: SpeciesSnapshotV1): void {
+  private remember(snapshot: SpeciesSnapshotV2): void {
     if (!snapshot.addedAfterInitialization) return;
+    if (!/^[QWERTASDFGZXCVB]{1,6}$/u.test(snapshot.code)) return;
+    if (this.seed.historicalSpecies?.some((entry) => entry.speciesId === snapshot.speciesId))
+      return;
     const seed = this.seed.species.find((entry) => entry.speciesId === snapshot.speciesId);
     if (seed) return;
     const now = new Date().toISOString();
     this.additions.set(snapshot.speciesId, {
-      schemaVersion: 1,
+      schemaVersion: 2,
       kind: 'froglabel.species',
       ...structuredClone(snapshot),
+      selectionPriority: 0,
       createdAt: now,
       updatedAt: now,
     });
@@ -105,9 +118,9 @@ export class EmbeddedCatalogPort implements SpeciesCatalogPort {
 }
 
 function mergeSpecies(
-  seed: readonly SpeciesEntryV1[],
-  additions: readonly SpeciesEntryV1[],
-): SpeciesEntryV1[] {
+  seed: readonly SpeciesEntry[],
+  additions: readonly SpeciesEntry[],
+): SpeciesEntry[] {
   const byId = new Map(seed.map((entry) => [entry.speciesId, structuredClone(entry)]));
   for (const addition of additions) {
     const existing = byId.get(addition.speciesId);

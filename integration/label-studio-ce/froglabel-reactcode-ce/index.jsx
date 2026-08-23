@@ -330,7 +330,7 @@ function validDocument(value) {
     !value ||
     typeof value !== 'object' ||
     value.kind !== 'froglabel.annotation-set' ||
-    value.schemaVersion !== 1 ||
+    ![1, 2].includes(value.schemaVersion) ||
     typeof value.catalogId !== 'string' ||
     value.catalogId.length < 1 ||
     value.catalogId.length > 256 ||
@@ -350,7 +350,9 @@ function validDocument(value) {
       ids.has(box.id) ||
       !box.species ||
       typeof box.species.speciesId !== 'string' ||
-      !/^[A-Z]{3}$/.test(box.species.code) ||
+      !(value.schemaVersion === 1
+        ? /^[A-Z]{3}$/.test(box.species.code)
+        : /^(?:[A-Z]{3}|[QWERTASDFGZXCVB]{1,6})$/.test(box.species.code)) ||
       typeof box.species.speciesName !== 'string' ||
       typeof box.species.addedAfterInitialization !== 'boolean' ||
       !finiteOrdered(box.startTimeSeconds, box.endTimeSeconds, 0) ||

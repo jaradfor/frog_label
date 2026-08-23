@@ -1,39 +1,97 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://froglabel.local/schemas/document.schema.json",
-  "title": "FrogLabel Annotation Document V1",
-  "type": "object",
-  "additionalProperties": false,
-  "required": ["kind", "schemaVersion", "catalogId", "reviewStatus", "boxes"],
-  "properties": {
-    "kind": { "const": "froglabel.annotation-set" },
-    "schemaVersion": { "const": 1 },
-    "catalogId": { "type": "string", "minLength": 1, "maxLength": 256 },
-    "reviewStatus": { "enum": ["calls_present", "no_calls"] },
-    "boxes": {
-      "type": "array",
-      "maxItems": 5000,
-      "items": { "$ref": "#/$defs/box" }
-    }
-  },
-  "allOf": [
-    {
-      "if": { "properties": { "reviewStatus": { "const": "calls_present" } } },
-      "then": { "properties": { "boxes": { "type": "array", "minItems": 1 } } }
-    },
-    {
-      "if": { "properties": { "reviewStatus": { "const": "no_calls" } } },
-      "then": { "properties": { "boxes": { "type": "array", "maxItems": 0 } } }
-    }
-  ],
+  "title": "FrogLabel Annotation Document",
+  "oneOf": [{ "$ref": "#/$defs/documentV1" }, { "$ref": "#/$defs/documentV2" }],
   "$defs": {
-    "speciesSnapshot": {
+    "documentV1": {
+      "title": "FrogLabel Annotation Document V1 (legacy read-only)",
+      "$ref": "#/$defs/documentCommonV1"
+    },
+    "documentV2": {
+      "title": "FrogLabel Annotation Document V2",
+      "$ref": "#/$defs/documentCommonV2"
+    },
+    "documentCommonV1": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "schemaVersion", "catalogId", "reviewStatus", "boxes"],
+      "properties": {
+        "kind": { "const": "froglabel.annotation-set" },
+        "schemaVersion": { "const": 1 },
+        "catalogId": { "type": "string", "minLength": 1, "maxLength": 256 },
+        "reviewStatus": { "enum": ["calls_present", "no_calls"] },
+        "boxes": {
+          "type": "array",
+          "maxItems": 5000,
+          "items": { "$ref": "#/$defs/boxV1" }
+        }
+      },
+      "allOf": [{ "$ref": "#/$defs/reviewRules" }]
+    },
+    "documentCommonV2": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "schemaVersion", "catalogId", "reviewStatus", "boxes"],
+      "properties": {
+        "kind": { "const": "froglabel.annotation-set" },
+        "schemaVersion": { "const": 2 },
+        "catalogId": { "type": "string", "minLength": 1, "maxLength": 256 },
+        "reviewStatus": { "enum": ["calls_present", "no_calls"] },
+        "boxes": {
+          "type": "array",
+          "maxItems": 5000,
+          "items": { "$ref": "#/$defs/boxV2" }
+        }
+      },
+      "allOf": [{ "$ref": "#/$defs/reviewRules" }]
+    },
+    "reviewRules": {
+      "allOf": [
+        {
+          "if": {
+            "type": "object",
+            "properties": { "reviewStatus": { "const": "calls_present" } }
+          },
+          "then": {
+            "type": "object",
+            "properties": { "boxes": { "type": "array", "minItems": 1 } }
+          }
+        },
+        {
+          "if": {
+            "type": "object",
+            "properties": { "reviewStatus": { "const": "no_calls" } }
+          },
+          "then": {
+            "type": "object",
+            "properties": { "boxes": { "type": "array", "maxItems": 0 } }
+          }
+        }
+      ]
+    },
+    "speciesSnapshotV1": {
       "type": "object",
       "additionalProperties": false,
       "required": ["speciesId", "code", "speciesName", "addedAfterInitialization"],
       "properties": {
         "speciesId": { "type": "string", "minLength": 1, "maxLength": 256 },
         "code": { "type": "string", "pattern": "^[A-Z]{3}$" },
+        "speciesName": { "type": "string", "minLength": 1, "maxLength": 256 },
+        "scientificName": { "type": "string", "minLength": 1, "maxLength": 256 },
+        "addedAfterInitialization": { "type": "boolean" }
+      }
+    },
+    "speciesSnapshotV2": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["speciesId", "code", "speciesName", "addedAfterInitialization"],
+      "properties": {
+        "speciesId": { "type": "string", "minLength": 1, "maxLength": 256 },
+        "code": {
+          "type": "string",
+          "pattern": "^(?:[A-Z]{3}|[QWERTASDFGZXCVB]{1,6})$"
+        },
         "speciesName": { "type": "string", "minLength": 1, "maxLength": 256 },
         "scientificName": { "type": "string", "minLength": 1, "maxLength": 256 },
         "addedAfterInitialization": { "type": "boolean" }
@@ -99,9 +157,8 @@
         }
       ]
     },
-    "box": {
+    "boxProperties": {
       "type": "object",
-      "additionalProperties": false,
       "required": [
         "id",
         "species",
@@ -113,7 +170,7 @@
       ],
       "properties": {
         "id": { "type": "string", "minLength": 1, "maxLength": 256 },
-        "species": { "$ref": "#/$defs/speciesSnapshot" },
+        "species": { "type": "object" },
         "startTimeSeconds": { "type": "number", "minimum": 0 },
         "endTimeSeconds": { "type": "number", "exclusiveMinimum": 0 },
         "lowFrequencyHz": { "type": "number", "minimum": 0 },
@@ -122,6 +179,46 @@
         "updatedAt": { "type": "string", "format": "date-time" },
         "provenance": { "$ref": "#/$defs/provenance" }
       }
+    },
+    "boxV1": {
+      "allOf": [
+        { "$ref": "#/$defs/boxProperties" },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "id": { "type": "string", "minLength": 1, "maxLength": 256 },
+            "species": { "$ref": "#/$defs/speciesSnapshotV1" },
+            "startTimeSeconds": { "type": "number", "minimum": 0 },
+            "endTimeSeconds": { "type": "number", "exclusiveMinimum": 0 },
+            "lowFrequencyHz": { "type": "number", "minimum": 0 },
+            "highFrequencyHz": { "type": "number", "exclusiveMinimum": 0 },
+            "createdAt": { "type": "string", "format": "date-time" },
+            "updatedAt": { "type": "string", "format": "date-time" },
+            "provenance": { "$ref": "#/$defs/provenance" }
+          }
+        }
+      ]
+    },
+    "boxV2": {
+      "allOf": [
+        { "$ref": "#/$defs/boxProperties" },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "id": { "type": "string", "minLength": 1, "maxLength": 256 },
+            "species": { "$ref": "#/$defs/speciesSnapshotV2" },
+            "startTimeSeconds": { "type": "number", "minimum": 0 },
+            "endTimeSeconds": { "type": "number", "exclusiveMinimum": 0 },
+            "lowFrequencyHz": { "type": "number", "minimum": 0 },
+            "highFrequencyHz": { "type": "number", "exclusiveMinimum": 0 },
+            "createdAt": { "type": "string", "format": "date-time" },
+            "updatedAt": { "type": "string", "format": "date-time" },
+            "provenance": { "$ref": "#/$defs/provenance" }
+          }
+        }
+      ]
     }
   }
 }

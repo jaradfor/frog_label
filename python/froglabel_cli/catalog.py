@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from datetime import datetime
 from typing import Any, Literal
 
@@ -12,7 +13,7 @@ from .admin_config import (
     StrictModel,
 )
 from .errors import FrogLabelCliError
-from .models import ExternalTaxon, SpeciesCatalog, SpeciesEntry
+from .models import ExternalTaxon, SpeciesCatalog, SpeciesEntry, SpeciesEntryV1
 
 
 class StoredModel(StrictModel):
@@ -27,7 +28,7 @@ class StoredModel(StrictModel):
 
 
 class CatalogDescriptor(StoredModel):
-    schema_version: Literal[1] = 1
+    schema_version: Literal[1, 2] = 2
     kind: Literal["froglabel.species-catalog"] = "froglabel.species-catalog"
     host_project_id: int = Field(gt=0)
     catalog_id: str = Field(min_length=1, max_length=256)
@@ -36,7 +37,7 @@ class CatalogDescriptor(StoredModel):
     initialized_by: str = Field(min_length=1, max_length=256)
     default_species_id: str | None = Field(default=None, min_length=1, max_length=256)
     config_managed_species_ids: list[str] = Field(default_factory=list, max_length=10_000)
-    adapter_version: Literal[1] = 1
+    adapter_version: Literal[1, 2] = 2
 
     @model_validator(mode="after")
     def managed_ids_are_unique(self) -> CatalogDescriptor:
@@ -46,12 +47,13 @@ class CatalogDescriptor(StoredModel):
 
 
 class StoredSpecies(StoredModel):
-    schema_version: Literal[1] = 1
+    schema_version: Literal[1, 2] = 2
     kind: Literal["froglabel.species"] = "froglabel.species"
     host_project_id: int = Field(gt=0)
     catalog_id: str = Field(min_length=1, max_length=256)
     species_id: str = Field(min_length=1, max_length=256)
-    code: str = Field(pattern=r"^[A-Z]{3}$")
+    code: str = Field(pattern=r"^(?:[A-Z]{3}|[QWERTASDFGZXCVB]{1,6})$")
+    selection_priority: int = Field(default=0, ge=0, le=1_000_000)
     species_name: str = Field(min_length=1, max_length=256)
     scientific_name: str | None = Field(default=None, min_length=1, max_length=256)
     external_taxon: ConfiguredExternalTaxon | None = None
@@ -69,12 +71,40 @@ class StoredSpecies(StoredModel):
         return value
 
     def canonical(self) -> SpeciesEntry:
+        if self.schema_version != 2 or not re.fullmatch(r"[QWERTASDFGZXCVB]{1,6}", self.code):
+            raise FrogLabelCliError(
+                "CATALOG_V2_MIGRATION_REQUIRED",
+                f"Species {self.species_id} requires an administrator-reviewed V2 code",
+            )
         taxon = (
             ExternalTaxon.model_validate(self.external_taxon.model_dump(by_alias=True))
             if self.external_taxon
             else None
         )
         return SpeciesEntry(
+            species_id=self.species_id,
+            code=self.code,
+            selection_priority=self.selection_priority,
+            species_name=self.species_name,
+            scientific_name=self.scientific_name,
+            external_taxon=taxon,
+            added_after_initialization=self.added_after_initialization,
+            created_at=self.created_at,
+            updated_at=self.updated_at,
+        )
+
+    def historical(self) -> SpeciesEntryV1:
+        if self.schema_version != 1:
+            raise FrogLabelCliError(
+                "CATALOG_HISTORY_INVALID",
+                f"Species {self.species_id} is active V2 data, not a historical V1 entry",
+            )
+        taxon = (
+            ExternalTaxon.model_validate(self.external_taxon.model_dump(by_alias=True))
+            if self.external_taxon
+            else None
+        )
+        return SpeciesEntryV1(
             species_id=self.species_id,
             code=self.code,
             species_name=self.species_name,
@@ -102,6 +132,10 @@ class LiveCatalog(StoredModel):
             if entry.species_id in ids:
                 raise ValueError(f"duplicate speciesId: {entry.species_id}")
             ids.add(entry.species_id)
+            if entry.schema_version != self.descriptor.schema_version:
+                raise ValueError(
+                    f"species {entry.species_id} has a mismatched schemaVersion"
+                )
             folded = entry.code.casefold()
             if folded in codes:
                 raise ValueError(f"duplicate current code: {entry.code}")
@@ -114,13 +148,21 @@ class LiveCatalog(StoredModel):
         return self
 
     def canonical(self) -> SpeciesCatalog:
+        active = [entry.canonical() for entry in self.species if entry.schema_version == 2]
+        historical = [entry.historical() for entry in self.species if entry.schema_version == 1]
+        active_ids = {entry.species_id for entry in active}
         return SpeciesCatalog(
             catalog_id=self.descriptor.catalog_id,
             initialized_at=self.descriptor.initialized_at,
             initialized_by=self.descriptor.initialized_by,
             catalog_revision=self.descriptor.catalog_revision,
-            default_species_id=self.descriptor.default_species_id,
-            species=[entry.canonical() for entry in self.species],
+            default_species_id=(
+                self.descriptor.default_species_id
+                if self.descriptor.default_species_id in active_ids
+                else None
+            ),
+            species=active,
+            historical_species=historical or None,
         )
 
 
@@ -167,6 +209,12 @@ def plan_catalog_sync(
     for species_id, entry in sorted(current.items()):
         desired = configured.get(species_id)
         if desired is None:
+            if entry.schema_version != 2:
+                raise FrogLabelCliError(
+                    "CATALOG_V2_MAPPING_REQUIRED",
+                    f"Legacy species {species_id} must appear in catalog.species with an "
+                    "administrator-assigned V2 code",
+                )
             changes.append(
                 SpeciesChange(
                     action="retain",
@@ -178,6 +226,12 @@ def plan_catalog_sync(
             )
             _reserve_code(final_codes, entry.code, species_id)
             continue
+
+        if entry.schema_version != 2 and "selection_priority" not in desired.model_fields_set:
+            raise FrogLabelCliError(
+                "CATALOG_V2_PRIORITY_REQUIRED",
+                f"Legacy species {species_id} requires an explicit selectionPriority",
+            )
 
         if species_id not in managed_before and not desired.adopt_existing:
             raise FrogLabelCliError(
@@ -195,14 +249,14 @@ def plan_catalog_sync(
         else:
             action = "update"
             note = "update current fields by immutable ID"
-        if desired_fields != before_fields or action == "adopt":
+        if desired_fields != before_fields or action == "adopt" or entry.schema_version != 2:
             changes.append(
                 SpeciesChange(
                     action=action,
                     species_id=species_id,
                     before=before_fields,
                     after=desired_fields,
-                    note=note,
+                    note=(f"{note}; migrate storage to V2" if entry.schema_version != 2 else note),
                 )
             )
         else:
@@ -293,6 +347,7 @@ def initial_catalog(
             catalog_id=catalog_id,
             species_id=entry.species_id,
             code=entry.code,
+            selection_priority=entry.selection_priority,
             species_name=entry.species_name,
             scientific_name=entry.scientific_name,
             external_taxon=entry.external_taxon,
@@ -312,6 +367,8 @@ def initial_catalog(
             candidate.project.default_species_id if candidate.project.has_default_intent else None
         ),
         config_managed_species_ids=sorted(entry.species_id for entry in species),
+        schema_version=2,
+        adapter_version=2,
     )
     return LiveCatalog(descriptor=descriptor, species=species)
 
@@ -319,6 +376,7 @@ def initial_catalog(
 def _configured_fields(entry: ConfiguredSpecies) -> dict[str, Any]:
     return {
         "code": entry.code,
+        "selectionPriority": entry.selection_priority,
         "speciesName": entry.species_name,
         "scientificName": entry.scientific_name,
         "externalTaxon": (
@@ -332,6 +390,7 @@ def _configured_fields(entry: ConfiguredSpecies) -> dict[str, Any]:
 def _stored_fields(entry: StoredSpecies) -> dict[str, Any]:
     return {
         "code": entry.code,
+        "selectionPriority": entry.selection_priority,
         "speciesName": entry.species_name,
         "scientificName": entry.scientific_name,
         "externalTaxon": (

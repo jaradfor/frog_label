@@ -2,7 +2,7 @@ import { cloneDocument, deterministicSerialize } from '../../domain/document';
 import { IntegrationError, ValidationError } from '../../domain/errors';
 import { migrateDocument } from '../../domain/migrations';
 import type {
-  FrogLabelDocumentV1,
+  FrogLabelDocument,
   FrogLabelHostDataV1,
   HostCapabilities,
   HostSnapshot,
@@ -61,7 +61,7 @@ export interface EnterpriseInterfaceHostProps {
 interface EnterpriseDocumentRegion {
   id: string;
   value: unknown;
-  update(value: FrogLabelDocumentV1): unknown;
+  update(value: FrogLabelDocument): unknown;
   delete(): unknown;
   selected?: boolean;
   hidden?: boolean;
@@ -71,7 +71,7 @@ interface EnterpriseDocumentRegion {
 
 interface PendingEcho {
   epoch: number;
-  expected: FrogLabelDocumentV1 | null;
+  expected: FrogLabelDocument | null;
   resolve(): void;
   reject(error: Error): void;
   timer: ReturnType<typeof setTimeout>;
@@ -159,7 +159,7 @@ export class EnterpriseInterfacePort implements AnnotationDocumentPort {
     };
   }
 
-  replaceDocument(next: FrogLabelDocumentV1 | null, reason: MutationReason): Promise<void> {
+  replaceDocument(next: FrogLabelDocument | null, reason: MutationReason): Promise<void> {
     this.ensureAlive();
     const operation = () => this.performMutation(cloneDocument(next), reason);
     const queued = this.mutationTail.then(operation, operation);
@@ -215,7 +215,7 @@ export class EnterpriseInterfacePort implements AnnotationDocumentPort {
   }
 
   private async performMutation(
-    next: FrogLabelDocumentV1 | null,
+    next: FrogLabelDocument | null,
     _reason: MutationReason,
   ): Promise<void> {
     if (this.status.phase === 'error') {
@@ -261,7 +261,7 @@ export class EnterpriseInterfacePort implements AnnotationDocumentPort {
     return acknowledgement;
   }
 
-  private waitForEcho(expected: FrogLabelDocumentV1 | null): Promise<void> {
+  private waitForEcho(expected: FrogLabelDocument | null): Promise<void> {
     const epoch = this.snapshot.epoch;
     return new Promise<void>((resolve, reject) => {
       const timer = setTimeout(() => {
@@ -391,7 +391,7 @@ export const enterpriseOutputSchema = {
         required: ['kind', 'schemaVersion', 'catalogId', 'reviewStatus', 'boxes'],
         properties: {
           kind: { const: 'froglabel.annotation-set' },
-          schemaVersion: { const: 1 },
+          schemaVersion: { const: 2 },
           catalogId: { type: 'string' },
           reviewStatus: { enum: ['calls_present', 'no_calls'] },
           boxes: { type: 'array', items: { type: 'object' } },
@@ -593,7 +593,7 @@ function readRegions(props: EnterpriseInterfaceHostProps): EnterpriseDocumentReg
 
 function toScreenRegion(
   id: string,
-  document: FrogLabelDocumentV1,
+  document: FrogLabelDocument,
   source?: Record<string, unknown>,
 ): EnterpriseInterfaceScreenRegion {
   return {
@@ -613,7 +613,7 @@ function toScreenRegion(
 }
 
 function toScreenRegionPatch(
-  document: FrogLabelDocumentV1,
+  document: FrogLabelDocument,
 ): Partial<EnterpriseInterfaceScreenRegion> {
   return {
     type: 'textarea',
@@ -622,7 +622,7 @@ function toScreenRegionPatch(
   };
 }
 
-function readResultDocument(result: Record<string, unknown>): FrogLabelDocumentV1 | null {
+function readResultDocument(result: Record<string, unknown>): FrogLabelDocument | null {
   let candidate: unknown = null;
   if (result.type === 'labels' && Array.isArray(result.value) && result.value.length === 1) {
     candidate = result.value[0];
@@ -698,16 +698,13 @@ function stableValue(value: unknown): string {
   });
 }
 
-function documentsEqual(
-  left: FrogLabelDocumentV1 | null,
-  right: FrogLabelDocumentV1 | null,
-): boolean {
+function documentsEqual(left: FrogLabelDocument | null, right: FrogLabelDocument | null): boolean {
   return left === null || right === null
     ? left === right
     : deterministicSerialize(left) === deterministicSerialize(right);
 }
 
-function summaryText(document: FrogLabelDocumentV1): string {
+function summaryText(document: FrogLabelDocument): string {
   if (document.reviewStatus === 'no_calls') return 'FrogLabel: no calls';
   return `${document.boxes.length} FrogLabel box${document.boxes.length === 1 ? '' : 'es'}`;
 }

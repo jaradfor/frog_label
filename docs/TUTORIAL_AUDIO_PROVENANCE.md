@@ -17,4 +17,4 @@ node scripts/generate_synthetic_audio.mjs
 sha256sum public/audio/synthetic-frog-practice.wav
 ```
 
-The tutorial labels its exercise PER only to demonstrate the UI workflow. Tutorial annotation/catalog state is isolated in memory, never sent to the live host, and discarded on close or host epoch switch.
+The tutorial labels its exercise ETF only to demonstrate the UI workflow. Tutorial annotation/catalog state is isolated in memory, never sent to the live host, and discarded on close or host epoch switch.

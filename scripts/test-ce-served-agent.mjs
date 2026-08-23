@@ -308,13 +308,21 @@ function installFailureGuards(context, page) {
       : '';
     const entry = `console:${message.type()} ${message.text()}${source}`;
     browserEvents.push(entry);
-    if (['warning', 'error'].includes(message.type())) fatalBrowserEvents.push(entry);
+    if (
+      ['warning', 'error'].includes(message.type()) &&
+      !isBenignSoftwareWebGlWarning(message.type(), message.text())
+    )
+      fatalBrowserEvents.push(entry);
   });
   page.on('pageerror', (error) => {
     const entry = `pageerror:${error.stack ?? error.message}`;
     browserEvents.push(entry);
     fatalBrowserEvents.push(entry);
   });
+}
+
+function isBenignSoftwareWebGlWarning(type, text) {
+  return type === 'warning' && text.includes('GPU stall due to ReadPixels');
 }
 
 async function waitForNetworkSettled(timeoutMilliseconds = 30_000) {
@@ -403,7 +411,7 @@ async function openTask(page, taskId) {
   await waitForNetworkSettled();
   await page.goto(`${origin}/projects/1/data?task=${taskId}`, { waitUntil: 'domcontentloaded' });
   const frame = page.frameLocator('[data-testid="froglabel-reactcode-frame"]');
-  await frame.getByRole('button', { name: 'No calls present (Shift+N)' }).waitFor({
+  await frame.getByRole('button', { name: 'No calls present (Shift+X)' }).waitFor({
     state: 'visible',
     timeout: 60_000,
   });
@@ -413,14 +421,17 @@ async function openTask(page, taskId) {
 }
 
 async function selectSpecies(frame, name = 'GRE Green Tree Frog') {
+  await ensurePanelOpen(frame, '1 Species');
   const option = frame.getByRole('option', { name });
   await option.waitFor({ state: 'visible', timeout: 60_000 });
   await option.click();
+  await frame.getByRole('button', { name: '1 Species' }).click();
 }
 
 async function addProjectSpecies(page, frame) {
+  await ensurePanelOpen(frame, '1 Species');
   await frame.getByRole('button', { name: /Add missing species/ }).click();
-  await frame.getByLabel('Three-letter code').fill('TST');
+  await frame.getByLabel('Left-hand code (1–6 letters)').fill('TST');
   await frame.getByLabel('Full Species Name').fill('Test Tree Frog');
   const catalogResponse = page.waitForResponse(
     (response) =>
@@ -437,7 +448,7 @@ async function addProjectSpecies(page, frame) {
 }
 
 async function drawBox(page, frame, start, end) {
-  await frame.getByRole('button', { name: /Draw Box/ }).click();
+  await ensureDrawTool(frame, true);
   const canvas = frame.locator('canvas.spectrogram-canvas');
   const rectangle = await canvas.boundingBox();
   if (!rectangle) throw new Error('FrogLabel spectrogram canvas has no bounding box');
@@ -452,6 +463,16 @@ async function drawBox(page, frame, start, end) {
     { steps: 8 },
   );
   await page.mouse.up();
+}
+
+async function ensurePanelOpen(frame, name) {
+  const button = frame.getByRole('button', { name });
+  if ((await button.getAttribute('aria-pressed')) !== 'true') await button.click();
+}
+
+async function ensureDrawTool(frame, draw) {
+  const button = frame.getByRole('button', { name: 'Toggle Select and Draw tools (T)' });
+  if ((await button.getAttribute('aria-pressed')) !== String(draw)) await button.click();
 }
 
 async function waitForFirstSpectrogramFrame(shell) {
@@ -620,7 +641,7 @@ async function tutorialDraw(page, frame) {
     async () => (await stage.getAttribute('data-box-count')) === '1',
   );
   const cells = await frame
-    .getByRole('row', { name: /PER — Peron's Tree Frog/ })
+    .getByRole('row', { name: /ETF — Peron's Tree Frog/ })
     .locator('td')
     .allTextContents();
   const [start, end, low, high] = cells.slice(0, 4).map(Number);
@@ -655,6 +676,37 @@ async function startTutorial(frame) {
   await frame.getByRole('dialog', { name: /Tutorial step 1/ }).waitFor({ state: 'visible' });
 }
 
+async function tutorialPlayOnce(frame) {
+  await waitForFirstSpectrogramFrame(frame.locator('.tutorial-practice-layer .spectrogram-shell'));
+  const play = frame.getByRole('button', { name: 'Play or pause audio (V)' });
+  await play.click();
+  await waitUntil(
+    'tutorial playback start',
+    async () => (await play.getAttribute('aria-pressed')) === 'true',
+  );
+  if ((await play.innerText()).trim().split(/\s+/u)[0] !== 'Play') {
+    throw new Error('Tutorial playback changed the static Play label');
+  }
+  await play.click();
+  await waitUntil(
+    'tutorial playback pause',
+    async () => (await play.getAttribute('aria-pressed')) === 'false',
+  );
+}
+
+async function tutorialChooseEtf(page, frame) {
+  await frame.locator('.coachmark').focus();
+  await page.keyboard.down('Space');
+  await page.keyboard.press('KeyE');
+  await page.keyboard.up('Space');
+  await waitUntil('ETF species chord', async () =>
+    (
+      await frame.locator('.tutorial-practice-layer [aria-label="Current species"]').innerText()
+    ).includes('ETF'),
+  );
+  await ensureDrawTool(frame, true);
+}
+
 async function completeCeTutorial(page, frame, expectedLiveBoxCount) {
   const geometry = [];
   await startTutorial(frame);
@@ -662,25 +714,28 @@ async function completeCeTutorial(page, frame, expectedLiveBoxCount) {
   const coach = frame.locator('.coachmark');
   await coach.focus();
   await coach.press('Space');
+  if ((await coach.getAttribute('data-tutorial-step')) !== '1') {
+    throw new Error('Bare Space advanced the tutorial instead of starting species capture');
+  }
+  await coach.press('Enter');
   await tutorialStep(frame, 2, geometry);
   await frame.getByRole('button', { name: 'Back', exact: true }).click();
   await tutorialStep(frame, 1, geometry);
   await tutorialNext(frame);
   await tutorialStep(frame, 2, geometry);
-  await frame.getByRole('button', { name: /Play Audio/ }).click();
-  await frame.getByRole('button', { name: /Pause/ }).click();
+  await tutorialPlayOnce(frame);
   await tutorialNext(frame);
   await tutorialStep(frame, 3, geometry);
-  await frame.getByRole('option', { name: "PER Peron's Tree Frog" }).click();
+  await tutorialChooseEtf(page, frame);
   await tutorialNext(frame);
   await tutorialStep(frame, 4, geometry);
-  await frame.getByRole('button', { name: /Draw Box/ }).click();
+  await ensureDrawTool(frame, true);
   await tutorialNext(frame);
   await tutorialStep(frame, 5, geometry);
   await tutorialDraw(page, frame);
   await tutorialNext(frame);
   await tutorialStep(frame, 6, geometry);
-  await frame.getByRole('button', { name: 'Select V' }).click();
+  await ensureDrawTool(frame, false);
   await tutorialNext(frame);
   await tutorialStep(frame, 7, geometry);
   await tutorialResize(page, frame);
@@ -693,25 +748,27 @@ async function completeCeTutorial(page, frame, expectedLiveBoxCount) {
   )
     throw new Error('Tutorial Restart retained practice boxes');
   if (
-    (await frame.getByRole('button', { name: 'Select V' }).getAttribute('aria-pressed')) !== 'true'
+    (await frame
+      .getByRole('button', { name: 'Toggle Select and Draw tools (T)' })
+      .getAttribute('aria-pressed')) !== 'false'
   )
     throw new Error('Tutorial Restart did not restore the initial Select tool');
   if (
-    (await frame.locator('.tutorial-practice-layer').getByLabel('Current species').inputValue()) !==
-    ''
+    (await frame
+      .locator('.tutorial-practice-layer [aria-label="Current species"] strong')
+      .innerText()) !== '—'
   )
     throw new Error('Tutorial Restart retained the practice species selection');
 
   await tutorialNext(frame);
   await tutorialStep(frame, 2, geometry);
-  await frame.getByRole('button', { name: /Play Audio/ }).click();
-  await frame.getByRole('button', { name: /Pause/ }).click();
+  await tutorialPlayOnce(frame);
   await tutorialNext(frame);
   await tutorialStep(frame, 3, geometry);
-  await frame.getByRole('option', { name: "PER Peron's Tree Frog" }).click();
+  await tutorialChooseEtf(page, frame);
   await tutorialNext(frame);
   await tutorialStep(frame, 4, geometry);
-  await frame.getByRole('button', { name: /Draw Box/ }).click();
+  await ensureDrawTool(frame, true);
   await tutorialNext(frame);
   await tutorialStep(frame, 5, geometry);
   await tutorialDraw(page, frame);
@@ -720,7 +777,7 @@ async function completeCeTutorial(page, frame, expectedLiveBoxCount) {
     .getAttribute('data-box-id');
   await tutorialNext(frame);
   await tutorialStep(frame, 6, geometry);
-  await frame.getByRole('button', { name: 'Select V' }).click();
+  await ensureDrawTool(frame, false);
   await tutorialNext(frame);
   await tutorialStep(frame, 7, geometry);
   if ((await tutorialResize(page, frame)) !== stableBoxId)
@@ -746,13 +803,12 @@ async function completeCeTutorial(page, frame, expectedLiveBoxCount) {
     throw new Error('Tutorial details did not use the whole-Hz display format');
 
   const datasetBeforeView = await frame
-    .getByRole('row', { name: /PER — Peron's Tree Frog/ })
+    .getByRole('row', { name: /ETF — Peron's Tree Frog/ })
     .innerText();
   await tutorialNext(frame);
   await tutorialStep(frame, 9, geometry);
   await frame.getByRole('button', { name: 'Zoom in spectrogram' }).click();
   await waitForFirstSpectrogramFrame(frame.locator('.tutorial-practice-layer .spectrogram-shell'));
-  await frame.getByRole('button', { name: 'Pan P' }).click();
   const stageRectangle = await frame
     .locator('.tutorial-practice-layer .spectrogram-stage')
     .boundingBox();
@@ -760,13 +816,13 @@ async function completeCeTutorial(page, frame, expectedLiveBoxCount) {
   const centerX = stageRectangle.x + stageRectangle.width / 2;
   const centerY = stageRectangle.y + stageRectangle.height / 2;
   await page.mouse.move(centerX, centerY);
-  await page.mouse.down();
+  await page.mouse.down({ button: 'middle' });
   await page.mouse.move(centerX + 45, centerY, { steps: 6 });
-  await page.mouse.up();
+  await page.mouse.up({ button: 'middle' });
   await frame.getByRole('button', { name: 'Reset and fit spectrogram view' }).click();
   await waitForFirstSpectrogramFrame(frame.locator('.tutorial-practice-layer .spectrogram-shell'));
   if (
-    (await frame.getByRole('row', { name: /PER — Peron's Tree Frog/ }).innerText()) !==
+    (await frame.getByRole('row', { name: /ETF — Peron's Tree Frog/ }).innerText()) !==
     datasetBeforeView
   )
     throw new Error('Tutorial zoom/pan/reset changed canonical coordinates');
@@ -776,7 +832,7 @@ async function completeCeTutorial(page, frame, expectedLiveBoxCount) {
   await frame.getByRole('button', { name: /Add missing species/ }).click();
   await frame
     .locator('.tutorial-practice-layer')
-    .getByLabel('Three-letter code')
+    .getByLabel('Left-hand code (1–6 letters)')
     .waitFor({ state: 'visible' });
   await frame.getByRole('button', { name: 'Cancel' }).click();
   await tutorialNext(frame);
@@ -1083,7 +1139,7 @@ try {
   await waitForBoxCount(frame, 2);
   await waitForHostEcho(frame);
 
-  await frame.getByRole('button', { name: 'Select V' }).click();
+  await ensureDrawTool(frame, false);
   const canvasRectangle = await frame.locator('canvas.spectrogram-canvas').boundingBox();
   if (!canvasRectangle) throw new Error('FrogLabel spectrogram canvas disappeared');
   const overlapPoint = {
@@ -1097,10 +1153,10 @@ try {
     throw new Error('Overlap hit did not expose the deterministic two-box selection stack');
   }
   const selectedBeforeCycle = await selectedOverlap.getAttribute('data-box-id');
-  await frame.locator('body').press('BracketRight');
+  await frame.locator('body').press('KeyC');
   const selectedAfterCycle = await selectedOverlap.getAttribute('data-box-id');
   if (!selectedBeforeCycle || !selectedAfterCycle || selectedBeforeCycle === selectedAfterCycle) {
-    throw new Error('BracketRight did not cycle to the next overlapping box');
+    throw new Error('C did not cycle to the next overlapping box');
   }
   recordAction('draw overlap and cycle selection', 'two boxes; selection changed without reorder');
 
@@ -1110,9 +1166,11 @@ try {
   await frame.getByRole('button', { name: 'Redo' }).click();
   await waitForBoxCount(frame, 2);
   await waitForHostEcho(frame);
+  await ensurePanelOpen(frame, '4 Dataset');
   const selectedRow = frame.getByRole('row', { name: /TST — Test Tree Frog/ }).last();
   await selectedRow.click();
-  await frame.getByRole('button', { name: 'Play selected box' }).click();
+  await ensurePanelOpen(frame, '2 Details');
+  await frame.getByRole('button', { name: /Replay box raw/i }).click();
   recordAction('undo, redo, and selection playback', 'two boxes restored; semantic state valid');
 
   const resizeHandle = frame.getByRole('button', { name: 'Resize TST box from SE corner' });
@@ -1179,10 +1237,12 @@ try {
   frame = await openTask(page, firstTaskId);
   await waitForBoxCount(frame, 2);
   await page.screenshot({ path: path.join(output, 'ce-annotated-reloaded.png'), fullPage: true });
+  await ensurePanelOpen(frame, '4 Dataset');
   await frame
     .getByRole('row', { name: /TST — Test Tree Frog/ })
     .first()
     .click();
+  await ensurePanelOpen(frame, '2 Details');
   const firstBox = submittedDocument.boxes[0];
   const updatedEnd = Number((firstBox.endTimeSeconds + 0.000123456789).toPrecision(15));
   await frame.getByLabel('End (s)').fill(String(updatedEnd));
@@ -1261,6 +1321,7 @@ try {
 
   await startTutorial(frame);
   frame = await openTask(page, noCallsTaskId);
+  await ensurePanelOpen(frame, '1 Species');
   await frame.getByRole('option', { name: 'TST Test Tree Frog' }).waitFor({
     state: 'attached',
     timeout: 30_000,
@@ -1302,6 +1363,7 @@ try {
   recordAction('open Task Summary/View All', 'derived current summary rendered without crash');
 
   frame = await openTask(page, noCallsTaskId);
+  await ensurePanelOpen(frame, '1 Species');
   await frame.getByRole('option', { name: 'TST Test Tree Frog' }).waitFor({
     state: 'attached',
     timeout: 30_000,
@@ -1317,7 +1379,7 @@ try {
     path.join(output, 'project-catalog-second-task.json'),
     `${JSON.stringify(secondTaskCatalog, null, 2)}\n`,
   );
-  await frame.getByRole('button', { name: 'No calls present (Shift+N)' }).click();
+  await frame.getByRole('button', { name: 'No calls present (Shift+X)' }).click();
   await waitForHostEcho(frame);
   await nativeSubmitButton(page).click();
   const noCallsTask = await waitForTask(
@@ -1334,11 +1396,11 @@ try {
   );
   frame = await openTask(page, noCallsTaskId);
   await frame
-    .getByRole('button', { name: 'No calls present (Shift+N)' })
+    .getByRole('button', { name: 'No calls present (Shift+X)' })
     .waitFor({ state: 'visible', timeout: 30_000 });
   if (
     (await frame
-      .getByRole('button', { name: 'No calls present (Shift+N)' })
+      .getByRole('button', { name: 'No calls present (Shift+X)' })
       .getAttribute('aria-pressed')) !== 'true'
   ) {
     throw new Error('Explicit no-calls state did not survive reload');

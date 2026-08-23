@@ -20,7 +20,7 @@ IMPORT_LINE = 'import "./integrations/froglabel-reactcode-ce";'
 ANCHOR_LINE = 'import { LabelStudio } from "./LabelStudio";'
 SUPPORTED_VERSION = "1.23.0"
 SUPPORTED_COMMIT = "2a9bfbcbf0a844b999de97e601d16050a893f5fb"
-COMPATIBILITY_PATCH_SHA256 = "7fa73be6b3481249e83edaf2c8e7cf9595fff6bedce0a5f9025e45b1a8024bdb"
+COMPATIBILITY_PATCH_SHA256 = "dff588934dfaac830b4734d1f343ff9f725c03b818a755cf50cab68c334ce432"
 INTEGRATION_VERSION = 2
 REQUIRED_NODE_MAJOR = 22
 REQUIRED_YARN_SERIES = (1, 22)
@@ -172,7 +172,7 @@ class CeSourceInstaller:
             label_studio_commit=SUPPORTED_COMMIT,
             froglabel_version=__version__,
             protocol_version=1,
-            schema_version=1,
+            schema_version=2,
             installed_at=datetime.now(UTC).isoformat().replace("+00:00", "Z"),
             source_import=str(self.editor_entry.relative_to(self.source)),
             static_asset_path="/react-app/froglabel/index.html",

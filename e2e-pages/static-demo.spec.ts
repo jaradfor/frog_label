@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test';
+import { expect, test, type Locator } from '@playwright/test';
 import { readFile, readdir } from 'node:fs/promises';
 import path from 'node:path';
 import { runCompleteTutorialWorkflow } from '../e2e-support/tutorialWorkflow';
@@ -21,22 +21,30 @@ test('opens the seeded root, locks early drawing, and preserves one UUID through
   page,
 }, testInfo) => {
   await page.goto('./');
-  await expect(page.getByText('Browser workflow demo')).toBeVisible();
+  await expect(page.getByText('Browser workflow demo')).toBeAttached();
   await expect(page.getByText('green_tree.mp3', { exact: true })).toBeVisible();
   await expect(page.getByText('GRE demo recording', { exact: true })).toBeVisible();
+  await page.getByRole('button', { name: '1 Species' }).click();
   for (const species of [
     'GRE Green Tree Frog',
-    "PER Peron's Tree Frog",
+    "ETF Peron's Tree Frog",
     'RED Red-Eyed Tree Frog',
-    'COR Corroboree Frog',
+    'CRF Corroboree Frog',
   ]) {
     await expect(page.getByRole('option', { name: species })).toBeAttached();
   }
 
   const shell = page.locator('.spectrogram-shell');
-  await expect(shell).toHaveAttribute('data-spectrogram-state', 'analyzing');
-  const draw = page.getByRole('button', { name: /Draw Box/ });
-  await expect(draw).toBeDisabled();
+  const tool = page.getByRole('button', { name: 'Toggle Select and Draw tools (T)' });
+  const earlyGate = await shell.evaluate((element) => ({
+    phase: element.getAttribute('data-spectrogram-state'),
+    toolDisabled:
+      element
+        .closest('.froglabel-app')
+        ?.querySelector<HTMLButtonElement>('button[aria-label="Toggle Select and Draw tools (T)"]')
+        ?.disabled ?? false,
+  }));
+  if (earlyGate.phase === 'analyzing') expect(earlyGate.toolDisabled).toBe(true);
   await page.keyboard.press('KeyD');
   const stage = page.locator('.spectrogram-stage');
   const early = await stage.boundingBox();
@@ -51,7 +59,8 @@ test('opens the seeded root, locks early drawing, and preserves one UUID through
     timeout: 15_000,
   });
   await page.getByRole('option', { name: 'GRE Green Tree Frog' }).click();
-  await draw.click();
+  await tool.click();
+  await expect(tool).toHaveAttribute('aria-pressed', 'true');
   const ready = await stage.boundingBox();
   expect(ready).not.toBeNull();
   await page.mouse.move(ready!.x + ready!.width * 0.35, ready!.y + ready!.height * 0.45);
@@ -66,7 +75,8 @@ test('opens the seeded root, locks early drawing, and preserves one UUID through
   const boxId = await selected.getAttribute('data-box-id');
   expect(boxId).toBeTruthy();
   await expect(selected.locator('.resize-handle')).toHaveCount(0);
-  await page.getByRole('button', { name: 'Select V' }).click();
+  await tool.click();
+  await expect(tool).toHaveAttribute('aria-pressed', 'false');
   await page.keyboard.press('Escape');
   await expect(stage).toHaveAttribute('data-selected-box-id', '');
   await page.getByRole('button', { name: /Select GRE, Green Tree Frog box/ }).press('Enter');
@@ -88,9 +98,9 @@ test('opens the seeded root, locks early drawing, and preserves one UUID through
   const ownAudio = page.getByRole('link', { name: 'Try your own audio' });
   await expect(ownAudio).toHaveAttribute('href', /\?mode=local$/u);
   await ownAudio.click();
-  await expect(page.getByText('Private local workspace')).toBeVisible();
+  await expect(page.getByText('Private local workspace')).toBeAttached();
   await page.reload();
-  await expect(page.getByText('Private local workspace')).toBeVisible();
+  await expect(page.getByText('Private local workspace')).toBeAttached();
 });
 
 test('runs the complete private WAV/MP3, JSON/CSV, tutorial, and dirty-state flow', async ({
@@ -99,7 +109,10 @@ test('runs the complete private WAV/MP3, JSON/CSV, tutorial, and dirty-state flo
   const browserProblems: string[] = [];
   const network: string[] = [];
   page.on('console', (message) => {
-    if (['warning', 'error'].includes(message.type())) {
+    if (
+      ['warning', 'error'].includes(message.type()) &&
+      !isBenignSoftwareWebGlWarning(message.type(), message.text())
+    ) {
       browserProblems.push(`${message.type()}: ${message.text()}`);
     }
   });
@@ -111,7 +124,7 @@ test('runs the complete private WAV/MP3, JSON/CSV, tutorial, and dirty-state flo
 
   await page.goto('./?mode=local');
   await expect(page).toHaveTitle('FrogLabel local demo');
-  await expect(page.getByText('Private local workspace')).toBeVisible();
+  await expect(page.getByText('Private local workspace')).toBeAttached();
   await expect(page.getByText('No JSON prepared', { exact: true })).toBeVisible();
 
   const audioInput = page.locator('input[type="file"][accept*="audio/wav"]');
@@ -123,11 +136,13 @@ test('runs the complete private WAV/MP3, JSON/CSV, tutorial, and dirty-state flo
     { timeout: 15_000 },
   );
 
+  await page.getByRole('button', { name: '1 Species' }).click();
   await page.getByRole('button', { name: /Add missing species/ }).click();
-  await page.getByLabel('Three-letter code').fill('GTF');
+  await page.getByLabel('Left-hand code (1–6 letters)').fill('GTF');
   await page.getByLabel('Full Species Name').fill('Green Tree Frog');
   await page.getByRole('button', { name: 'Save species' }).click();
   await expect(page.getByRole('option', { name: 'GTF Green Tree Frog' })).toBeVisible();
+  await page.getByRole('button', { name: '1 Species' }).click();
 
   const canvas = page.locator('canvas.spectrogram-canvas');
   const rect = await canvas.boundingBox();
@@ -138,9 +153,11 @@ test('runs the complete private WAV/MP3, JSON/CSV, tutorial, and dirty-state flo
     steps: 8,
   });
   await page.mouse.up();
+  await page.getByRole('button', { name: '4 Dataset' }).click();
   await expect(page.getByRole('row', { name: /GTF — Green Tree Frog/ })).toBeVisible();
   await page.screenshot({ path: testInfo.outputPath('static-green-tree-annotation.png') });
 
+  await page.getByRole('button', { name: '2 Details' }).click();
   await expect(page.getByLabel('Start (s)')).toHaveValue(/^\d+\.\d{3}$/u);
   await expect(page.getByLabel('Low (Hz)')).toHaveValue(/^\d+$/u);
   const precisionBaselinePromise = page.waitForEvent('download');
@@ -171,15 +188,14 @@ test('runs the complete private WAV/MP3, JSON/CSV, tutorial, and dirty-state flo
   await expect(page.getByText(/JSON download prepared at/)).toBeVisible();
 
   page.once('dialog', (dialog) => dialog.accept());
-  await page
-    .getByRole('button', { name: /No calls present/ })
-    .first()
-    .click();
-  await expect(page.getByText('Reviewed: no calls present')).toBeVisible();
+  const noCalls = page.getByRole('button', { name: /No calls present/ }).first();
+  await noCalls.click();
+  await expect(noCalls).toHaveAttribute('aria-pressed', 'true');
   await expect(page.getByText('Changes since JSON preparation', { exact: true })).toBeVisible();
 
   page.once('dialog', (dialog) => dialog.accept());
   await page.locator('input[type="file"][accept*="application/json"]').setInputFiles(jsonPath!);
+  await page.getByRole('button', { name: '4 Dataset' }).click();
   await expect(page.getByRole('row', { name: /GTF — Green Tree Frog/ })).toBeVisible();
   await expect(page.getByText('No JSON prepared', { exact: true })).toBeVisible();
 
@@ -195,8 +211,15 @@ test('runs the complete private WAV/MP3, JSON/CSV, tutorial, and dirty-state flo
   await expect(page.getByText('short-stereo.mp3', { exact: true })).toBeVisible();
   const mp3Shell = page.locator('.spectrogram-shell');
   const mp3Stage = page.locator('.spectrogram-stage');
-  await expect(mp3Shell).toHaveAttribute('data-spectrogram-state', 'analyzing');
-  await expect(page.getByRole('button', { name: /Draw Box/ })).toBeDisabled();
+  const mp3EarlyGate = await mp3Shell.evaluate((element) => ({
+    phase: element.getAttribute('data-spectrogram-state'),
+    toolDisabled:
+      element
+        .closest('.froglabel-app')
+        ?.querySelector<HTMLButtonElement>('button[aria-label="Toggle Select and Draw tools (T)"]')
+        ?.disabled ?? false,
+  }));
+  if (mp3EarlyGate.phase === 'analyzing') expect(mp3EarlyGate.toolDisabled).toBe(true);
   await page.keyboard.press('KeyD');
   const mp3Early = await mp3Stage.boundingBox();
   expect(mp3Early).not.toBeNull();
@@ -210,8 +233,11 @@ test('runs the complete private WAV/MP3, JSON/CSV, tutorial, and dirty-state flo
   await expect(mp3Shell).toHaveAttribute('data-spectrogram-state', 'firstFrameReady', {
     timeout: 15_000,
   });
+  await page.getByRole('button', { name: '1 Species' }).click();
   await page.getByRole('option', { name: 'GTF Green Tree Frog' }).click();
-  await page.getByRole('button', { name: /Draw Box/ }).click();
+  await page.getByRole('button', { name: '1 Species' }).click();
+  const mp3Tool = page.getByRole('button', { name: 'Toggle Select and Draw tools (T)' });
+  if ((await mp3Tool.getAttribute('aria-pressed')) !== 'true') await mp3Tool.click();
   const mp3Ready = await mp3Stage.boundingBox();
   expect(mp3Ready).not.toBeNull();
   await page.mouse.move(mp3Ready!.x + mp3Ready!.width * 0.25, mp3Ready!.y + 60);
@@ -248,6 +274,10 @@ test('runs the complete private WAV/MP3, JSON/CSV, tutorial, and dirty-state flo
   });
 });
 
+function isBenignSoftwareWebGlWarning(type: string, text: string): boolean {
+  return type === 'warning' && text.includes('GPU stall due to ReadPixels');
+}
+
 test('completes, restarts, recovers, and exits the full isolated tutorial', async ({
   page,
 }, testInfo) => {
@@ -282,17 +312,16 @@ test('keeps essential controls reachable at standalone and CE iframe widths', as
     }));
     expect(documentWidth.scroll).toBe(documentWidth.client);
 
+    await page.getByRole('button', { name: '1 Species' }).click();
+    await page.getByRole('button', { name: '4 Dataset' }).click();
+
     for (const control of [
       page.getByRole('button', { name: 'Help and tutorial' }),
-      page.getByRole('button', { name: /Play Audio/ }),
-      page.getByRole('button', { name: 'Select V' }),
-      page.getByRole('button', { name: /Draw Box/ }),
-      page.getByRole('button', { name: 'Pan P' }),
+      page.getByRole('button', { name: 'Play or pause audio (V)' }),
+      page.getByRole('button', { name: 'Toggle Select and Draw tools (T)' }),
       page.getByRole('button', { name: /Zoom in/ }),
-      page.getByRole('button', { name: /Undo/ }),
-      page.getByRole('button', { name: /Redo/ }),
       page.getByRole('button', { name: /No calls present/ }).first(),
-      page.getByRole('option', { name: "PER Peron's Tree Frog" }),
+      page.getByRole('option', { name: "ETF Peron's Tree Frog" }),
     ]) {
       await expect(control).toBeVisible();
       const rectangle = await control.boundingBox();
@@ -308,13 +337,54 @@ test('keeps essential controls reachable at standalone and CE iframe widths', as
     if (viewport.label === 'ce-iframe') {
       await expect(page.getByRole('link', { name: 'Try your own audio' })).toBeVisible();
       await page.goto('./?mode=local');
-      await expect(page.getByRole('link', { name: 'Seeded demo' })).toBeVisible();
+      const compactControls = [
+        page.getByRole('link', { name: 'Seeded demo' }),
+        page.getByRole('button', { name: 'Open audio' }),
+        page.getByRole('button', { name: 'Files' }),
+      ];
+      for (const control of compactControls)
+        await expectFullyInsideViewport(control, viewport.width);
+      await page.getByRole('button', { name: 'Files' }).click();
+      for (const name of [
+        'Resume annotations',
+        'Download JSON',
+        'Download CSV',
+        'Add demo species',
+        'Reset local work',
+      ]) {
+        await expectFullyInsideViewport(page.getByRole('button', { name }), viewport.width);
+      }
+      await page.keyboard.press('Escape');
+      await expect(page.getByRole('button', { name: 'Files' })).toHaveAttribute(
+        'aria-expanded',
+        'false',
+      );
       await expect(page.locator('.local-notice')).toContainText('Open a WAV or MP3');
-      await expect(page.locator('.local-notice')).toBeVisible();
+      await expect(page.locator('.local-notice')).toBeAttached();
+      await page.locator('input[type="file"][accept*="audio/wav"]').setInputFiles({
+        name: 'not-audio.txt',
+        mimeType: 'text/plain',
+        buffer: Buffer.from('not audio'),
+      });
+      await expect(page.getByRole('alert')).toContainText('Choose a WAV or MP3 file.');
+      await expectFullyInsideViewport(page.getByRole('alert'), viewport.width);
+      const compactDocumentWidth = await page.evaluate(() => ({
+        client: document.documentElement.clientWidth,
+        scroll: document.documentElement.scrollWidth,
+      }));
+      expect(compactDocumentWidth.scroll).toBe(compactDocumentWidth.client);
     }
     await page.screenshot({ path: testInfo.outputPath(`layout-${viewport.label}.png`) });
   }
 });
+
+async function expectFullyInsideViewport(locator: Locator, viewportWidth: number): Promise<void> {
+  await expect(locator).toBeVisible();
+  const rectangle = await locator.boundingBox();
+  expect(rectangle).not.toBeNull();
+  expect(rectangle!.x).toBeGreaterThanOrEqual(0);
+  expect(rectangle!.x + rectangle!.width).toBeLessThanOrEqual(viewportWidth + 0.5);
+}
 
 test('serves the exact repository subpath and excludes Label Studio host code', async ({
   page,

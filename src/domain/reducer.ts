@@ -1,9 +1,9 @@
 import type {
   AudioBounds,
-  FrogLabelBoxV1,
-  FrogLabelDocumentV1,
+  FrogLabelBoxV2,
+  FrogLabelDocument,
   PixelPoint,
-  SpeciesEntryV1,
+  SpeciesEntry,
   ViewportTransform,
 } from './types';
 import { assertDocument, speciesSnapshot } from './validation';
@@ -30,11 +30,11 @@ export interface DomainState {
   epoch: number;
   catalogId: string;
   bounds: AudioBounds;
-  document: FrogLabelDocumentV1 | null;
+  document: FrogLabelDocument | null;
   selectedBoxId: string | null;
   preview: GesturePreview | null;
-  undo: Array<FrogLabelDocumentV1 | null>;
-  redo: Array<FrogLabelDocumentV1 | null>;
+  undo: Array<FrogLabelDocument | null>;
+  redo: Array<FrogLabelDocument | null>;
   revision: number;
   lastEvent: string | null;
 }
@@ -45,13 +45,13 @@ export type DomainCommand =
       epoch: number;
       catalogId: string;
       bounds: AudioBounds;
-      document: FrogLabelDocumentV1 | null;
+      document: FrogLabelDocument | null;
     }
   | {
       type: 'box/createCommitted';
-      species: SpeciesEntryV1;
+      species: SpeciesEntry;
       geometry: Pick<
-        FrogLabelBoxV1,
+        FrogLabelBoxV2,
         'startTimeSeconds' | 'endTimeSeconds' | 'lowFrequencyHz' | 'highFrequencyHz'
       >;
       id: string;
@@ -61,20 +61,20 @@ export type DomainCommand =
       type: 'box/resizeCommitted';
       boxId: string;
       geometry: Pick<
-        FrogLabelBoxV1,
+        FrogLabelBoxV2,
         'startTimeSeconds' | 'endTimeSeconds' | 'lowFrequencyHz' | 'highFrequencyHz'
       >;
       timestamp: string;
     }
   | { type: 'box/delete'; boxId: string }
   | { type: 'box/select'; boxId: string | null }
-  | { type: 'species/assign'; boxId: string; species: SpeciesEntryV1; timestamp: string }
+  | { type: 'species/assign'; boxId: string; species: SpeciesEntry; timestamp: string }
   | { type: 'review/setNoCalls' }
   | { type: 'review/clear' }
   | { type: 'gesture/start'; preview: GesturePreview }
   | { type: 'gesture/update'; point: PixelPoint }
   | { type: 'gesture/cancel' }
-  | { type: 'gesture/commit'; species?: SpeciesEntryV1; id?: string; timestamp: string }
+  | { type: 'gesture/commit'; species?: SpeciesEntry; id?: string; timestamp: string }
   | { type: 'history/undo' }
   | { type: 'history/redo' };
 
@@ -95,7 +95,7 @@ export function initialDomainState(catalogId: string, bounds: AudioBounds): Doma
 
 function commitDocument(
   state: DomainState,
-  next: FrogLabelDocumentV1 | null,
+  next: FrogLabelDocument | null,
   event: string,
   selectedBoxId = state.selectedBoxId,
 ): DomainState {
@@ -114,7 +114,7 @@ function commitDocument(
   };
 }
 
-function boxes(state: DomainState): FrogLabelBoxV1[] {
+function boxes(state: DomainState): FrogLabelBoxV2[] {
   return state.document?.boxes ?? [];
 }
 
@@ -278,17 +278,14 @@ export function domainReducer(state: DomainState, command: DomainCommand): Domai
   }
 }
 
-export function boxesDeepEqual(
-  left: FrogLabelDocumentV1 | null,
-  right: FrogLabelDocumentV1 | null,
-) {
+export function boxesDeepEqual(left: FrogLabelDocument | null, right: FrogLabelDocument | null) {
   return deterministicSerialize(left) === deterministicSerialize(right);
 }
 
 function documentFromTrustedBoxes(
   catalogId: string,
-  boxes: readonly FrogLabelBoxV1[],
-): FrogLabelDocumentV1 | null {
+  boxes: readonly FrogLabelBoxV2[],
+): FrogLabelDocument | null {
   if (boxes.length === 0) return null;
   if (boxes.length > 5_000) {
     throw new ValidationError('Annotation exceeds the 5000-box POC limit');
@@ -299,7 +296,7 @@ function documentFromTrustedBoxes(
   // redundant. Untrusted port/schema boundaries still perform full validation.
   return {
     kind: 'froglabel.annotation-set',
-    schemaVersion: 1,
+    schemaVersion: 2,
     catalogId,
     reviewStatus: 'calls_present',
     boxes: sortBoxes(boxes),
@@ -308,12 +305,12 @@ function documentFromTrustedBoxes(
 
 function normalizeGeometry(
   geometry: Pick<
-    FrogLabelBoxV1,
+    FrogLabelBoxV2,
     'startTimeSeconds' | 'endTimeSeconds' | 'lowFrequencyHz' | 'highFrequencyHz'
   >,
   bounds: AudioBounds,
 ): Pick<
-  FrogLabelBoxV1,
+  FrogLabelBoxV2,
   'startTimeSeconds' | 'endTimeSeconds' | 'lowFrequencyHz' | 'highFrequencyHz'
 > {
   const values = [
@@ -343,6 +340,6 @@ function normalizeGeometry(
   return normalized;
 }
 
-function markHumanModified(provenance: FrogLabelBoxV1['provenance']): FrogLabelBoxV1['provenance'] {
+function markHumanModified(provenance: FrogLabelBoxV2['provenance']): FrogLabelBoxV2['provenance'] {
   return provenance.source === 'model' ? { ...provenance, humanModified: true } : provenance;
 }

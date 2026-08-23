@@ -207,13 +207,13 @@ def main() -> int:
         owner,
         first.id,
         first_live.descriptor.catalog_revision,
-        "per",
+        "etf",
         "Peron's Tree Frog",
     )
     assert add_status == 201
     assert add_body["catalog"]["catalogRevision"] == 2
     ecologist_species = next(
-        item for item in add_body["catalog"]["species"] if item["code"] == "PER"
+        item for item in add_body["catalog"]["species"] if item["code"] == "ETF"
     )
     assert ecologist_species["addedAfterInitialization"] is True
 
@@ -226,7 +226,7 @@ def main() -> int:
         },
         {
             "speciesId": "local:white-lipped-tree-frog",
-            "code": "WHI",
+            "code": "WTF",
             "speciesName": "White-lipped Tree Frog",
         },
     ]
@@ -239,9 +239,9 @@ def main() -> int:
     assert database_snapshot(first.id) == before_dry_run
     applied = administrator.sync(first.id, sync_config, apply=True)
     assert applied["catalog"]["catalogRevision"] == 3
-    assert {item["code"] for item in applied["catalog"]["species"]} == {"GTF", "PER", "WHI"}
+    assert {item["code"] for item in applied["catalog"]["species"]} == {"GTF", "ETF", "WTF"}
     assert (
-        next(item for item in applied["catalog"]["species"] if item["code"] == "WHI")[
+        next(item for item in applied["catalog"]["species"] if item["code"] == "WTF")[
             "addedAfterInitialization"
         ]
         is True
@@ -271,7 +271,7 @@ def main() -> int:
                 owner,
                 empty.id,
                 1,
-                "per",
+                "etf",
                 "Peron's Tree Frog",
                 barrier,
             )
@@ -280,7 +280,7 @@ def main() -> int:
         concurrent = [future.result(timeout=30) for future in futures]
     assert sorted(status for status, _body in concurrent) == [201, 409]
     concurrent_live = administrator.read_catalog(empty.id)
-    assert [item.code for item in concurrent_live.species] == ["PER"]
+    assert [item.code for item in concurrent_live.species] == ["ETF"]
     loser_body = next(body for status, body in concurrent if status == 409)
     assert loser_body["error"]["code"] == "CATALOG_STALE"
     assert len(loser_body["catalog"]["species"]) == 1
@@ -288,7 +288,7 @@ def main() -> int:
         owner,
         empty.id,
         concurrent_live.descriptor.catalog_revision,
-        "PER",
+        "ETF",
         "Different Frog",
     )
     assert conflict_status == 409
@@ -305,7 +305,7 @@ def main() -> int:
             outsider,
             first.id,
             4,
-            "DEN",
+            "DEF",
             "Denied Frog",
         )
     finally:

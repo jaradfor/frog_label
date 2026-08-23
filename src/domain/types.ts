@@ -18,6 +18,28 @@ export interface SpeciesEntryV1 {
   updatedAt: string;
 }
 
+/**
+ * The active catalog contract. Codes are deliberately limited to physical
+ * keys reachable by the operator's left hand; historical annotation snapshots
+ * keep their original code instead of being rewritten when a catalog changes.
+ */
+export interface SpeciesEntryV2 {
+  schemaVersion: 2;
+  kind: 'froglabel.species';
+  speciesId: string;
+  code: string;
+  selectionPriority: number;
+  speciesName: string;
+  scientificName?: string;
+  externalTaxon?: ExternalTaxonV1;
+  addedAfterInitialization: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export type SpeciesEntry = SpeciesEntryV2;
+export type ReadableSpeciesEntry = SpeciesEntryV1 | SpeciesEntryV2;
+
 export interface SpeciesCatalogV1 {
   schemaVersion: 1;
   kind: 'froglabel.species-catalog';
@@ -29,7 +51,35 @@ export interface SpeciesCatalogV1 {
   species: SpeciesEntryV1[];
 }
 
+export interface SpeciesCatalogV2 {
+  schemaVersion: 2;
+  kind: 'froglabel.species-catalog';
+  catalogId: string;
+  initializedAt: string;
+  initializedBy: string;
+  catalogRevision: number;
+  defaultSpeciesId: string | null;
+  species: SpeciesEntryV2[];
+  /**
+   * Validated V1 entries retained for identification and historical display.
+   * They are deliberately outside `species`, the active/chord-selectable set.
+   */
+  historicalSpecies?: SpeciesEntryV1[];
+}
+
+export type SpeciesCatalog = SpeciesCatalogV2;
+export type ReadableSpeciesCatalog = SpeciesCatalogV1 | SpeciesCatalogV2;
+
 export interface SpeciesSnapshotV1 {
+  speciesId: string;
+  code: string;
+  speciesName: string;
+  scientificName?: string;
+  addedAfterInitialization: boolean;
+}
+
+/** V2 accepts new left-hand codes and unchanged snapshots migrated from V1. */
+export interface SpeciesSnapshotV2 {
   speciesId: string;
   code: string;
   speciesName: string;
@@ -68,6 +118,18 @@ export interface FrogLabelBoxV1 {
   provenance: BoxProvenanceV1;
 }
 
+export interface FrogLabelBoxV2 {
+  id: string;
+  species: SpeciesSnapshotV2;
+  startTimeSeconds: number;
+  endTimeSeconds: number;
+  lowFrequencyHz: number;
+  highFrequencyHz: number;
+  createdAt?: string;
+  updatedAt?: string;
+  provenance: BoxProvenanceV1;
+}
+
 export interface FrogLabelDocumentV1 {
   kind: 'froglabel.annotation-set';
   schemaVersion: 1;
@@ -75,6 +137,17 @@ export interface FrogLabelDocumentV1 {
   reviewStatus: ReviewStatus;
   boxes: FrogLabelBoxV1[];
 }
+
+export interface FrogLabelDocumentV2 {
+  kind: 'froglabel.annotation-set';
+  schemaVersion: 2;
+  catalogId: string;
+  reviewStatus: ReviewStatus;
+  boxes: FrogLabelBoxV2[];
+}
+
+export type FrogLabelDocument = FrogLabelDocumentV2;
+export type ReadableFrogLabelDocument = FrogLabelDocumentV1 | FrogLabelDocumentV2;
 
 export type FrogLabelHostDataV1 =
   | string
@@ -111,7 +184,7 @@ export interface AudioMetadataV1 {
 
 export interface HostRegion {
   id: string;
-  value: FrogLabelDocumentV1;
+  value: FrogLabelDocument;
   selected: boolean;
   hidden: boolean;
   locked: boolean;
@@ -122,7 +195,7 @@ export interface HostSnapshot {
   epoch: number;
   tag: string | null;
   data: FrogLabelHostDataV1 | null;
-  document: FrogLabelDocumentV1 | null;
+  document: FrogLabelDocument | null;
   regionId: string | null;
   locked: boolean;
   hidden: boolean;
@@ -173,6 +246,7 @@ export interface ViewportTransform extends AudioBounds {
   highFrequencyHz: number;
   widthPixels: number;
   heightPixels: number;
+  frequencyScale?: 'linear' | 'logarithmic';
 }
 
 export interface PixelPoint {
@@ -202,3 +276,16 @@ export interface FrogLabelLocalFileV1 {
   catalogSnapshot: SpeciesEntryV1[];
   document: FrogLabelDocumentV1 | null;
 }
+
+export interface FrogLabelLocalFileV2 {
+  kind: 'froglabel.local-file';
+  schemaVersion: 2;
+  audio: LocalAudioDescriptor;
+  catalogSnapshot: SpeciesEntryV2[];
+  /** Unmapped V1 catalog records retained without activating their old codes. */
+  historicalCatalogSnapshot?: SpeciesEntryV1[];
+  document: FrogLabelDocumentV2 | null;
+}
+
+export type FrogLabelLocalFile = FrogLabelLocalFileV2;
+export type ReadableFrogLabelLocalFile = FrogLabelLocalFileV1 | FrogLabelLocalFileV2;

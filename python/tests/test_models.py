@@ -7,7 +7,13 @@ from hypothesis import given
 from hypothesis import strategies as st
 from pydantic import ValidationError
 
-from froglabel_cli.models import FrogLabelBox, FrogLabelDocument, HumanProvenance, SpeciesSnapshot
+from froglabel_cli.models import (
+    FrogLabelBox,
+    FrogLabelDocument,
+    HumanProvenance,
+    SpeciesSnapshot,
+    migrate_document,
+)
 
 SPECIES = SpeciesSnapshot(
     speciesId="fixture:gre",
@@ -102,3 +108,34 @@ def test_dormant_model_provenance_round_trips_without_a_prediction_workflow() ->
     encoded = box.model_dump(by_alias=True, mode="json", exclude_none=True)
     assert encoded["provenance"]["humanModified"] is True
     assert FrogLabelBox.model_validate(encoded) == box
+
+
+def test_v1_document_upgrade_preserves_historical_species_snapshot() -> None:
+    legacy = {
+        "kind": "froglabel.annotation-set",
+        "schemaVersion": 1,
+        "catalogId": "fixture:legacy",
+        "reviewStatus": "calls_present",
+        "boxes": [
+            {
+                "id": "legacy:box",
+                "species": {
+                    "speciesId": "fixture:perons",
+                    "code": "PER",
+                    "speciesName": "Peron's Tree Frog",
+                    "addedAfterInitialization": False,
+                },
+                "startTimeSeconds": 0,
+                "endTimeSeconds": 1,
+                "lowFrequencyHz": 200,
+                "highFrequencyHz": 1200,
+                "provenance": {"source": "human"},
+            }
+        ],
+    }
+
+    migrated = migrate_document(legacy)
+
+    assert migrated.schema_version == 2
+    assert migrated.boxes[0].species.code == "PER"
+    assert "selectionPriority" not in migrated.boxes[0].species.model_dump(by_alias=True)

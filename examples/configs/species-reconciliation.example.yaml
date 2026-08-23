@@ -2,4 +2,5 @@ catalog:
   species:
     - speciesId: local:review-example-frog
       code: REV
+      selectionPriority: 0
       speciesName: Review Example Frog

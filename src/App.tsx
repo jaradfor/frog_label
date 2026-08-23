@@ -17,10 +17,10 @@ import { HostAudioSourcePort } from './adapters/reactcode/HostAudioSourcePort';
 import { LabelStudioSpeciesCatalogPort } from './adapters/labelStudioCatalog/LabelStudioSpeciesCatalogPort';
 import { demoCatalog, emptyLocalCatalog } from './app/catalogs';
 import type {
-  FrogLabelDocumentV1,
-  FrogLabelLocalFileV1,
+  FrogLabelDocument,
+  FrogLabelLocalFile,
   LocalAudioDescriptor,
-  SpeciesCatalogV1,
+  SpeciesCatalog,
 } from './domain/types';
 import {
   assertMatchingAudio,
@@ -50,8 +50,8 @@ interface LocalSession {
 
 interface LocalWorkspaceState {
   session: LocalSession;
-  catalog: SpeciesCatalogV1;
-  document: FrogLabelDocumentV1 | null;
+  catalog: SpeciesCatalog;
+  document: FrogLabelDocument | null;
   baselineSignature: string;
   preparedAt: string | null;
 }
@@ -201,17 +201,26 @@ export function LocalApp({ demoHref }: { demoHref?: string } = {}) {
   });
   const session = local.session;
   const sessionRef = useRef(session);
-  const [pendingResume, setPendingResume] = useState<FrogLabelLocalFileV1 | null>(null);
+  const [pendingResume, setPendingResume] = useState<FrogLabelLocalFile | null>(null);
   const [notice, setNotice] = useState('Open a WAV or MP3. Files stay in this browser tab.');
   const [error, setError] = useState('');
+  const [localMenuOpen, setLocalMenuOpen] = useState(false);
   const audioInputRef = useRef<HTMLInputElement>(null);
   const resumeInputRef = useRef<HTMLInputElement>(null);
+  const localControlsRef = useRef<HTMLDivElement>(null);
+  const localMenuButtonRef = useRef<HTMLButtonElement>(null);
   const operationRef = useRef<{ controller: AbortController } | null>(null);
   const currentSignature = useMemo(
     () => localWorkSignature(local.catalog, local.document),
     [local.catalog, local.document],
   );
   const dirty = currentSignature !== local.baselineSignature;
+  const closeLocalMenu = useCallback((restoreFocus = false) => {
+    setLocalMenuOpen(false);
+    if (restoreFocus) {
+      globalThis.setTimeout(() => localMenuButtonRef.current?.focus({ preventScroll: true }), 0);
+    }
+  }, []);
 
   useEffect(() => {
     sessionRef.current = session;
@@ -234,6 +243,21 @@ export function LocalApp({ demoHref }: { demoHref?: string } = {}) {
     window.addEventListener('beforeunload', warn);
     return () => window.removeEventListener('beforeunload', warn);
   }, [dirty]);
+  useEffect(() => {
+    if (!localMenuOpen) return;
+    const dismissPointer = (event: PointerEvent) => {
+      if (!localControlsRef.current?.contains(event.target as Node)) closeLocalMenu();
+    };
+    const dismissKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') closeLocalMenu(true);
+    };
+    document.addEventListener('pointerdown', dismissPointer);
+    document.addEventListener('keydown', dismissKey);
+    return () => {
+      document.removeEventListener('pointerdown', dismissPointer);
+      document.removeEventListener('keydown', dismissKey);
+    };
+  }, [closeLocalMenu, localMenuOpen]);
   useEffect(
     () => () => {
       operationRef.current?.controller.abort();
@@ -245,8 +269,8 @@ export function LocalApp({ demoHref }: { demoHref?: string } = {}) {
   const replaceSession = useCallback(
     (
       next: LocalSession,
-      catalog: SpeciesCatalogV1,
-      document: FrogLabelDocumentV1 | null,
+      catalog: SpeciesCatalog,
+      document: FrogLabelDocument | null,
       options: { baselineSignature?: string; preparedAt?: string | null } = {},
     ) => {
       const previous = sessionRef.current;
@@ -291,7 +315,11 @@ export function LocalApp({ demoHref }: { demoHref?: string } = {}) {
         : await fingerprintFile(file, operation.controller.signal);
       if (operationRef.current !== operation || operation.controller.signal.aborted) return;
       const resumedCatalog = pendingResume
-        ? mergeCatalogSnapshots(catalogFromLocalFile(pendingResume), currentCatalog.species)
+        ? mergeCatalogSnapshots(
+            catalogFromLocalFile(pendingResume),
+            currentCatalog.species,
+            currentCatalog.historicalSpecies,
+          )
         : currentCatalog;
       const document = pendingResume?.document ?? null;
       const objectUrl = URL.createObjectURL(file);
@@ -337,7 +365,11 @@ export function LocalApp({ demoHref }: { demoHref?: string } = {}) {
         return;
       const candidateCatalog = catalogFromLocalFile(parsed);
       const currentCatalog = await session.catalog.read();
-      const mergedCatalog = mergeCatalogSnapshots(candidateCatalog, currentCatalog.species);
+      const mergedCatalog = mergeCatalogSnapshots(
+        candidateCatalog,
+        currentCatalog.species,
+        currentCatalog.historicalSpecies,
+      );
       if (session.file) {
         const fingerprint = await assertMatchingAudio(
           session.file,
@@ -483,22 +515,44 @@ export function LocalApp({ demoHref }: { demoHref?: string } = {}) {
       ? `JSON download prepared at ${local.preparedAt}`
       : 'No JSON prepared';
   const canResetLocalWork =
-    local.catalog.species.length > 0 || local.document !== null || pendingResume !== null;
+    local.catalog.species.length > 0 ||
+    (local.catalog.historicalSpecies?.length ?? 0) > 0 ||
+    local.document !== null ||
+    pendingResume !== null;
 
   const openAudioButton = (label: string) => (
-    <button type="button" onClick={() => audioInputRef.current?.click()}>
+    <button
+      type="button"
+      onClick={() => {
+        setLocalMenuOpen(false);
+        audioInputRef.current?.click();
+      }}
+    >
       {label}
     </button>
   );
 
-  const resumeButton = (label: string) => (
-    <button type="button" onClick={() => resumeInputRef.current?.click()}>
+  const resumeButton = (label: string, restoreMenuFocus = false) => (
+    <button
+      type="button"
+      onClick={() => {
+        closeLocalMenu(restoreMenuFocus);
+        resumeInputRef.current?.click();
+      }}
+    >
       {label}
     </button>
   );
 
   const controls = (
-    <div className="local-controls" aria-label="Local file controls">
+    <div
+      ref={localControlsRef}
+      className="local-controls"
+      aria-label="Local file controls"
+      onBlur={(event) => {
+        if (!event.currentTarget.contains(event.relatedTarget as Node | null)) closeLocalMenu();
+      }}
+    >
       {demoHref && (
         <a className="header-link" href={demoHref}>
           Seeded demo
@@ -506,6 +560,7 @@ export function LocalApp({ demoHref }: { demoHref?: string } = {}) {
       )}
       <input
         ref={audioInputRef}
+        hidden
         className="visually-hidden-input"
         type="file"
         accept="audio/wav,audio/x-wav,audio/mpeg,.wav,.mp3"
@@ -517,6 +572,7 @@ export function LocalApp({ demoHref }: { demoHref?: string } = {}) {
       />
       <input
         ref={resumeInputRef}
+        hidden
         className="visually-hidden-input"
         type="file"
         accept="application/json,.json"
@@ -527,24 +583,66 @@ export function LocalApp({ demoHref }: { demoHref?: string } = {}) {
         }}
       />
       {openAudioButton('Open audio')}
-      {resumeButton('Resume annotations')}
-      <button type="button" onClick={() => void downloadJson()} disabled={!session.descriptor}>
-        Download JSON
-      </button>
-      <button type="button" onClick={() => void downloadCsv()} disabled={!session.descriptor}>
-        Download CSV
-      </button>
-      <button type="button" onClick={() => void addDemoSpecies()}>
-        Add demo species
-      </button>
       <button
+        ref={localMenuButtonRef}
         type="button"
-        onClick={() => void startUnrelatedCatalog()}
-        disabled={!canResetLocalWork}
+        className="local-menu-trigger"
+        aria-expanded={localMenuOpen}
+        aria-controls="local-file-actions"
+        onClick={() => setLocalMenuOpen((value) => !value)}
       >
-        Reset local work
+        Files
       </button>
-      <span className="local-notice" role={error ? 'alert' : 'status'}>
+      <div
+        id="local-file-actions"
+        className={`local-menu-items ${localMenuOpen ? 'open' : ''}`}
+        aria-label="Additional local file actions"
+      >
+        {resumeButton('Resume annotations', true)}
+        <button
+          type="button"
+          onClick={() => {
+            closeLocalMenu(true);
+            void downloadJson();
+          }}
+          disabled={!session.descriptor}
+        >
+          Download JSON
+        </button>
+        <button
+          type="button"
+          onClick={() => {
+            closeLocalMenu(true);
+            void downloadCsv();
+          }}
+          disabled={!session.descriptor}
+        >
+          Download CSV
+        </button>
+        <button
+          type="button"
+          onClick={() => {
+            closeLocalMenu(true);
+            void addDemoSpecies();
+          }}
+        >
+          Add demo species
+        </button>
+        <button
+          type="button"
+          onClick={() => {
+            closeLocalMenu(true);
+            void startUnrelatedCatalog();
+          }}
+          disabled={!canResetLocalWork}
+        >
+          Reset local work
+        </button>
+      </div>
+      <span
+        className={`local-notice ${error ? 'local-notice-error' : ''}`}
+        role={error ? 'alert' : 'status'}
+      >
         {error || notice}
       </span>
     </div>
@@ -587,8 +685,8 @@ export function LocalApp({ demoHref }: { demoHref?: string } = {}) {
 function makeLocalSession(
   file: File | null,
   objectUrl: string | null,
-  catalog: SpeciesCatalogV1,
-  document: FrogLabelDocumentV1 | null,
+  catalog: SpeciesCatalog,
+  document: FrogLabelDocument | null,
   fingerprint: LocalAudioDescriptor['fingerprint'] | null = null,
   descriptor: LocalAudioDescriptor | null = null,
 ): LocalSession {
@@ -615,10 +713,7 @@ function makeLocalSession(
   };
 }
 
-function localWorkSignature(
-  catalog: SpeciesCatalogV1,
-  document: FrogLabelDocumentV1 | null,
-): string {
+function localWorkSignature(catalog: SpeciesCatalog, document: FrogLabelDocument | null): string {
   // Local state is immutable and schema-validated before it reaches this
   // comparison. Property order therefore remains stable within the session;
   // plain serialization avoids recursively sorting thousands of box objects

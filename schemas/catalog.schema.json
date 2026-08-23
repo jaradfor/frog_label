@@ -1,31 +1,97 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://froglabel.local/schemas/catalog.schema.json",
-  "title": "FrogLabel Species Catalog V1",
-  "type": "object",
-  "additionalProperties": false,
-  "required": [
-    "schemaVersion",
-    "kind",
-    "catalogId",
-    "initializedAt",
-    "initializedBy",
-    "catalogRevision",
-    "defaultSpeciesId",
-    "species"
-  ],
-  "properties": {
-    "schemaVersion": { "const": 1 },
-    "kind": { "const": "froglabel.species-catalog" },
-    "catalogId": { "type": "string", "minLength": 1, "maxLength": 256 },
-    "initializedAt": { "type": "string", "format": "date-time" },
-    "initializedBy": { "type": "string", "minLength": 1, "maxLength": 256 },
-    "catalogRevision": { "type": "integer", "minimum": 1 },
-    "defaultSpeciesId": { "type": ["string", "null"], "minLength": 1, "maxLength": 256 },
-    "species": {
-      "type": "array",
-      "maxItems": 10000,
-      "items": { "$ref": "https://froglabel.local/schemas/species.schema.json" }
+  "title": "FrogLabel Species Catalog",
+  "oneOf": [{ "$ref": "#/$defs/v1" }, { "$ref": "#/$defs/v2" }],
+  "$defs": {
+    "common": {
+      "type": "object",
+      "required": [
+        "schemaVersion",
+        "kind",
+        "catalogId",
+        "initializedAt",
+        "initializedBy",
+        "catalogRevision",
+        "defaultSpeciesId",
+        "species"
+      ],
+      "properties": {
+        "schemaVersion": { "type": "integer", "minimum": 1, "maximum": 2 },
+        "kind": { "const": "froglabel.species-catalog" },
+        "catalogId": { "type": "string", "minLength": 1, "maxLength": 256 },
+        "initializedAt": { "type": "string", "format": "date-time" },
+        "initializedBy": { "type": "string", "minLength": 1, "maxLength": 256 },
+        "catalogRevision": { "type": "integer", "minimum": 1 },
+        "defaultSpeciesId": {
+          "type": ["string", "null"],
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "species": { "type": "array", "maxItems": 10000 }
+      }
+    },
+    "v1": {
+      "title": "FrogLabel Species Catalog V1 (legacy read-only)",
+      "allOf": [
+        { "$ref": "#/$defs/common" },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "schemaVersion": { "const": 1 },
+            "kind": { "const": "froglabel.species-catalog" },
+            "catalogId": { "type": "string", "minLength": 1, "maxLength": 256 },
+            "initializedAt": { "type": "string", "format": "date-time" },
+            "initializedBy": { "type": "string", "minLength": 1, "maxLength": 256 },
+            "catalogRevision": { "type": "integer", "minimum": 1 },
+            "defaultSpeciesId": {
+              "type": ["string", "null"],
+              "minLength": 1,
+              "maxLength": 256
+            },
+            "species": {
+              "type": "array",
+              "maxItems": 10000,
+              "items": { "$ref": "https://froglabel.local/schemas/species.schema.json#/$defs/v1" }
+            }
+          }
+        }
+      ]
+    },
+    "v2": {
+      "title": "FrogLabel Species Catalog V2",
+      "allOf": [
+        { "$ref": "#/$defs/common" },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "schemaVersion": { "const": 2 },
+            "kind": { "const": "froglabel.species-catalog" },
+            "catalogId": { "type": "string", "minLength": 1, "maxLength": 256 },
+            "initializedAt": { "type": "string", "format": "date-time" },
+            "initializedBy": { "type": "string", "minLength": 1, "maxLength": 256 },
+            "catalogRevision": { "type": "integer", "minimum": 1 },
+            "defaultSpeciesId": {
+              "type": ["string", "null"],
+              "minLength": 1,
+              "maxLength": 256
+            },
+            "species": {
+              "type": "array",
+              "maxItems": 10000,
+              "items": { "$ref": "https://froglabel.local/schemas/species.schema.json#/$defs/v2" }
+            },
+            "historicalSpecies": {
+              "description": "Validated legacy entries retained for display but excluded from active selection.",
+              "type": "array",
+              "maxItems": 10000,
+              "items": { "$ref": "https://froglabel.local/schemas/species.schema.json#/$defs/v1" }
+            }
+          }
+        }
+      ]
     }
   }
 }

@@ -45,6 +45,7 @@ def offline_heidi_tips(_request: Request) -> JsonResponse:
 class CreateSpeciesInput(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
     code: Annotated[str, StringConstraints(min_length=1, max_length=16)]
+    selectionPriority: int = Field(default=0, ge=0, le=1_000_000)
     speciesName: Annotated[str, StringConstraints(min_length=1, max_length=256)]
     scientificName: Annotated[str, StringConstraints(min_length=1, max_length=256)] | None = None
 
@@ -52,8 +53,10 @@ class CreateSpeciesInput(BaseModel):
     @classmethod
     def normalize_code(cls, value: str) -> str:
         normalized = value.strip().upper()
-        if len(normalized) != 3 or not normalized.isascii() or not normalized.isalpha():
-            raise ValueError("code must normalize to exactly three ASCII letters")
+        if not 1 <= len(normalized) <= 6 or any(
+            letter not in "QWERTASDFGZXCVB" for letter in normalized
+        ):
+            raise ValueError("code must contain 1-6 left-hand letters")
         return normalized
 
     @field_validator("speciesName", "scientificName")
@@ -99,6 +102,20 @@ class ProjectCatalogView(APIView):
                 project = administrator._locked_project(project_id)
                 self._assert_project_access(request, project, mutate=True)
                 live = administrator._required_live(project, lock=True)
+                if live.descriptor.schema_version != 2:
+                    return Response(
+                        {
+                            **self._payload(request, project, live),
+                            "error": {
+                                "code": "CATALOG_V2_MIGRATION_REQUIRED",
+                                "message": (
+                                    "Legacy species remain historical until an administrator "
+                                    "maps every entry to a V2 code and priority."
+                                ),
+                            },
+                        },
+                        status=409,
+                    )
                 if command.expectedRevision != live.descriptor.catalog_revision:
                     return Response(
                         {
@@ -149,6 +166,7 @@ class ProjectCatalogView(APIView):
                     catalog_id=live.descriptor.catalog_id,
                     species_id=f"local:{uuid4()}",
                     code=requested.code,
+                    selection_priority=requested.selectionPriority,
                     species_name=requested.speciesName,
                     scientific_name=requested.scientificName,
                     added_after_initialization=True,
@@ -157,7 +175,11 @@ class ProjectCatalogView(APIView):
                 )
                 administrator._create_species_label(project, entry)
                 descriptor = live.descriptor.model_copy(
-                    update={"catalog_revision": live.descriptor.catalog_revision + 1}
+                    update={
+                        "schema_version": 2,
+                        "adapter_version": 2,
+                        "catalog_revision": live.descriptor.catalog_revision + 1,
+                    }
                 )
                 updated = LiveCatalog(descriptor=descriptor, species=[*live.species, entry])
                 descriptor_label = administrator._descriptor_label(project, lock=True)
@@ -240,7 +262,7 @@ class ProjectCatalogView(APIView):
             raise PermissionDenied("Effective label permission is insufficient")
 
     def _payload(self, request: Request, project: Any, live: LiveCatalog) -> dict[str, Any]:
-        can_create = all(
+        can_create = live.descriptor.schema_version == 2 and all(
             request.user.has_perm(permission, project)
             for permission in (all_permissions.labels_create, all_permissions.labels_change)
         )

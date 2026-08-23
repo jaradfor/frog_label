@@ -97,12 +97,10 @@ class CeRuntime:
                 "-c",
                 (
                     "from django.conf import settings; from django.urls import reverse; "
-                    "actual=(settings.ROOT_URLCONF, "
-                    "getattr(settings, 'FROGLABEL_CE_INTEGRATION_VERSION', None), "
-                    "reverse('froglabel-project-catalog', kwargs={'project_id': 7})); "
-                    "expected=('froglabel_cli.ce_overlay.urls', "
-                    f"{INTEGRATION_VERSION}, '/froglabel/api/projects/7/catalog/'); "
-                    "assert actual == expected, {'actual': actual, 'expected': expected}"
+                    "assert settings.ROOT_URLCONF == 'froglabel_cli.ce_overlay.urls'; "
+                    f"assert settings.FROGLABEL_CE_INTEGRATION_VERSION == {INTEGRATION_VERSION}; "
+                    "assert reverse('froglabel-project-catalog', kwargs={'project_id': 7}) "
+                    "== '/froglabel/api/projects/7/catalog/'"
                 ),
             ],
             environment,

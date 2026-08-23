@@ -1,4 +1,4 @@
-import type { AudioBounds, FrogLabelBoxV1, FrogLabelDocumentV1, SpeciesEntryV1 } from './types';
+import type { AudioBounds, FrogLabelBoxV2, FrogLabelDocument, SpeciesEntry } from './types';
 import { ValidationError } from './errors';
 import { assertDocument, speciesSnapshot } from './validation';
 
@@ -12,7 +12,7 @@ export function createStableId(prefix = 'local'): string {
   return `${prefix}:${uuid}`;
 }
 
-export function sortBoxes(boxes: readonly FrogLabelBoxV1[]): FrogLabelBoxV1[] {
+export function sortBoxes(boxes: readonly FrogLabelBoxV2[]): FrogLabelBoxV2[] {
   return [...boxes].sort(
     (left, right) =>
       left.startTimeSeconds - right.startTimeSeconds ||
@@ -22,14 +22,14 @@ export function sortBoxes(boxes: readonly FrogLabelBoxV1[]): FrogLabelBoxV1[] {
 }
 
 export function createHumanBox(
-  species: SpeciesEntryV1,
+  species: SpeciesEntry,
   geometry: Pick<
-    FrogLabelBoxV1,
+    FrogLabelBoxV2,
     'startTimeSeconds' | 'endTimeSeconds' | 'lowFrequencyHz' | 'highFrequencyHz'
   >,
   id: string,
   now: string,
-): FrogLabelBoxV1 {
+): FrogLabelBoxV2 {
   return {
     id,
     species: speciesSnapshot(species),
@@ -42,13 +42,13 @@ export function createHumanBox(
 
 export function documentFromBoxes(
   catalogId: string,
-  boxes: readonly FrogLabelBoxV1[],
+  boxes: readonly FrogLabelBoxV2[],
   bounds?: AudioBounds,
-): FrogLabelDocumentV1 | null {
+): FrogLabelDocument | null {
   if (boxes.length === 0) return null;
-  const document: FrogLabelDocumentV1 = {
+  const document: FrogLabelDocument = {
     kind: 'froglabel.annotation-set',
-    schemaVersion: 1,
+    schemaVersion: 2,
     catalogId,
     reviewStatus: 'calls_present',
     boxes: sortBoxes(boxes),
@@ -57,17 +57,17 @@ export function documentFromBoxes(
   return document;
 }
 
-export function noCallsDocument(catalogId: string): FrogLabelDocumentV1 {
+export function noCallsDocument(catalogId: string): FrogLabelDocument {
   return {
     kind: 'froglabel.annotation-set',
-    schemaVersion: 1,
+    schemaVersion: 2,
     catalogId,
     reviewStatus: 'no_calls',
     boxes: [],
   };
 }
 
-export function deterministicSerialize(document: FrogLabelDocumentV1 | null): string {
+export function deterministicSerialize(document: FrogLabelDocument | null): string {
   return deterministicJson(document ? { ...document, boxes: sortBoxes(document.boxes) } : null);
 }
 
@@ -75,7 +75,7 @@ export function deterministicJson(value: unknown, space?: number): string {
   return JSON.stringify(canonicalizeJson(value), null, space);
 }
 
-export function cloneDocument(document: FrogLabelDocumentV1 | null): FrogLabelDocumentV1 | null {
+export function cloneDocument(document: FrogLabelDocument | null): FrogLabelDocument | null {
   return document ? structuredClone(document) : null;
 }
 

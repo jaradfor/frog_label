@@ -9,20 +9,24 @@ import {
 } from './generated-validators';
 import type {
   AudioBounds,
-  FrogLabelDocumentV1,
+  FrogLabelDocument,
   FrogLabelHostDataV1,
-  FrogLabelLocalFileV1,
-  SpeciesCatalogV1,
-  SpeciesEntryV1,
+  FrogLabelLocalFile,
+  ReadableFrogLabelDocument,
+  ReadableFrogLabelLocalFile,
+  ReadableSpeciesCatalog,
+  ReadableSpeciesEntry,
+  SpeciesCatalog,
+  SpeciesEntry,
 } from './types';
 import { ValidationError } from './errors';
 
 const validators = {
-  species: validateSpecies as ValidateFunction<SpeciesEntryV1>,
-  catalog: validateCatalog as ValidateFunction<SpeciesCatalogV1>,
-  document: validateDocument as ValidateFunction<FrogLabelDocumentV1>,
+  species: validateSpecies as ValidateFunction<ReadableSpeciesEntry>,
+  catalog: validateCatalog as ValidateFunction<ReadableSpeciesCatalog>,
+  document: validateDocument as ValidateFunction<ReadableFrogLabelDocument>,
   taskData: validateTaskData as ValidateFunction<FrogLabelHostDataV1>,
-  localFile: validateLocalFile as ValidateFunction<FrogLabelLocalFileV1>,
+  localFile: validateLocalFile as ValidateFunction<ReadableFrogLabelLocalFile>,
   message: validateMessage as ValidateFunction,
 };
 const HOST_MESSAGE_TYPES = new Set(['init', 'update', 'regions', 'viewState']);
@@ -51,7 +55,7 @@ export function normalizeSpeciesName(value: string): string {
   return value.normalize('NFKC').trim().replace(/\s+/gu, ' ');
 }
 
-export function speciesSnapshot(species: SpeciesEntryV1) {
+export function speciesSnapshot(species: SpeciesEntry) {
   return {
     speciesId: species.speciesId,
     code: species.code,
@@ -61,7 +65,7 @@ export function speciesSnapshot(species: SpeciesEntryV1) {
   };
 }
 
-export function assertSpecies(value: unknown): asserts value is SpeciesEntryV1 {
+export function assertReadableSpecies(value: unknown): asserts value is ReadableSpeciesEntry {
   assertSchema(validators.species, value, 'Species');
   if (normalizeSpeciesCode(value.code) !== value.code) {
     throw new ValidationError('Species code must already be normalized', value.code);
@@ -74,13 +78,42 @@ export function assertSpecies(value: unknown): asserts value is SpeciesEntryV1 {
   }
 }
 
-export function assertCatalog(value: unknown): asserts value is SpeciesCatalogV1 {
+export function assertSpecies(value: unknown): asserts value is SpeciesEntry {
+  assertReadableSpecies(value);
+  if (value.schemaVersion !== 2) {
+    throw new ValidationError(
+      'Active species must use schema version 2',
+      `Species ${value.speciesId} requires an administrator-assigned left-hand code`,
+    );
+  }
+}
+
+export function assertReadableCatalog(value: unknown): asserts value is ReadableSpeciesCatalog {
   assertSchema(validators.catalog, value, 'Species catalog');
   const ids = new Set<string>();
   const codes = new Set<string>();
   const entries = new Map(value.species.map((entry) => [entry.speciesId, entry]));
   for (const entry of value.species) {
-    assertSpecies(entry);
+    assertReadableSpecies(entry);
+    if (entry.schemaVersion !== value.schemaVersion) {
+      throw new ValidationError('Catalog and species schema versions must match', entry.speciesId);
+    }
+    if (ids.has(entry.speciesId))
+      throw new ValidationError('Duplicate species ID', entry.speciesId);
+    ids.add(entry.speciesId);
+    const code = normalizeSpeciesCode(entry.code).toLocaleLowerCase('en');
+    if (codes.has(code)) throw new ValidationError('Duplicate species code', entry.code);
+    codes.add(code);
+  }
+  const historicalSpecies = value.schemaVersion === 2 ? (value.historicalSpecies ?? []) : [];
+  if (value.species.length + historicalSpecies.length > 10_000) {
+    throw new ValidationError('Catalog exceeds the 10000 species limit');
+  }
+  for (const entry of historicalSpecies) {
+    assertReadableSpecies(entry);
+    if (entry.schemaVersion !== 1) {
+      throw new ValidationError('Historical species must use schema version 1', entry.speciesId);
+    }
     if (ids.has(entry.speciesId))
       throw new ValidationError('Duplicate species ID', entry.speciesId);
     ids.add(entry.speciesId);
@@ -93,10 +126,33 @@ export function assertCatalog(value: unknown): asserts value is SpeciesCatalogV1
   }
 }
 
+export function assertCatalog(value: unknown): asserts value is SpeciesCatalog {
+  assertReadableCatalog(value);
+  if (value.schemaVersion !== 2) {
+    throw new ValidationError(
+      'Active catalogs must use schema version 2',
+      'Run an administrator-reviewed catalog migration before labeling',
+    );
+  }
+}
+
 export function assertDocument(
   value: unknown,
   bounds?: AudioBounds,
-): asserts value is FrogLabelDocumentV1 {
+): asserts value is FrogLabelDocument {
+  assertReadableDocument(value, bounds);
+  if (value.schemaVersion !== 2) {
+    throw new ValidationError(
+      'Writable annotation documents must use schema version 2',
+      'The V1 document must be upgraded in memory before mutation',
+    );
+  }
+}
+
+export function assertReadableDocument(
+  value: unknown,
+  bounds?: AudioBounds,
+): asserts value is ReadableFrogLabelDocument {
   assertSchema(validators.document, value, 'Annotation document');
   const ids = new Set<string>();
   for (const box of value.boxes) {
@@ -145,7 +201,9 @@ export function assertHostData(value: unknown): asserts value is FrogLabelHostDa
   assertSchema(validators.taskData, value, 'Host task data');
 }
 
-export function assertLocalFile(value: unknown): asserts value is FrogLabelLocalFileV1 {
+export function assertReadableLocalFile(
+  value: unknown,
+): asserts value is ReadableFrogLabelLocalFile {
   assertSchema(validators.localFile, value, 'Local annotation file');
   const decodedChannelSamples =
     value.audio.durationSeconds * value.audio.sampleRateHz * value.audio.channelCount;
@@ -154,29 +212,51 @@ export function assertLocalFile(value: unknown): asserts value is FrogLabelLocal
       'Local audio metadata exceeds the 30000000 decoded channel-sample limit',
     );
   }
-  const snapshotCatalog: SpeciesCatalogV1 = {
-    kind: 'froglabel.species-catalog',
-    schemaVersion: 1,
+  const commonCatalog = {
+    kind: 'froglabel.species-catalog' as const,
     catalogId: value.document?.catalogId ?? `local:${value.audio.fingerprint.value}`,
     catalogRevision: 1,
     initializedAt: new Date(0).toISOString(),
     initializedBy: 'Local file validation',
     defaultSpeciesId: null,
-    species: value.catalogSnapshot,
   };
-  assertCatalog(snapshotCatalog);
+  const snapshotCatalog: ReadableSpeciesCatalog =
+    value.schemaVersion === 1
+      ? { ...commonCatalog, schemaVersion: 1, species: value.catalogSnapshot }
+      : {
+          ...commonCatalog,
+          schemaVersion: 2,
+          species: value.catalogSnapshot,
+          historicalSpecies: value.historicalCatalogSnapshot,
+        };
+  assertReadableCatalog(snapshotCatalog);
   if (value.document) {
-    assertDocument(value.document, {
+    assertReadableDocument(value.document, {
       durationSeconds: value.audio.durationSeconds,
       maximumFrequencyHz: value.audio.sampleRateHz / 2,
       analysisSampleRateHz: value.audio.sampleRateHz,
     });
-    const byId = new Map(value.catalogSnapshot.map((entry) => [entry.speciesId, entry]));
+    const byId = new Map(
+      [
+        ...value.catalogSnapshot,
+        ...(value.schemaVersion === 2 ? (value.historicalCatalogSnapshot ?? []) : []),
+      ].map((entry) => [entry.speciesId, entry]),
+    );
     for (const box of value.document.boxes) {
       if (!byId.has(box.species.speciesId)) {
         throw new ValidationError('Box species is absent from the catalog snapshot', box.id);
       }
     }
+  }
+}
+
+export function assertLocalFile(value: unknown): asserts value is FrogLabelLocalFile {
+  assertReadableLocalFile(value);
+  if (value.schemaVersion !== 2) {
+    throw new ValidationError(
+      'Writable local files must use schema version 2',
+      'Parse and migrate the V1 file before saving',
+    );
   }
 }
 

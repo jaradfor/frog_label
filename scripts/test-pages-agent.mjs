@@ -25,6 +25,7 @@ const executablePath = await agentChromiumExecutable();
 const browsersPath = await prepareAgentPlaywrightTools(root);
 const environment = {
   ...process.env,
+  PATH: `${path.dirname(process.execPath)}${path.delimiter}${process.env.PATH ?? ''}`,
   FROGLABEL_BASE: '/frog_label/',
   PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH: executablePath,
   PLAYWRIGHT_BROWSERS_PATH: browsersPath,

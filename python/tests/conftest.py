@@ -14,7 +14,7 @@ def catalog() -> SpeciesCatalog:
     now = datetime(2026, 8, 20, tzinfo=UTC)
     return SpeciesCatalog.model_validate(
         {
-            "schemaVersion": 1,
+            "schemaVersion": 2,
             "kind": "froglabel.species-catalog",
             "catalogId": "fixture:catalog",
             "initializedAt": now,
@@ -23,10 +23,11 @@ def catalog() -> SpeciesCatalog:
             "defaultSpeciesId": None,
             "species": [
                 {
-                    "schemaVersion": 1,
+                    "schemaVersion": 2,
                     "kind": "froglabel.species",
                     "speciesId": "fixture:gre",
                     "code": "GRE",
+                    "selectionPriority": 0,
                     "speciesName": "Green Tree Frog",
                     "scientificName": "Ranoidea caerulea",
                     "addedAfterInitialization": False,
@@ -34,10 +35,11 @@ def catalog() -> SpeciesCatalog:
                     "updatedAt": now,
                 },
                 {
-                    "schemaVersion": 1,
+                    "schemaVersion": 2,
                     "kind": "froglabel.species",
                     "speciesId": "fixture:per",
-                    "code": "PER",
+                    "code": "ETF",
+                    "selectionPriority": 0,
                     "speciesName": "Peron's Tree Frog",
                     "addedAfterInitialization": False,
                     "createdAt": now,

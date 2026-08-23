@@ -1,4 +1,4 @@
-schemaVersion: 1
+schemaVersion: 2
 project:
   hostProjectId: 1
   defaultSpeciesId: local:green-tree-frog
@@ -6,10 +6,12 @@ catalog:
   species:
     - speciesId: local:green-tree-frog
       code: GTF
+      selectionPriority: 0
       speciesName: Australian Green Tree Frog
       scientificName: Ranoidea caerulea
     - speciesId: local:perons-tree-frog
-      code: PER
+      code: ETF
+      selectionPriority: 0
       speciesName: Peron's Tree Frog
 audio:
   maxDurationSeconds: 300

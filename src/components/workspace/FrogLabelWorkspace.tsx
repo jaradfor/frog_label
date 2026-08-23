@@ -1,16 +1,24 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from 'react';
 import logo from '../../assets/frog_id_logo.png';
 import type { AnnotationDocumentPort } from '../../ports/AnnotationDocumentPort';
 import type { AudioSourcePort, AudioSourceSnapshot } from '../../ports/AudioSourcePort';
 import type { SpeciesCatalogPort } from '../../ports/SpeciesCatalogPort';
 import type {
-  FrogLabelBoxV1,
+  FrogLabelBoxV2,
   HostSnapshot,
   HostStatus,
   MutationReason,
   AnalysisChannelMode,
-  SpeciesCatalogV1,
-  SpeciesEntryV1,
+  SpeciesCatalog,
+  SpeciesEntry,
 } from '../../domain/types';
 import { createStableId, deterministicSerialize } from '../../domain/document';
 import {
@@ -19,15 +27,43 @@ import {
   type DomainCommand,
   type DomainState,
 } from '../../domain/reducer';
-import { loadAudioResource, type AudioPlayback, type LoadedAudio } from '../../audio/AudioResource';
-import type { SpectrogramRenderPhase } from '../../audio/SpectrogramRenderer';
+import {
+  loadAudioResource,
+  paddedAudioFrequencyWindow,
+  type AudioPlayback,
+  type AudioFrequencyFilter,
+  type LoadedAudio,
+} from '../../audio/AudioResource';
+import type {
+  SpectrogramRenderPhase,
+  SpectrogramRenderState,
+  SpectrogramRenderStatus,
+} from '../../audio/SpectrogramRenderer';
 import { MemoryAnnotationDocumentPort } from '../../adapters/memory/MemoryAnnotationDocumentPort';
 import { MemoryAudioSourcePort } from '../../adapters/memory/MemoryAudioSourcePort';
 import { MemorySpeciesCatalogPort } from '../../adapters/memory/MemorySpeciesCatalogPort';
 import { tutorialCatalog } from '../../app/catalogs';
-import { commandForKeyboardEvent, type WorkspaceCommandId } from '../../app/keyboard';
+import {
+  WORKSPACE_COMMANDS,
+  commandForKeyboardEvent,
+  isEditableTarget,
+  speciesCharacterForKeyboardEvent,
+  type WorkspaceCommandId,
+} from '../../app/keyboard';
+import {
+  createSpeciesPrefixIndex,
+  emptySpeciesPrefixSelection,
+  isValidLeftHandSpeciesCode,
+  type SpeciesPrefixIndex,
+  type SpeciesPrefixSelection,
+} from '../../app/speciesPrefix';
 import { SpectrogramCanvas } from './SpectrogramCanvas';
-import type { FrequencyScale, SpectrogramPalette } from '../../audio/spectrogram';
+import {
+  SPECTROGRAM_PALETTES,
+  spectrogramPaletteCssGradient,
+  type FrequencyScale,
+  type SpectrogramPalette,
+} from '../../audio/spectrogram';
 
 export interface FrogLabelWorkspaceProps {
   annotationPort: AnnotationDocumentPort;
@@ -38,7 +74,7 @@ export interface FrogLabelWorkspaceProps {
   emptyAudioState?: ReactNode;
   onAudioLoaded?: (audio: LoadedAudio) => void;
   persistenceLabel?: string;
-  onCatalogChanged?: (catalog: SpeciesCatalogV1) => void;
+  onCatalogChanged?: (catalog: SpeciesCatalog) => void;
   speciesCreateScope?: 'project' | 'annotation' | 'session';
   tutorialAudioSource?: AudioSourceSnapshot;
 }
@@ -49,14 +85,32 @@ interface TutorialSession {
   audio: MemoryAudioSourcePort;
 }
 
+type BoxAuditionMode = 'raw' | 'band-pass' | 'negative';
+
+interface ActiveBoxAudition {
+  boxId: string;
+  boxRevision: string;
+  mode: BoxAuditionMode;
+}
+
+type QuickSelectableSpecies = SpeciesEntry;
+
+interface ActiveSpeciesCapture {
+  catalogRevision: number;
+  index: SpeciesPrefixIndex<QuickSelectableSpecies>;
+  selection: SpeciesPrefixSelection<QuickSelectableSpecies>;
+  rejected: string;
+}
+
 // TODO(tutorial-real-audio): replace only this asset/descriptor with the user's
-// licensed, biologically verified PER call; tutorial logic must remain unchanged.
+// licensed, biologically verified Peron's Tree Frog call; tutorial logic must remain unchanged.
 const DEFAULT_TUTORIAL_AUDIO = {
   url: `${import.meta.env.BASE_URL}audio/synthetic-frog-practice.wav`,
   filename: 'synthetic-frog-practice.wav',
   mimeType: 'audio/wav',
   trustedSampleRateHz: 44_100,
-  description: 'Temporary synthetic practice audio — not a verified PER reference recording',
+  description:
+    "Temporary synthetic practice audio — not a verified Peron's Tree Frog reference recording",
 } as const;
 
 const tutorialSteps = [
@@ -67,18 +121,18 @@ const tutorialSteps = [
   },
   {
     title: 'Listen',
-    text: `${DEFAULT_TUTORIAL_AUDIO.description}. Wait for the spectrogram to finish building, then play it once.`,
+    text: `${DEFAULT_TUTORIAL_AUDIO.description}. Press V to play or pause while your right hand stays on the mouse.`,
     anchor: 'play',
   },
   {
-    title: 'Choose PER',
-    text: "Choose PER — Peron's Tree Frog from the species selector.",
+    title: 'Choose ETF',
+    text: "Hold Space, type E, and release to choose ETF — Peron's Tree Frog.",
     anchor: 'species',
   },
   {
     title: 'Draw tool',
-    text: 'Select Draw Box. The same command is available with D.',
-    anchor: 'draw',
+    text: 'Species selection arms Draw automatically. T toggles between Draw and Select.',
+    anchor: 'tool',
   },
   {
     title: 'Draw',
@@ -87,8 +141,8 @@ const tutorialSteps = [
   },
   {
     title: 'Select tool',
-    text: 'Choose Select so the practice box can be inspected and resized. The same command is available with V.',
-    anchor: 'select',
+    text: 'Press T to enter Select so the practice box can be inspected and resized.',
+    anchor: 'tool',
   },
   {
     title: 'Select and resize',
@@ -102,7 +156,7 @@ const tutorialSteps = [
   },
   {
     title: 'Zoom, pan, and fit',
-    text: 'Try Zoom, Pan, and Reset / Fit. These view changes never alter scientific coordinates.',
+    text: 'Press Q/E to zoom, use WASD to pan both axes, and press X to fit the recording. View changes never alter scientific coordinates.',
     anchor: 'zoom',
   },
   {
@@ -112,7 +166,7 @@ const tutorialSteps = [
   },
   {
     title: 'No calls present',
-    text: 'Use No calls present (Shift+N) only for a reviewed recording with no calls. Do not activate it in this positive-call exercise.',
+    text: 'Use No calls present (Shift+X) only for a reviewed recording with no calls. Do not activate it in this positive-call exercise.',
     anchor: 'no-calls',
   },
   {
@@ -190,7 +244,7 @@ export function FrogLabelWorkspace(props: FrogLabelWorkspaceProps) {
         event.preventDefault();
         event.stopImmediatePropagation();
         exitTutorial();
-      } else if (event.code === 'Space' && !isTutorialTextEntryTarget(event.target)) {
+      } else if (event.code === 'Enter' && !isTutorialTextEntryTarget(event.target)) {
         event.preventDefault();
         event.stopImmediatePropagation();
         if (tutorialStep === tutorialSteps.length - 1) exitTutorial();
@@ -231,7 +285,7 @@ export function FrogLabelWorkspace(props: FrogLabelWorkspaceProps) {
           onSemanticEvent={() => undefined}
           tutorialMessage={tutorialMessage}
           tutorialStep={undefined}
-          suspended={Boolean(tutorialSession)}
+          suspended={Boolean(tutorialSession) || helpOpen}
         />
       </div>
       {tutorialSession && (
@@ -250,7 +304,7 @@ export function FrogLabelWorkspace(props: FrogLabelWorkspaceProps) {
             tutorialMessage=""
             persistenceLabel="Practice only — changes discarded"
             tutorialStep={tutorialStep}
-            suspended={false}
+            suspended={helpOpen}
           />
         </div>
       )}
@@ -321,7 +375,7 @@ function WorkspaceCore({
   const [audioSource, setAudioSource] = useState<AudioSourceSnapshot | null>(() =>
     audioSourcePort.getSnapshot(),
   );
-  const [catalog, setCatalog] = useState<SpeciesCatalogV1 | null>(null);
+  const [catalog, setCatalog] = useState<SpeciesCatalog | null>(null);
   const [catalogError, setCatalogError] = useState('');
   const [audio, setAudio] = useState<LoadedAudio | null>(null);
   const [audioPhase, setAudioPhase] = useState<'waiting' | 'loading' | 'ready' | 'error'>(
@@ -329,6 +383,11 @@ function WorkspaceCore({
   );
   const [audioError, setAudioError] = useState('');
   const [spectrogramPhase, setSpectrogramPhase] = useState<SpectrogramRenderPhase>('analyzing');
+  const [spectrogramRenderStatus, setSpectrogramRenderStatus] =
+    useState<SpectrogramRenderStatus>('initializing');
+  const handleSpectrogramRenderState = useCallback((state: SpectrogramRenderState) => {
+    setSpectrogramRenderStatus(state.status);
+  }, []);
   const [domain, setDomain] = useState<DomainState>(() =>
     initialDomainState('waiting', { durationSeconds: 1, maximumFrequencyHz: 1 }),
   );
@@ -338,18 +397,23 @@ function WorkspaceCore({
   const [pendingDomain, setPendingDomain] = useState<DomainState | null>(null);
   const [mutationError, setMutationError] = useState('');
   const [currentSpeciesId, setCurrentSpeciesId] = useState('');
+  const [speciesCapture, setSpeciesCapture] = useState<ActiveSpeciesCapture | null>(null);
+  const speciesCaptureRef = useRef<ActiveSpeciesCapture | null>(null);
   const [tool, setTool] = useState<'select' | 'draw' | 'pan'>('select');
   const [gestureCancelVersion, setGestureCancelVersion] = useState(0);
   const [panels, setPanels] = useState({
-    species: true,
-    details: true,
+    species: false,
+    details: false,
     display: false,
-    dataset: true,
+    dataset: false,
   });
   const [dark, setDark] = useState(true);
   const [playhead, setPlayhead] = useState(0);
   const [isPlaying, setIsPlaying] = useState(false);
   const [playbackRate, setPlaybackRate] = useState(1);
+  const [auditionPaddingHz, setAuditionPaddingHz] = useState('250');
+  const [activeBoxAudition, setActiveBoxAudition] = useState<ActiveBoxAudition | null>(null);
+  const auditionRequestRef = useRef(0);
   const [view, setView] = useState({
     durationSeconds: 1,
     maximumFrequencyHz: 1,
@@ -358,6 +422,8 @@ function WorkspaceCore({
     lowFrequencyHz: 0,
     highFrequencyHz: 1,
   });
+  const pointerAnchorRef = useRef<{ timeRatio: number; frequencyRatio: number } | null>(null);
+  const activePointersRef = useRef(new Set<number>());
   const [settings, setSettings] = useState<{
     fftSamples: number;
     overlapPercent: number;
@@ -461,7 +527,10 @@ function WorkspaceCore({
       setIsPlaying(true);
       onSemanticEvent('audio.played');
     };
-    const pause = () => setIsPlaying(false);
+    const pause = () => {
+      setIsPlaying(false);
+      setActiveBoxAudition(null);
+    };
     const restoreRate = () => {
       if (!assignPlaybackRate(element, playbackRate)) {
         assignPlaybackRate(element, 1);
@@ -517,7 +586,7 @@ function WorkspaceCore({
         ...bounds,
         timeStartSeconds: 0,
         timeEndSeconds: audio.durationSeconds,
-        lowFrequencyHz: 0,
+        lowFrequencyHz: frequencyFloor(audio.maximumFrequencyHz, settings.frequencyScale),
         highFrequencyHz: audio.maximumFrequencyHz,
       });
       setAnnouncement(
@@ -540,13 +609,26 @@ function WorkspaceCore({
       domainRef.current = next;
       setAnnouncement('Annotation reconciled with the host.');
     }
-  }, [audio, catalog, host.document, host.epoch, host.locked]);
+  }, [audio, catalog, host.document, host.epoch, host.locked, settings.frequencyScale]);
 
   const visualDomain = pendingDomain ?? domain;
   const boxes = useMemo(() => visualDomain.document?.boxes ?? [], [visualDomain.document?.boxes]);
   const selectedBox = boxes.find((box) => box.id === visualDomain.selectedBoxId) ?? null;
   const currentSpecies =
     catalog?.species.find((entry) => entry.speciesId === currentSpeciesId) ?? null;
+  const quickSpeciesIndex = useMemo(() => {
+    if (!catalog) return null;
+    const entries = catalog.species
+      .filter((entry) => isValidLeftHandSpeciesCode(entry.code))
+      .map((entry) => ({
+        ...entry,
+        selectionPriority:
+          'selectionPriority' in entry && Number.isSafeInteger(entry.selectionPriority)
+            ? Number(entry.selectionPriority)
+            : 0,
+      }));
+    return createSpeciesPrefixIndex(entries);
+  }, [catalog]);
   const spectrogramReady =
     audioPhase === 'ready' && spectrogramPhase === 'firstFrameReady' && Boolean(audio);
   const hostEditable =
@@ -554,11 +636,39 @@ function WorkspaceCore({
     !host.locked &&
     hostStatus.phase !== 'waiting' &&
     hostStatus.phase !== 'error';
-  const editable = hostEditable && spectrogramReady && !suspended;
+  const editable = hostEditable && audioPhase === 'ready' && Boolean(audio) && !suspended;
 
   useEffect(() => {
-    if (suspended) audio?.element.pause();
+    if (!suspended) return;
+    auditionRequestRef.current += 1;
+    audio?.element.pause();
+    setActiveBoxAudition(null);
   }, [audio, suspended]);
+
+  useEffect(() => {
+    auditionRequestRef.current += 1;
+    setIsPlaying(false);
+    setPlayhead(0);
+    setActiveBoxAudition(null);
+  }, [audio]);
+
+  useEffect(() => {
+    if (
+      !activeBoxAudition ||
+      (!host.hidden &&
+        activeBoxAudition.boxId === visualDomain.selectedBoxId &&
+        selectedBox !== null &&
+        boxAuditionRevision(selectedBox) === activeBoxAudition.boxRevision)
+    )
+      return;
+    auditionRequestRef.current += 1;
+    audio?.element.pause();
+    setActiveBoxAudition(null);
+  }, [activeBoxAudition, audio, host.hidden, selectedBox, visualDomain.selectedBoxId]);
+
+  useEffect(() => {
+    if (!hostEditable) setTool((current) => (current === 'select' ? current : 'select'));
+  }, [hostEditable]);
 
   const selectBox = useCallback((boxId: string | null) => {
     setDomain((state) => {
@@ -626,10 +736,91 @@ function WorkspaceCore({
 
   const togglePlay = useCallback(() => {
     if (!audio) return;
-    if (audio.element.paused)
-      void audio.element.play().catch((error) => setAudioError(readError(error)));
-    else audio.element.pause();
+    auditionRequestRef.current += 1;
+    if (audio.element.paused) {
+      setActiveBoxAudition(null);
+      void audio.element.play().catch((error) => {
+        if (!isAbortError(error)) setAudioError(readError(error));
+      });
+    } else audio.element.pause();
   }, [audio]);
+
+  const auditionSelectedBox = useCallback(
+    (mode: BoxAuditionMode, paddingHz: number) => {
+      if (!audio || !selectedBox) return;
+      const box = selectedBox;
+      const request = ++auditionRequestRef.current;
+      let filter: AudioFrequencyFilter | undefined;
+      let bandLabel = 'full spectrum';
+      try {
+        if (mode === 'band-pass') {
+          const band = paddedAudioFrequencyWindow(
+            box.lowFrequencyHz,
+            box.highFrequencyHz,
+            paddingHz,
+            audio.maximumFrequencyHz,
+          );
+          filter = {
+            mode: 'band-pass',
+            ...band,
+          };
+          bandLabel = `passes ${Math.round(band.lowFrequencyHz)}–${Math.round(band.highFrequencyHz)} Hz`;
+        } else if (mode === 'negative') {
+          filter = {
+            mode: 'band-reject',
+            lowFrequencyHz: box.lowFrequencyHz,
+            highFrequencyHz: box.highFrequencyHz,
+          };
+          bandLabel = `removes ${Math.round(box.lowFrequencyHz)}–${Math.round(box.highFrequencyHz)} Hz`;
+        }
+      } catch (error) {
+        setAudioError(readError(error));
+        return;
+      }
+      setAudioError('');
+      const playback = audio.element.playRange({
+        startTimeSeconds: box.startTimeSeconds,
+        endTimeSeconds: box.endTimeSeconds,
+        ...(filter ? { frequencyFilter: filter } : {}),
+      });
+      setActiveBoxAudition({ boxId: box.id, boxRevision: boxAuditionRevision(box), mode });
+      void playback
+        .then(() => {
+          if (request !== auditionRequestRef.current) return;
+          setAnnouncement(
+            `${mode === 'raw' ? 'Raw' : mode === 'band-pass' ? 'Band-pass' : 'Negative'} audition ${box.startTimeSeconds.toFixed(3)}–${box.endTimeSeconds.toFixed(3)} seconds · ${bandLabel}.`,
+          );
+        })
+        .catch((error) => {
+          if (request !== auditionRequestRef.current || isAbortError(error)) return;
+          setActiveBoxAudition(null);
+          setAudioError(readError(error));
+        });
+    },
+    [audio, selectedBox],
+  );
+
+  const changeAuditionPadding = useCallback(
+    (value: string) => {
+      setAuditionPaddingHz(value);
+      if (activeBoxAudition?.mode !== 'band-pass') return;
+      auditionRequestRef.current += 1;
+      audio?.element.pause();
+      setActiveBoxAudition(null);
+    },
+    [activeBoxAudition?.mode, audio],
+  );
+
+  const commitAuditionPadding = useCallback(() => {
+    setAuditionPaddingHz((current) => {
+      const maximum = audio?.maximumFrequencyHz ?? 0;
+      const parsed = Number(current);
+      const fallback = Math.min(250, maximum);
+      return String(
+        Math.round(Number.isFinite(parsed) && parsed >= 0 ? clamp(parsed, 0, maximum) : fallback),
+      );
+    });
+  }, [audio?.maximumFrequencyHz]);
 
   const stepPlaybackRate = useCallback(
     (direction: -1 | 1) => {
@@ -647,52 +838,78 @@ function WorkspaceCore({
   );
 
   const deleteSelected = useCallback(() => {
-    if (!visualDomain.selectedBoxId) return;
+    if (!editable || !visualDomain.selectedBoxId) return;
     void commit({ type: 'box/delete', boxId: visualDomain.selectedBoxId }, 'box/delete');
-  }, [commit, visualDomain.selectedBoxId]);
+  }, [commit, editable, visualDomain.selectedBoxId]);
 
   const zoom = useCallback(
     (factor: number) => {
       setView((current) => {
-        const center = (current.timeStartSeconds + current.timeEndSeconds) / 2;
-        const half = Math.max(
-          0.125,
-          Math.min(
-            current.durationSeconds / 2,
-            (current.timeEndSeconds - current.timeStartSeconds) / (2 * factor),
-          ),
+        const anchor = pointerAnchorRef.current ?? { timeRatio: 0.5, frequencyRatio: 0.5 };
+        const timeSpan = current.timeEndSeconds - current.timeStartSeconds;
+        const nextTimeSpan = Math.max(0.25, Math.min(current.durationSeconds, timeSpan / factor));
+        const anchorTime = current.timeStartSeconds + timeSpan * anchor.timeRatio;
+        const timeStartSeconds = clamp(
+          anchorTime - nextTimeSpan * anchor.timeRatio,
+          0,
+          Math.max(0, current.durationSeconds - nextTimeSpan),
         );
-        let start = center - half;
-        let end = center + half;
-        if (start < 0) {
-          end -= start;
-          start = 0;
-        }
-        if (end > current.durationSeconds) {
-          start -= end - current.durationSeconds;
-          end = current.durationSeconds;
-        }
+        const frequency = zoomFrequencyWindow(
+          current,
+          factor,
+          anchor.frequencyRatio,
+          settings.frequencyScale,
+        );
         return {
           ...current,
-          timeStartSeconds: Math.max(0, start),
-          timeEndSeconds: Math.min(current.durationSeconds, end),
+          timeStartSeconds,
+          timeEndSeconds: timeStartSeconds + nextTimeSpan,
+          ...frequency,
         };
       });
       onSemanticEvent('viewport.zoomed');
     },
-    [onSemanticEvent],
+    [onSemanticEvent, settings.frequencyScale],
   );
 
-  const pan = useCallback((deltaSeconds: number) => {
-    setView((current) => {
-      const span = current.timeEndSeconds - current.timeStartSeconds;
-      const start = Math.max(
-        0,
-        Math.min(current.durationSeconds - span, current.timeStartSeconds + deltaSeconds),
-      );
-      return { ...current, timeStartSeconds: start, timeEndSeconds: start + span };
-    });
-  }, []);
+  const panView = useCallback(
+    (deltaTimeSeconds: number, deltaFrequencyAxisFraction: number) => {
+      setView((current) => {
+        const timeSpan = current.timeEndSeconds - current.timeStartSeconds;
+        const timeStartSeconds = Math.max(
+          0,
+          Math.min(current.durationSeconds - timeSpan, current.timeStartSeconds + deltaTimeSeconds),
+        );
+        return {
+          ...current,
+          timeStartSeconds,
+          timeEndSeconds: timeStartSeconds + timeSpan,
+          ...panFrequencyWindow(current, deltaFrequencyAxisFraction, settings.frequencyScale),
+        };
+      });
+    },
+    [settings.frequencyScale],
+  );
+
+  const panByViewFraction = useCallback(
+    (timeFraction: number, frequencyFraction: number) => {
+      setView((current) => {
+        const timeSpan = current.timeEndSeconds - current.timeStartSeconds;
+        const timeStartSeconds = clamp(
+          current.timeStartSeconds + timeSpan * timeFraction,
+          0,
+          Math.max(0, current.durationSeconds - timeSpan),
+        );
+        return {
+          ...current,
+          timeStartSeconds,
+          timeEndSeconds: timeStartSeconds + timeSpan,
+          ...panFrequencyWindow(current, frequencyFraction, settings.frequencyScale),
+        };
+      });
+    },
+    [settings.frequencyScale],
+  );
 
   const fitView = useCallback(() => {
     if (!audio) return;
@@ -701,27 +918,42 @@ function WorkspaceCore({
       maximumFrequencyHz: audio.maximumFrequencyHz,
       timeStartSeconds: 0,
       timeEndSeconds: audio.durationSeconds,
-      lowFrequencyHz: 0,
+      lowFrequencyHz: frequencyFloor(audio.maximumFrequencyHz, settings.frequencyScale),
       highFrequencyHz: audio.maximumFrequencyHz,
     });
     onSemanticEvent('viewport.fit');
-  }, [audio, onSemanticEvent]);
+  }, [audio, onSemanticEvent, settings.frequencyScale]);
 
-  const markNoCalls = useCallback(() => {
-    if (!audio || audioPhase !== 'ready') return;
+  const toggleNoCalls = useCallback(() => {
+    if (!editable || !audio || audioPhase !== 'ready') return;
+    if (visualDomain.document?.reviewStatus === 'no_calls') {
+      void commit({ type: 'review/clear' }, 'review/clear');
+      return;
+    }
     if (
       boxes.length > 0 &&
       !window.confirm('Clear all boxes and mark this recording as containing no calls?')
     )
       return;
     void commit({ type: 'review/setNoCalls' }, 'review/setNoCalls');
-  }, [audio, audioPhase, boxes.length, commit]);
+  }, [audio, audioPhase, boxes.length, commit, editable, visualDomain.document?.reviewStatus]);
 
   const cycleOverlap = useCallback(
     (direction: -1 | 1) => {
-      if (tool !== 'select' || boxes.length < 2) return;
+      if (tool !== 'select') onSemanticEvent('tool.select');
+      setTool('select');
+      if (boxes.length === 0) return;
       const selected = boxes.find((box) => box.id === visualDomain.selectedBoxId);
-      if (!selected) return;
+      if (!selected) {
+        const ordered = [...boxes].sort(
+          (left, right) =>
+            left.startTimeSeconds - right.startTimeSeconds ||
+            left.lowFrequencyHz - right.lowFrequencyHz ||
+            left.id.localeCompare(right.id),
+        );
+        selectBox(direction > 0 ? ordered[0].id : ordered.at(-1)!.id);
+        return;
+      }
       const stack = boxes
         .filter((box) => boxesOverlap(selected, box))
         .map((box) => box.id)
@@ -730,7 +962,24 @@ function WorkspaceCore({
       const index = stack.indexOf(selected.id);
       selectBox(stack[(index + direction + stack.length) % stack.length]);
     },
-    [boxes, selectBox, tool, visualDomain.selectedBoxId],
+    [boxes, onSemanticEvent, selectBox, tool, visualDomain.selectedBoxId],
+  );
+
+  const cycleBoxes = useCallback(
+    (direction: -1 | 1) => {
+      if (boxes.length === 0) return;
+      const ordered = [...boxes].sort(
+        (left, right) =>
+          left.startTimeSeconds - right.startTimeSeconds ||
+          left.lowFrequencyHz - right.lowFrequencyHz ||
+          left.id.localeCompare(right.id),
+      );
+      const index = ordered.findIndex((box) => box.id === visualDomain.selectedBoxId);
+      const nextIndex = index < 0 ? (direction > 0 ? 0 : ordered.length - 1) : index + direction;
+      selectBox(ordered[(nextIndex + ordered.length) % ordered.length].id);
+      setTool('select');
+    },
+    [boxes, selectBox, visualDomain.selectedBoxId],
   );
 
   const runCommand = useCallback(
@@ -740,15 +989,20 @@ function WorkspaceCore({
           setPanels((value) => ({ ...value, species: !value.species }));
           break;
         case 'panel.details':
-          setPanels((value) => ({ ...value, details: !value.details }));
+          setPanels((value) => ({ ...value, details: !value.details, display: false }));
           break;
         case 'panel.display':
-          setPanels((value) => ({ ...value, display: !value.display }));
+          setPanels((value) => ({ ...value, display: !value.display, details: false }));
           break;
         case 'panel.dataset':
           setPanels((value) => ({ ...value, dataset: !value.dataset }));
           break;
         case 'tool.draw':
+          if (!hostEditable) {
+            setTool('select');
+            setAnnouncement('Drawing is locked in this read-only workspace.');
+            break;
+          }
           if (!spectrogramReady) {
             setAnnouncement('Building spectrogram… Draw is available after the first frame.');
             break;
@@ -763,8 +1017,21 @@ function WorkspaceCore({
         case 'tool.pan':
           setTool('pan');
           break;
+        case 'tool.toggleDrawSelect':
+          if (!hostEditable) {
+            setTool('select');
+            setAnnouncement('Drawing is locked in this read-only workspace.');
+            break;
+          }
+          if (!spectrogramReady && tool !== 'draw') {
+            setAnnouncement('Building the first spectrogram frame…');
+            break;
+          }
+          setTool((current) => (current === 'draw' ? 'select' : 'draw'));
+          onSemanticEvent(tool === 'draw' ? 'tool.select' : 'tool.draw');
+          break;
         case 'audio.playPause':
-          if (spectrogramReady) togglePlay();
+          if (audio) togglePlay();
           break;
         case 'audio.faster':
           stepPlaybackRate(1);
@@ -773,15 +1040,35 @@ function WorkspaceCore({
           stepPlaybackRate(-1);
           break;
         case 'viewport.zoomIn':
-          zoom(1.6);
+          zoom(1.25);
           break;
         case 'viewport.zoomOut':
-          zoom(0.625);
+          zoom(0.8);
+          break;
+        case 'viewport.panUp':
+          panByViewFraction(0, 0.1);
+          break;
+        case 'viewport.panDown':
+          panByViewFraction(0, -0.1);
+          break;
+        case 'viewport.panLeft':
+          panByViewFraction(-0.1, 0);
+          break;
+        case 'viewport.panRight':
+          panByViewFraction(0.1, 0);
+          break;
+        case 'viewport.fit':
+          fitView();
           break;
         case 'box.delete':
           deleteSelected();
           break;
         case 'gesture.cancel':
+          if (activeBoxAudition) {
+            auditionRequestRef.current += 1;
+            audio?.element.pause();
+            setActiveBoxAudition(null);
+          }
           setGestureCancelVersion((version) => version + 1);
           selectBox(null);
           setTool('select');
@@ -792,42 +1079,217 @@ function WorkspaceCore({
         case 'selection.cycleBackward':
           cycleOverlap(-1);
           break;
+        case 'selection.nextBox':
+          cycleBoxes(1);
+          break;
+        case 'selection.previousBox':
+          cycleBoxes(-1);
+          break;
         case 'review.noCalls':
-          markNoCalls();
+          toggleNoCalls();
           break;
         case 'history.undo':
-          void commit({ type: 'history/undo' }, 'history/undo');
+          if (editable) void commit({ type: 'history/undo' }, 'history/undo');
           break;
         case 'history.redo':
-          void commit({ type: 'history/redo' }, 'history/redo');
+          if (editable) void commit({ type: 'history/redo' }, 'history/redo');
           break;
       }
     },
     [
       commit,
+      activeBoxAudition,
+      audio,
+      cycleBoxes,
       cycleOverlap,
       deleteSelected,
-      markNoCalls,
+      editable,
+      hostEditable,
+      toggleNoCalls,
       onSemanticEvent,
+      panByViewFraction,
       selectBox,
       spectrogramReady,
       stepPlaybackRate,
       togglePlay,
+      tool,
       zoom,
+      fitView,
     ],
   );
 
+  const publishSpeciesCapture = useCallback((next: ActiveSpeciesCapture | null) => {
+    speciesCaptureRef.current = next;
+    setSpeciesCapture(next);
+  }, []);
+
   useEffect(() => {
-    if (suspended) return;
-    const handler = (event: KeyboardEvent) => {
-      const command = commandForKeyboardEvent(event);
+    if (!speciesCaptureRef.current || !catalog) return;
+    if (speciesCaptureRef.current.catalogRevision !== catalog.catalogRevision) {
+      publishSpeciesCapture(null);
+      setAnnouncement('Species capture cancelled because the project catalog changed.');
+    }
+  }, [catalog, publishSpeciesCapture]);
+
+  useEffect(() => {
+    if (suspended) {
+      publishSpeciesCapture(null);
+      return;
+    }
+
+    const keydown = (event: KeyboardEvent) => {
+      const activeCapture = speciesCaptureRef.current;
+      if (activeCapture) {
+        if (event.code === 'Escape') {
+          event.preventDefault();
+          event.stopImmediatePropagation();
+          publishSpeciesCapture(null);
+          setAnnouncement('Species capture cancelled.');
+          return;
+        }
+        if (event.code === 'Space') {
+          event.preventDefault();
+          event.stopImmediatePropagation();
+          return;
+        }
+        const character = speciesCharacterForKeyboardEvent(event);
+        if (character) {
+          event.preventDefault();
+          event.stopImmediatePropagation();
+          const advanced = activeCapture.index.advance(activeCapture.selection, character, {
+            retainOnInvalid: true,
+          });
+          publishSpeciesCapture({
+            ...activeCapture,
+            selection: advanced.state,
+            rejected: advanced.accepted ? '' : advanced.attemptedQuery,
+          });
+          return;
+        }
+        if (['Shift', 'Control', 'Alt', 'Meta', 'AltGraph', 'CapsLock'].includes(event.key)) {
+          return;
+        }
+        if (!event.repeat && !event.ctrlKey && !event.metaKey && !event.altKey) {
+          event.preventDefault();
+          event.stopImmediatePropagation();
+          publishSpeciesCapture({ ...activeCapture, rejected: event.key || event.code });
+        }
+        return;
+      }
+
+      if (
+        event.code === 'Space' &&
+        !event.repeat &&
+        !event.isComposing &&
+        !event.ctrlKey &&
+        !event.metaKey &&
+        !event.altKey &&
+        !isEditableTarget(event.target) &&
+        activePointersRef.current.size === 0
+      ) {
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        if (!catalog || !quickSpeciesIndex || quickSpeciesIndex.entries.length === 0) {
+          setAnnouncement('No left-hand species codes are available in this catalog.');
+          return;
+        }
+        publishSpeciesCapture({
+          catalogRevision: catalog.catalogRevision,
+          index: quickSpeciesIndex,
+          selection: emptySpeciesPrefixSelection<QuickSelectableSpecies>(),
+          rejected: '',
+        });
+        return;
+      }
+
+      const command = commandForKeyboardEvent(event, {
+        pointerButtonsHeld: activePointersRef.current.size > 0,
+        speciesCaptureActive: false,
+      });
       if (!command) return;
       event.preventDefault();
+      // Escape also dismisses parent-owned overlays such as the compact local
+      // file menu after the workspace cancels its own gesture/selection.
+      if (command !== 'gesture.cancel') event.stopImmediatePropagation();
       runCommand(command);
     };
-    window.addEventListener('keydown', handler);
-    return () => window.removeEventListener('keydown', handler);
-  }, [runCommand, suspended]);
+
+    const keyup = (event: KeyboardEvent) => {
+      if (event.code !== 'Space') return;
+      const activeCapture = speciesCaptureRef.current;
+      if (!activeCapture) return;
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      publishSpeciesCapture(null);
+      const winner = activeCapture.selection.resolution?.winner;
+      if (!winner || activeCapture.catalogRevision !== catalog?.catalogRevision) {
+        setAnnouncement(
+          activeCapture.selection.query
+            ? `No species matched ${activeCapture.selection.query}. Selection unchanged.`
+            : 'Species selection unchanged.',
+        );
+        return;
+      }
+      setCurrentSpeciesId(winner.speciesId);
+      if (hostEditable) {
+        setTool('draw');
+        onSemanticEvent('tool.draw');
+      }
+      onSemanticEvent('species.selected', winner.speciesId);
+      setAnnouncement(
+        `${winner.code} — ${winner.speciesName} selected.${hostEditable ? ' Draw armed.' : ' Read-only.'}`,
+      );
+    };
+
+    const cancel = () => publishSpeciesCapture(null);
+    window.addEventListener('keydown', keydown, true);
+    window.addEventListener('keyup', keyup, true);
+    window.addEventListener('blur', cancel);
+    document.addEventListener('visibilitychange', cancel);
+    return () => {
+      window.removeEventListener('keydown', keydown, true);
+      window.removeEventListener('keyup', keyup, true);
+      window.removeEventListener('blur', cancel);
+      document.removeEventListener('visibilitychange', cancel);
+    };
+  }, [
+    catalog,
+    hostEditable,
+    onSemanticEvent,
+    publishSpeciesCapture,
+    quickSpeciesIndex,
+    runCommand,
+    suspended,
+  ]);
+
+  useEffect(() => {
+    const activePointers = activePointersRef.current;
+    const begin = (event: PointerEvent) => {
+      if (event.buttons !== 0) activePointers.add(event.pointerId);
+      if (speciesCaptureRef.current) {
+        speciesCaptureRef.current = null;
+        setSpeciesCapture(null);
+        setAnnouncement('Species capture cancelled by pointer input.');
+      }
+    };
+    const end = (event: PointerEvent) => activePointers.delete(event.pointerId);
+    const clear = () => activePointers.clear();
+    window.addEventListener('pointerdown', begin, true);
+    window.addEventListener('pointerup', end, true);
+    window.addEventListener('pointercancel', end, true);
+    window.addEventListener('lostpointercapture', end, true);
+    window.addEventListener('blur', clear);
+    document.addEventListener('visibilitychange', clear);
+    return () => {
+      window.removeEventListener('pointerdown', begin, true);
+      window.removeEventListener('pointerup', end, true);
+      window.removeEventListener('pointercancel', end, true);
+      window.removeEventListener('lostpointercapture', end, true);
+      window.removeEventListener('blur', clear);
+      document.removeEventListener('visibilitychange', clear);
+      clear();
+    };
+  }, []);
 
   useEffect(() => {
     if (tutorialStep === undefined) return;
@@ -840,7 +1302,9 @@ function WorkspaceCore({
     }
     if (tutorialStep === 7) {
       setPanels((current) =>
-        current.details && current.dataset ? current : { ...current, details: true, dataset: true },
+        current.details && !current.display && current.dataset
+          ? current
+          : { ...current, details: true, display: false, dataset: true },
       );
       if (practiceBox) selectBox(practiceBox.id);
       fitView();
@@ -852,16 +1316,20 @@ function WorkspaceCore({
 
   const addSpecies = async (input: {
     code: string;
+    selectionPriority: number;
     speciesName: string;
     scientificName?: string;
   }) => {
+    if (!hostEditable) return 'Species cannot be added while this workspace is read-only.';
     try {
       const species = await catalogPort.create(input);
       const nextCatalog = await catalogPort.read();
       setCatalog(nextCatalog);
       onCatalogChanged?.(nextCatalog);
       setCurrentSpeciesId(species.speciesId);
-      setTool('draw');
+      const drawingAllowed =
+        annotationPort.getStatus().phase === 'ready' && !annotationPort.getSnapshot().locked;
+      if (drawingAllowed) setTool('draw');
       const scopeMessage =
         speciesCreateScope === 'annotation'
           ? 'Added to this annotation. The project lead can include it in a later project catalog update.'
@@ -869,7 +1337,7 @@ function WorkspaceCore({
             ? 'Added to this project catalog. Other annotators will see it on their next catalog refresh.'
             : 'Added to this page session and selected.';
       setAnnouncement(
-        `${species.code} — ${species.speciesName} added and selected. ${scopeMessage}`,
+        `${species.code} — ${species.speciesName} added and selected.${drawingAllowed ? ' Draw armed.' : ' Drawing is now locked.'} ${scopeMessage}`,
       );
       onSemanticEvent('species.added', species.speciesId);
       return '';
@@ -895,12 +1363,30 @@ function WorkspaceCore({
       : mode === 'local'
         ? 'No JSON prepared'
         : 'Demo memory only');
+  const captureResolution = speciesCapture?.selection.resolution ?? null;
+  const captureAlternatives = captureResolution?.candidates
+    .slice(1, 3)
+    .map((entry) => entry.code)
+    .join(', ');
+  const captureAmbiguity =
+    captureResolution && captureResolution.candidates.length > 1
+      ? ` · ${captureResolution.candidates.length} matches`
+      : '';
+  const statusMain = speciesCapture
+    ? `SPECIES ${speciesCapture.selection.query || ''}_ → ${captureResolution ? `${captureResolution.winner.code} — ${captureResolution.winner.speciesName}` : 'no match'}${captureAmbiguity}${captureAlternatives ? ` · also ${captureAlternatives}` : ''}${speciesCapture.rejected ? ` · rejected ${speciesCapture.rejected}` : ''} · release Space`
+    : `${tool.toUpperCase()} · ${currentSpecies ? `${currentSpecies.code} — ${currentSpecies.speciesName}` : 'NO SPECIES'} · ${isPlaying ? 'PLAYING' : 'PAUSED'} ${playbackRate}×${visualDomain.document?.reviewStatus === 'no_calls' ? ' · NO CALLS' : ''}`;
+  const statusMeta = `${view.timeStartSeconds.toFixed(2)}–${view.timeEndSeconds.toFixed(2)}s · ${Math.round(view.lowFrequencyHz)}–${Math.round(view.highFrequencyHz)}Hz · render ${spectrogramRenderStatus} · ${hostStatus.phase}`;
 
   return (
     <main
       className={`froglabel-app ${dark ? 'theme-dark' : 'theme-light'}`}
       data-audio-phase={audioPhase === 'loading' ? 'decoding' : audioPhase}
       data-spectrogram-state={spectrogramPhase}
+      data-render-status={spectrogramRenderStatus}
+      data-species-capture={speciesCapture ? 'active' : 'idle'}
+      data-species-panel={panels.species ? 'open' : 'closed'}
+      data-inspector-panel={panels.details ? 'details' : panels.display ? 'display' : 'closed'}
+      data-dataset-panel={panels.dataset ? 'open' : 'closed'}
     >
       <header className="app-header">
         <div className="brand-lockup">
@@ -960,19 +1446,20 @@ function WorkspaceCore({
           type="button"
           className={isPlaying ? 'active' : ''}
           onClick={() => runCommand('audio.playPause')}
-          disabled={!audio || !spectrogramReady}
+          disabled={!audio}
           data-tutorial="play"
           aria-pressed={isPlaying}
+          aria-label="Play or pause audio (V)"
         >
-          {isPlaying ? 'Pause' : 'Play Audio'} <kbd>Space</kbd>
+          <span className="toolbar-label">Play</span> <kbd>V</kbd>
         </button>
         <button
           type="button"
           onClick={() => runCommand('audio.slower')}
-          disabled={!audio || !spectrogramReady || playbackRate === PLAYBACK_RATES[0]}
-          aria-label="Slower playback (less-than key)"
+          disabled={!audio || playbackRate === PLAYBACK_RATES[0]}
+          aria-label="Slower playback (R)"
         >
-          Slower
+          <span className="toolbar-label">Slower</span> <kbd>R</kbd>
         </button>
         <output className="playback-rate" aria-label="Playback rate">
           {playbackRate}×
@@ -980,127 +1467,164 @@ function WorkspaceCore({
         <button
           type="button"
           onClick={() => runCommand('audio.faster')}
-          disabled={!audio || !spectrogramReady || playbackRate === PLAYBACK_RATES.at(-1)}
-          aria-label="Faster playback (greater-than key)"
+          disabled={!audio || playbackRate === PLAYBACK_RATES.at(-1)}
+          aria-label="Faster playback (F)"
         >
-          Faster
-        </button>
-        <button
-          type="button"
-          className={tool === 'select' ? 'active' : ''}
-          onClick={() => runCommand('tool.select')}
-          aria-pressed={tool === 'select'}
-          data-tutorial="select"
-        >
-          Select <kbd>V</kbd>
+          <span className="toolbar-label">Faster</span> <kbd>F</kbd>
         </button>
         <button
           type="button"
           className={tool === 'draw' ? 'active' : ''}
-          onClick={() => runCommand('tool.draw')}
+          onClick={() => runCommand('tool.toggleDrawSelect')}
           aria-pressed={tool === 'draw'}
-          data-tutorial="draw"
-          disabled={!spectrogramReady}
+          aria-label="Toggle Select and Draw tools (T)"
+          data-tutorial="tool"
+          disabled={!spectrogramReady || !hostEditable}
         >
-          Draw Box <kbd>D</kbd>
-        </button>
-        <button
-          type="button"
-          className={tool === 'pan' ? 'active' : ''}
-          onClick={() => runCommand('tool.pan')}
-          aria-pressed={tool === 'pan'}
-        >
-          Pan <kbd>P</kbd>
+          <span className="toolbar-label">Tool</span> <kbd>T</kbd>
         </button>
         <div className="toolbar-separator" />
         <button
           type="button"
-          onClick={() => zoom(1.6)}
+          onClick={() => runCommand('viewport.zoomIn')}
           disabled={!audio}
           data-tutorial="zoom"
-          aria-label="Zoom in spectrogram"
+          aria-label="Zoom in spectrogram (Q)"
         >
-          + Zoom
+          <span className="toolbar-label">Zoom in</span> <kbd>Q</kbd>
         </button>
         <button
           type="button"
-          onClick={() => zoom(0.625)}
+          onClick={() => runCommand('viewport.zoomOut')}
           disabled={!audio}
-          aria-label="Zoom out spectrogram"
+          aria-label="Zoom out spectrogram (E)"
         >
-          - Zoom
+          <span className="toolbar-label">Zoom out</span> <kbd>E</kbd>
         </button>
         <button
           type="button"
-          onClick={() => pan(-(view.timeEndSeconds - view.timeStartSeconds) * 0.25)}
+          className="toolbar-secondary"
+          onClick={() => runCommand('viewport.panLeft')}
           disabled={!audio}
-          aria-label="Pan left"
+          aria-label="Pan earlier (A)"
         >
-          &lt; Pan
+          <span className="toolbar-label">Pan ‹</span> <kbd>A</kbd>
         </button>
         <button
           type="button"
-          onClick={() => pan((view.timeEndSeconds - view.timeStartSeconds) * 0.25)}
+          className="toolbar-secondary"
+          onClick={() => runCommand('viewport.panRight')}
           disabled={!audio}
-          aria-label="Pan right"
+          aria-label="Pan later (D)"
         >
-          Pan &gt;
+          <span className="toolbar-label">Pan ›</span> <kbd>D</kbd>
         </button>
         <button
           type="button"
-          onClick={fitView}
+          className="toolbar-secondary"
+          onClick={() => runCommand('viewport.panUp')}
+          disabled={!audio}
+          aria-label="Pan frequency up (W)"
+        >
+          <span className="toolbar-label">Freq ↑</span> <kbd>W</kbd>
+        </button>
+        <button
+          type="button"
+          className="toolbar-secondary"
+          onClick={() => runCommand('viewport.panDown')}
+          disabled={!audio}
+          aria-label="Pan frequency down (S)"
+        >
+          <span className="toolbar-label">Freq ↓</span> <kbd>S</kbd>
+        </button>
+        <button
+          type="button"
+          onClick={() => runCommand('viewport.fit')}
           disabled={!audio}
           aria-label="Reset and fit spectrogram view"
         >
-          Reset / Fit
+          <span className="toolbar-label">Fit</span> <kbd>X</kbd>
         </button>
         <button
           type="button"
           onClick={() => runCommand('box.delete')}
           disabled={!selectedBox || !editable}
+          aria-label="Delete selected box (Shift+D)"
         >
-          Delete box <kbd>Del</kbd>
+          <span className="toolbar-label">Delete</span> <kbd>⇧D</kbd>
         </button>
         <button
           type="button"
+          className="toolbar-secondary"
           onClick={() => runCommand('history.undo')}
           disabled={!editable || domain.undo.length === 0}
+          aria-label="Undo annotation edit (Control+Z)"
         >
-          Undo
+          <span className="toolbar-label">Undo</span>
+          <span className="toolbar-glyph" aria-hidden="true">
+            ↶
+          </span>
         </button>
         <button
           type="button"
+          className="toolbar-secondary"
           onClick={() => runCommand('history.redo')}
           disabled={!editable || domain.redo.length === 0}
+          aria-label="Redo annotation edit (Control+Shift+Z)"
         >
-          Redo
+          <span className="toolbar-label">Redo</span>
+          <span className="toolbar-glyph" aria-hidden="true">
+            ↷
+          </span>
         </button>
+      </div>
+
+      <nav className="panel-shortcuts" aria-label="Workspace panels and review">
+        {(
+          [
+            ['species', 'Species', 'choose'],
+            ['details', 'Box details', 'inspect'],
+            ['display', 'Spectrogram', 'style'],
+            ['dataset', 'Dataset', 'review'],
+          ] as const
+        ).map(([panel, label, action], index) => (
+          <button
+            key={panel}
+            type="button"
+            className={panels[panel] ? 'active' : ''}
+            aria-label={`${index + 1} ${panel[0].toUpperCase() + panel.slice(1)}`}
+            aria-pressed={panels[panel]}
+            onClick={() => runCommand(`panel.${panel}` as WorkspaceCommandId)}
+            aria-expanded={panels[panel]}
+          >
+            <kbd>{index + 1}</kbd>
+            <span className="panel-shortcut-copy">
+              <strong>{label}</strong>
+              <small>{action}</small>
+            </span>
+          </button>
+        ))}
+        <span className="panel-shortcut-spacer" aria-hidden="true" />
         <button
           type="button"
-          className={visualDomain.document?.reviewStatus === 'no_calls' ? 'active' : ''}
-          onClick={markNoCalls}
+          className={`no-calls-shortcut ${
+            visualDomain.document?.reviewStatus === 'no_calls' ? 'active' : ''
+          }`}
+          onClick={toggleNoCalls}
           disabled={!editable || !audio}
           aria-pressed={visualDomain.document?.reviewStatus === 'no_calls'}
-          aria-label="No calls present (Shift+N)"
+          aria-label="No calls present (Shift+X)"
           data-tutorial="no-calls"
         >
-          No calls present <kbd>Shift+N</kbd>
+          <kbd>⇧X</kbd>
+          <span className="panel-shortcut-copy">
+            <strong>No calls</strong>
+            <small>
+              {visualDomain.document?.reviewStatus === 'no_calls' ? 'marked' : 'mark empty'}
+            </small>
+          </span>
         </button>
-        <div className="panel-shortcuts" aria-label="Panels">
-          {(['species', 'details', 'display', 'dataset'] as const).map((panel, index) => (
-            <button
-              key={panel}
-              type="button"
-              className={panels[panel] ? 'active' : ''}
-              aria-pressed={panels[panel]}
-              onClick={() => runCommand(`panel.${panel}` as WorkspaceCommandId)}
-              aria-expanded={panels[panel]}
-            >
-              {index + 1} {panel[0].toUpperCase() + panel.slice(1)}
-            </button>
-          ))}
-        </div>
-      </div>
+      </nav>
 
       <div className="workspace-grid">
         {panels.species && (
@@ -1114,7 +1638,10 @@ function WorkspaceCore({
                   setCurrentSpeciesId(id);
                   if (id) onSemanticEvent('species.selected', id);
                 }}
-                canCreate={catalogPort.canCreate()}
+                canCreate={hostEditable && catalogPort.canCreate()}
+                createDisabledReason={
+                  !hostEditable ? 'Species cannot be added while this workspace is read-only.' : ''
+                }
                 onAdd={addSpecies}
                 onRefresh={() => refreshCatalog()}
                 onOpenAdd={() => onSemanticEvent('species.formOpened')}
@@ -1140,24 +1667,11 @@ function WorkspaceCore({
                 </span>
               )}
             </div>
-            <label className="species-quick">
-              Current species
-              <select
-                value={currentSpeciesId}
-                onChange={(event) => {
-                  setCurrentSpeciesId(event.target.value);
-                  if (event.target.value) onSemanticEvent('species.selected', event.target.value);
-                }}
-                disabled={!catalog}
-              >
-                <option value="">No species selected</option>
-                {catalog?.species.map((entry) => (
-                  <option key={entry.speciesId} value={entry.speciesId}>
-                    {entry.code} — {entry.speciesName}
-                  </option>
-                ))}
-              </select>
-            </label>
+            <div className="species-quick" aria-label="Current species">
+              <span>Species</span>
+              <strong>{currentSpecies?.code ?? '—'}</strong>
+              <span>{currentSpecies?.speciesName ?? 'Hold Space + code'}</span>
+            </div>
           </div>
 
           <div className="spectrogram-frame">
@@ -1192,7 +1706,7 @@ function WorkspaceCore({
                   boxes={host.hidden ? [] : boxes}
                   selectedBoxId={host.hidden ? null : visualDomain.selectedBoxId}
                   tool={tool}
-                  canDraw={Boolean(currentSpecies) && spectrogramReady}
+                  canDraw={Boolean(currentSpecies) && spectrogramReady && hostEditable}
                   disabled={!hostEditable || Boolean(pendingDomain) || host.hidden || suspended}
                   view={view}
                   settings={settings}
@@ -1224,10 +1738,14 @@ function WorkspaceCore({
                       'box/resizeCommitted',
                     )
                   }
-                  onPan={pan}
+                  onPanView={panView}
+                  onPointerAnchorChange={(anchor) => {
+                    pointerAnchorRef.current = anchor;
+                  }}
                   onError={setMutationError}
                   onSemanticEvent={onSemanticEvent}
                   onLifecycleChange={setSpectrogramPhase}
+                  onRenderStateChange={handleSpectrogramRenderState}
                 />
                 {host.hidden && (
                   <div className="hidden-annotation-notice" role="status">
@@ -1238,31 +1756,6 @@ function WorkspaceCore({
             )}
             {audio && <div className="playhead-readout">Playhead {playhead.toFixed(2)}s</div>}
           </div>
-
-          {!visualDomain.document && interfacePhase === 'ready' && audio && (
-            <div className="empty-annotation">
-              <span>Unreviewed — no scientific decision has been recorded.</span>
-              <button
-                type="button"
-                onClick={markNoCalls}
-                disabled={!editable || audioPhase !== 'ready'}
-              >
-                Mark “No calls present”
-              </button>
-            </div>
-          )}
-          {visualDomain.document?.reviewStatus === 'no_calls' && (
-            <div className="empty-annotation no-calls-active" role="status">
-              <span>✓ Reviewed: no calls present</span>
-              <button
-                type="button"
-                disabled={!editable}
-                onClick={() => void commit({ type: 'review/clear' }, 'review/clear')}
-              >
-                Return to unreviewed
-              </button>
-            </div>
-          )}
 
           {panels.dataset && (
             <DatasetTable
@@ -1286,6 +1779,15 @@ function WorkspaceCore({
                 box={host.hidden ? null : selectedBox}
                 catalog={catalog}
                 disabled={!editable}
+                maximumFrequencyHz={audio?.maximumFrequencyHz ?? view.maximumFrequencyHz}
+                auditionPaddingHz={auditionPaddingHz}
+                activeAuditionMode={
+                  activeBoxAudition && activeBoxAudition.boxId === selectedBox?.id
+                    ? activeBoxAudition.mode
+                    : null
+                }
+                onAuditionPaddingChange={changeAuditionPadding}
+                onAuditionPaddingCommit={commitAuditionPadding}
                 onAssign={(species) =>
                   selectedBox &&
                   void commit(
@@ -1310,7 +1812,7 @@ function WorkspaceCore({
                     'box/resizeCommitted',
                   )
                 }
-                onPlay={() => selectedBox && playBox(audio, selectedBox, setAudioError)}
+                onPlay={auditionSelectedBox}
               />
             )}
             {panels.display && (
@@ -1320,10 +1822,16 @@ function WorkspaceCore({
                 view={view}
                 channelCount={audio?.channelCount ?? 1}
                 onMinimum={(lowFrequencyHz) =>
-                  setView((current) => ({
-                    ...current,
-                    lowFrequencyHz: Math.min(lowFrequencyHz, current.highFrequencyHz - 1),
-                  }))
+                  setView((current) => {
+                    const floor = frequencyFloor(
+                      current.maximumFrequencyHz,
+                      settings.frequencyScale,
+                    );
+                    return {
+                      ...current,
+                      lowFrequencyHz: clamp(lowFrequencyHz, floor, current.highFrequencyHz - 1),
+                    };
+                  })
                 }
                 onCutoff={(highFrequencyHz) =>
                   setView((current) => ({
@@ -1335,6 +1843,20 @@ function WorkspaceCore({
             )}
           </aside>
         )}
+      </div>
+
+      <div
+        className={`expert-status-line ${speciesCapture ? 'capturing' : ''} ${speciesCapture?.rejected ? 'invalid' : ''}`}
+        data-tutorial="species"
+        data-species-query={speciesCapture?.selection.query ?? ''}
+        data-species-candidate={captureResolution?.winner.code ?? ''}
+        role="status"
+        aria-live="polite"
+      >
+        <div className="expert-status-main">
+          {speciesCapture ? <strong>{statusMain}</strong> : statusMain}
+        </div>
+        <div className="expert-status-meta">{statusMeta}</div>
       </div>
 
       <div className="sr-live" aria-live="polite">
@@ -1363,32 +1885,55 @@ function SpeciesPicker({
   value,
   onChange,
   canCreate,
+  createDisabledReason,
   onAdd,
   onRefresh,
   onOpenAdd,
 }: {
-  catalog: SpeciesCatalogV1;
+  catalog: SpeciesCatalog;
   value: string;
   onChange(value: string): void;
   canCreate: boolean;
-  onAdd(input: { code: string; speciesName: string; scientificName?: string }): Promise<string>;
+  createDisabledReason?: string;
+  onAdd(input: {
+    code: string;
+    selectionPriority: number;
+    speciesName: string;
+    scientificName?: string;
+  }): Promise<string>;
   onRefresh(): Promise<void>;
   onOpenAdd(): void;
 }) {
   const [search, setSearch] = useState('');
   const [adding, setAdding] = useState(false);
   const [code, setCode] = useState('');
+  const [selectionPriority, setSelectionPriority] = useState(0);
   const [name, setName] = useState('');
   const [scientificName, setScientificName] = useState('');
   const [error, setError] = useState('');
+  const [speciesScrollTop, setSpeciesScrollTop] = useState(0);
+  const speciesListRef = useRef<HTMLDivElement>(null);
   const normalized = search.normalize('NFKC').trim().toLocaleLowerCase();
-  const visible = catalog.species.filter((entry) =>
+  const visible = [
+    ...catalog.species.map((entry) => ({ entry, historical: false as const })),
+    ...(catalog.historicalSpecies ?? []).map((entry) => ({ entry, historical: true as const })),
+  ].filter(({ entry }) =>
     [entry.code, entry.speciesName, entry.scientificName ?? ''].some((part) =>
       part.toLocaleLowerCase().includes(normalized),
     ),
   );
+  const speciesRowHeight = 42;
+  const firstVisibleSpecies = Math.max(0, Math.floor(speciesScrollTop / speciesRowHeight) - 5);
+  const lastVisibleSpecies = Math.min(visible.length, firstVisibleSpecies + 24);
+  useLayoutEffect(() => {
+    setSpeciesScrollTop(0);
+    if (speciesListRef.current) speciesListRef.current.scrollTop = 0;
+  }, [normalized]);
+  useEffect(() => {
+    if (!canCreate) setAdding(false);
+  }, [canCreate]);
   return (
-    <div className="species-picker" data-tutorial="species">
+    <div className="species-picker">
       <label>
         Search
         <input
@@ -1398,28 +1943,65 @@ function SpeciesPicker({
           placeholder="Code or species name"
         />
       </label>
-      <div className="species-list" role="listbox" aria-label="Project species">
-        {visible.map((entry) => (
-          <button
-            key={entry.speciesId}
-            type="button"
-            role="option"
-            aria-selected={value === entry.speciesId}
-            className={value === entry.speciesId ? 'selected' : ''}
-            onClick={() => onChange(entry.speciesId)}
-          >
-            <strong>{entry.code}</strong>
-            <span>{entry.speciesName}</span>
-          </button>
-        ))}
+      <div
+        ref={speciesListRef}
+        className="species-list"
+        role="listbox"
+        aria-label="Project species"
+        onScroll={(event) => setSpeciesScrollTop(event.currentTarget.scrollTop)}
+      >
+        <div
+          className="species-list-window"
+          role="none"
+          style={{ height: visible.length * speciesRowHeight }}
+        >
+          {visible
+            .slice(firstVisibleSpecies, lastVisibleSpecies)
+            .map(({ entry, historical }, offset) =>
+              historical ? (
+                <div
+                  key={`historical:${entry.speciesId}`}
+                  className="historical-species"
+                  role="option"
+                  aria-disabled="true"
+                  aria-selected="false"
+                  style={{ top: (firstVisibleSpecies + offset) * speciesRowHeight }}
+                  title="Historical V1 species — an administrator must assign a V2 code and priority before selection"
+                >
+                  <strong>{entry.code}</strong>
+                  <span>{entry.speciesName} · historical</span>
+                </div>
+              ) : (
+                <button
+                  key={entry.speciesId}
+                  type="button"
+                  role="option"
+                  aria-selected={value === entry.speciesId}
+                  className={value === entry.speciesId ? 'selected' : ''}
+                  style={{ top: (firstVisibleSpecies + offset) * speciesRowHeight }}
+                  onClick={() => onChange(entry.speciesId)}
+                >
+                  <strong>{entry.code}</strong>
+                  <span>{entry.speciesName}</span>
+                </button>
+              ),
+            )}
+        </div>
         {visible.length === 0 && (
           <p className="muted">
-            {catalog.species.length === 0
+            {catalog.species.length + (catalog.historicalSpecies?.length ?? 0) === 0
               ? 'No species yet. Listen and navigate, then add the first species before drawing.'
               : 'No matching project species.'}
           </p>
         )}
       </div>
+      {Boolean(catalog.historicalSpecies?.length) && (
+        <p className="permission-note">
+          {catalog.historicalSpecies!.length} historical species{' '}
+          {catalog.historicalSpecies!.length === 1 ? 'entry is' : 'entries are'} visible but not
+          selectable until an administrator completes V2 migration.
+        </p>
+      )}
       <button
         type="button"
         className="add-species-trigger"
@@ -1436,10 +2018,10 @@ function SpeciesPicker({
       </button>
       {!canCreate && (
         <p className="permission-note">
-          Your project role can use existing species but cannot add one.
+          {createDisabledReason || 'Your project role can use existing species but cannot add one.'}
         </p>
       )}
-      {adding && (
+      {adding && canCreate && (
         <form
           className="add-species-form"
           data-tutorial-essential="add-species-form"
@@ -1447,6 +2029,7 @@ function SpeciesPicker({
             event.preventDefault();
             const result = await onAdd({
               code,
+              selectionPriority,
               speciesName: name,
               ...(scientificName ? { scientificName } : {}),
             });
@@ -1454,22 +2037,35 @@ function SpeciesPicker({
             if (!result) {
               setAdding(false);
               setCode('');
+              setSelectionPriority(0);
               setName('');
               setScientificName('');
             }
           }}
         >
           <label>
-            Three-letter code
+            Left-hand code (1–6 letters)
             <input
               value={code}
-              maxLength={3}
-              pattern="[A-Za-z]{3}"
+              maxLength={6}
+              pattern="[QWERTASDFGZXCVBqwertasdfgzxcvb]{1,6}"
               required
               onChange={(event) =>
-                setCode(event.target.value.toUpperCase().replace(/[^A-Z]/gu, ''))
+                setCode(event.target.value.toUpperCase().replace(/[^QWERTASDFGZXCVB]/gu, ''))
               }
               placeholder="GRE"
+            />
+          </label>
+          <label>
+            Prefix priority
+            <input
+              type="number"
+              min="0"
+              max="1000000"
+              step="1"
+              value={selectionPriority}
+              required
+              onChange={(event) => setSelectionPriority(Number(event.target.value))}
             />
           </label>
           <label>
@@ -1511,21 +2107,31 @@ function DetailsPanel({
   box,
   catalog,
   disabled,
+  maximumFrequencyHz,
+  auditionPaddingHz,
+  activeAuditionMode,
   onAssign,
   onGeometry,
+  onAuditionPaddingChange,
+  onAuditionPaddingCommit,
   onPlay,
 }: {
-  box: FrogLabelBoxV1 | null;
-  catalog: SpeciesCatalogV1 | null;
+  box: FrogLabelBoxV2 | null;
+  catalog: SpeciesCatalog | null;
   disabled: boolean;
-  onAssign(species: SpeciesEntryV1): void;
+  maximumFrequencyHz: number;
+  auditionPaddingHz: string;
+  activeAuditionMode: BoxAuditionMode | null;
+  onAssign(species: SpeciesEntry): void;
   onGeometry(
     geometry: Pick<
-      FrogLabelBoxV1,
+      FrogLabelBoxV2,
       'startTimeSeconds' | 'endTimeSeconds' | 'lowFrequencyHz' | 'highFrequencyHz'
     >,
   ): void;
-  onPlay(): void;
+  onAuditionPaddingChange(value: string): void;
+  onAuditionPaddingCommit(): void;
+  onPlay(mode: BoxAuditionMode, paddingHz: number): void;
 }) {
   const [draft, setDraft] = useState(() => geometryDraft(box));
   useEffect(() => {
@@ -1537,6 +2143,31 @@ function DetailsPanel({
       [field]: value,
       touched: { ...current.touched, [field]: true },
     }));
+  const paddingValue = Number(auditionPaddingHz);
+  const paddingValid =
+    auditionPaddingHz.trim() !== '' &&
+    Number.isFinite(paddingValue) &&
+    paddingValue >= 0 &&
+    paddingValue <= maximumFrequencyHz;
+  const paddedBand =
+    box && paddingValid
+      ? paddedAudioFrequencyWindow(
+          box.lowFrequencyHz,
+          box.highFrequencyHz,
+          paddingValue,
+          maximumFrequencyHz,
+        )
+      : null;
+  const negativeWouldBeSilent =
+    Boolean(box) && box!.lowFrequencyHz <= 0 && box!.highFrequencyHz >= maximumFrequencyHz;
+  const activeAuditionLabel =
+    activeAuditionMode === 'raw'
+      ? 'Raw replay playing'
+      : activeAuditionMode === 'band-pass'
+        ? 'Band-pass replay playing'
+        : activeAuditionMode === 'negative'
+          ? 'Negative replay playing'
+          : 'Ready to audition';
   return (
     <section data-tutorial="details">
       <PanelHeading number="2" title="Box Details" />
@@ -1550,6 +2181,73 @@ function DetailsPanel({
             <strong>{box.species.code}</strong>
             <span>{box.species.speciesName}</span>
           </div>
+          <fieldset className="box-audition">
+            <legend>Audition selected window</legend>
+            <div className="audition-actions">
+              <button
+                type="button"
+                className={activeAuditionMode === 'raw' ? 'active' : ''}
+                aria-pressed={activeAuditionMode === 'raw'}
+                onClick={() => onPlay('raw', paddingValid ? paddingValue : 0)}
+              >
+                <span>Replay box</span>
+                <small>raw</small>
+              </button>
+              <button
+                type="button"
+                className={activeAuditionMode === 'band-pass' ? 'active' : ''}
+                aria-pressed={activeAuditionMode === 'band-pass'}
+                disabled={!paddingValid}
+                onClick={() => onPlay('band-pass', paddingValue)}
+              >
+                <span>Replay box</span>
+                <small>band-pass</small>
+              </button>
+              <button
+                type="button"
+                className={activeAuditionMode === 'negative' ? 'active' : ''}
+                aria-pressed={activeAuditionMode === 'negative'}
+                disabled={negativeWouldBeSilent}
+                title={
+                  negativeWouldBeSilent
+                    ? 'The box covers the full frequency range, so its negative would be silent.'
+                    : 'Replay the selected time with frequencies inside the box removed.'
+                }
+                onClick={() => onPlay('negative', paddingValid ? paddingValue : 0)}
+              >
+                <span>Play negative</span>
+                <small>outside box</small>
+              </button>
+            </div>
+            <label className="audition-margin">
+              <span>Band-pass margin</span>
+              <span className="audition-margin-input">
+                <span aria-hidden="true">±</span>
+                <input
+                  type="number"
+                  min="0"
+                  max={maximumFrequencyHz}
+                  step="50"
+                  inputMode="numeric"
+                  value={auditionPaddingHz}
+                  aria-invalid={!paddingValid}
+                  aria-describedby="audition-band-summary"
+                  onChange={(event) => onAuditionPaddingChange(event.target.value)}
+                  onBlur={onAuditionPaddingCommit}
+                />
+                <span>Hz</span>
+              </span>
+            </label>
+            <p id="audition-band-summary" className="audition-band-summary">
+              {paddedBand
+                ? `Band-pass ${Math.round(paddedBand.lowFrequencyHz)}–${Math.round(paddedBand.highFrequencyHz)} Hz. Negative removes the exact ${Math.round(box.lowFrequencyHz)}–${Math.round(box.highFrequencyHz)} Hz box band.`
+                : 'Enter a valid non-negative margin to enable band-pass replay.'}
+            </p>
+            <p className="audition-status" role="status" aria-live="polite">
+              {activeAuditionLabel} · {box.startTimeSeconds.toFixed(3)}–
+              {box.endTimeSeconds.toFixed(3)} s
+            </p>
+          </fieldset>
           <label>
             Reassign species
             <select
@@ -1574,24 +2272,28 @@ function DetailsPanel({
               label="Start (s)"
               value={draft.start}
               step="0.001"
+              disabled={disabled}
               onChange={(start) => changeDraft('start', start)}
             />
             <NumberField
               label="End (s)"
               value={draft.end}
               step="0.001"
+              disabled={disabled}
               onChange={(end) => changeDraft('end', end)}
             />
             <NumberField
               label="Low (Hz)"
               value={draft.low}
               step="1"
+              disabled={disabled}
               onChange={(low) => changeDraft('low', low)}
             />
             <NumberField
               label="High (Hz)"
               value={draft.high}
               step="1"
+              disabled={disabled}
               onChange={(high) => changeDraft('high', high)}
             />
           </div>
@@ -1647,9 +2349,6 @@ function DetailsPanel({
             >
               Update geometry
             </button>
-            <button type="button" onClick={onPlay}>
-              Play selected box
-            </button>
           </div>
         </div>
       )}
@@ -1680,24 +2379,49 @@ function DisplayPanel({
   onMinimum(value: number): void;
   onCutoff(value: number): void;
 }) {
+  const selectedPalette =
+    SPECTROGRAM_PALETTES.find((palette) => palette.value === settings.palette) ??
+    SPECTROGRAM_PALETTES[0];
+
   return (
     <section className="display-panel">
       <PanelHeading number="3" title="Spectrogram" />
-      <label>
-        Palette
-        <select
-          value={settings.palette}
-          onChange={(event) =>
-            onChange({ ...settings, palette: event.target.value as SpectrogramPalette })
-          }
-        >
-          <option value="viridis">Viridis</option>
-          <option value="magma">Magma</option>
-          <option value="inferno">Inferno</option>
-          <option value="plasma">Plasma</option>
-          <option value="grayscale">Grayscale</option>
-        </select>
-      </label>
+      <fieldset className="palette-picker">
+        <legend>Palette</legend>
+        <div className="palette-options" role="radiogroup" aria-label="Spectrogram palette">
+          {SPECTROGRAM_PALETTES.map((palette) => (
+            <button
+              key={palette.value}
+              type="button"
+              role="radio"
+              aria-checked={palette.value === settings.palette}
+              aria-label={`${palette.label} palette`}
+              className={palette.value === settings.palette ? 'selected' : ''}
+              onClick={() => onChange({ ...settings, palette: palette.value })}
+            >
+              <span
+                className="palette-swatch"
+                style={{ background: spectrogramPaletteCssGradient(palette.value) }}
+                aria-hidden="true"
+              />
+              <span>{palette.label}</span>
+            </button>
+          ))}
+        </div>
+        <div className="palette-level-scale" aria-label={`${selectedPalette.label} dBFS scale`}>
+          <span>Level scale (dBFS)</span>
+          <span
+            className="palette-level-gradient"
+            style={{ background: spectrogramPaletteCssGradient(selectedPalette.value) }}
+            aria-hidden="true"
+          />
+          <span className="palette-level-ticks" aria-hidden="true">
+            {[-120, -90, -60, -30, 0].map((level) => (
+              <span key={level}>{level}</span>
+            ))}
+          </span>
+        </div>
+      </fieldset>
       <p className="muted">Complete ~20 ms Hann analysis · 75% overlap · fixed −120 dBFS floor</p>
       {channelCount > 1 ? (
         <label>
@@ -1758,8 +2482,11 @@ function DisplayPanel({
         Display minimum <output>{Math.round(view.lowFrequencyHz)} Hz</output>
         <input
           type="range"
-          min="0"
-          max={Math.max(0, view.highFrequencyHz - 1)}
+          min={frequencyFloor(view.maximumFrequencyHz, settings.frequencyScale)}
+          max={Math.max(
+            frequencyFloor(view.maximumFrequencyHz, settings.frequencyScale),
+            view.highFrequencyHz - 1,
+          )}
           step="10"
           value={view.lowFrequencyHz}
           onChange={(event) => onMinimum(Number(event.target.value))}
@@ -1790,16 +2517,24 @@ function DatasetTable({
   onDelete,
   disabled,
 }: {
-  boxes: FrogLabelBoxV1[];
+  boxes: FrogLabelBoxV2[];
   selectedBoxId: string | null;
   onSelect(id: string): void;
   onDelete(id: string): void;
   disabled: boolean;
 }) {
+  const [scrollTop, setScrollTop] = useState(0);
+  const rowHeight = 32;
+  const firstVisible = Math.max(0, Math.floor(scrollTop / rowHeight) - 5);
+  const lastVisible = Math.min(boxes.length, firstVisible + 24);
+  const visibleBoxes = boxes.slice(firstVisible, lastVisible);
   return (
     <section className="dataset-panel" aria-labelledby="dataset-heading">
       <PanelHeading number="4" title="Annotation Dataset" id="dataset-heading" />
-      <div className="table-scroll">
+      <div
+        className="table-scroll"
+        onScroll={(event) => setScrollTop(event.currentTarget.scrollTop)}
+      >
         <table>
           <thead>
             <tr>
@@ -1822,38 +2557,50 @@ function DatasetTable({
                 </td>
               </tr>
             ) : (
-              boxes.map((box) => (
-                <tr
-                  key={box.id}
-                  className={selectedBoxId === box.id ? 'selected' : ''}
-                  onClick={() => onSelect(box.id)}
-                >
-                  <th scope="row">
-                    <button type="button" onClick={() => onSelect(box.id)}>
-                      {box.species.code} — {box.species.speciesName}
-                    </button>
-                  </th>
-                  <td>{box.startTimeSeconds.toFixed(3)}</td>
-                  <td>{box.endTimeSeconds.toFixed(3)}</td>
-                  <td>{Math.round(box.lowFrequencyHz)}</td>
-                  <td>{Math.round(box.highFrequencyHz)}</td>
-                  <td>{Math.round(box.highFrequencyHz - box.lowFrequencyHz)}</td>
-                  <td>
-                    <button
-                      type="button"
-                      className="delete-row"
-                      aria-label={`Delete ${box.species.code} box`}
-                      disabled={disabled}
-                      onClick={(event) => {
-                        event.stopPropagation();
-                        onDelete(box.id);
-                      }}
-                    >
-                      ×
-                    </button>
-                  </td>
-                </tr>
-              ))
+              <>
+                {firstVisible > 0 && (
+                  <tr aria-hidden="true" className="virtual-spacer">
+                    <td colSpan={7} style={{ height: firstVisible * rowHeight }} />
+                  </tr>
+                )}
+                {visibleBoxes.map((box) => (
+                  <tr
+                    key={box.id}
+                    className={selectedBoxId === box.id ? 'selected' : ''}
+                    onClick={() => onSelect(box.id)}
+                  >
+                    <th scope="row">
+                      <button type="button" onClick={() => onSelect(box.id)}>
+                        {box.species.code} — {box.species.speciesName}
+                      </button>
+                    </th>
+                    <td>{box.startTimeSeconds.toFixed(3)}</td>
+                    <td>{box.endTimeSeconds.toFixed(3)}</td>
+                    <td>{Math.round(box.lowFrequencyHz)}</td>
+                    <td>{Math.round(box.highFrequencyHz)}</td>
+                    <td>{Math.round(box.highFrequencyHz - box.lowFrequencyHz)}</td>
+                    <td>
+                      <button
+                        type="button"
+                        className="delete-row"
+                        aria-label={`Delete ${box.species.code} box`}
+                        disabled={disabled}
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          onDelete(box.id);
+                        }}
+                      >
+                        ×
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+                {lastVisible < boxes.length && (
+                  <tr aria-hidden="true" className="virtual-spacer">
+                    <td colSpan={7} style={{ height: (boxes.length - lastVisible) * rowHeight }} />
+                  </tr>
+                )}
+              </>
             )}
           </tbody>
         </table>
@@ -1945,40 +2692,18 @@ function HelpDialog({
         <dl className="shortcut-list">
           <div>
             <dt>
-              <kbd>1</kbd>–<kbd>4</kbd>
+              <kbd>Space</kbd> + <kbd>QWERT…</kbd>
             </dt>
-            <dd>Toggle Species, Details, Display, Dataset</dd>
+            <dd>Hold, type a left-hand species prefix, release to select and draw</dd>
           </div>
-          <div>
-            <dt>
-              <kbd>D</kbd> / <kbd>V</kbd> / <kbd>P</kbd>
-            </dt>
-            <dd>Draw, Select, Pan</dd>
-          </div>
-          <div>
-            <dt>
-              <kbd>Space</kbd>
-            </dt>
-            <dd>Play/pause when no control has focus</dd>
-          </div>
-          <div>
-            <dt>
-              <kbd>Delete</kbd>
-            </dt>
-            <dd>Delete selected box</dd>
-          </div>
-          <div>
-            <dt>
-              <kbd>Ctrl/⌘ Z</kbd>
-            </dt>
-            <dd>Undo</dd>
-          </div>
-          <div>
-            <dt>
-              <kbd>Tab</kbd>
-            </dt>
-            <dd>Native keyboard navigation is never hijacked</dd>
-          </div>
+          {WORKSPACE_COMMANDS.map((command) => (
+            <div key={command.id}>
+              <dt>
+                <kbd>{command.shortcut}</kbd>
+              </dt>
+              <dd>{command.label}</dd>
+            </div>
+          ))}
         </dl>
         <p className="help-note">
           {mode === 'embedded'
@@ -2092,7 +2817,7 @@ function TutorialOverlay({
             Back
           </button>
           <button type="button" onClick={onNext}>
-            {step === tutorialSteps.length - 1 ? 'Finish' : 'Next'} <kbd>Space</kbd>
+            {step === tutorialSteps.length - 1 ? 'Finish' : 'Next'} <kbd>Enter</kbd>
           </button>
           <button type="button" onClick={onExit}>
             Exit tutorial <kbd>Esc</kbd>
@@ -2245,11 +2970,13 @@ function NumberField({
   label,
   value,
   step,
+  disabled,
   onChange,
 }: {
   label: string;
   value: string;
   step: string;
+  disabled: boolean;
   onChange(value: string): void;
 }) {
   return (
@@ -2260,6 +2987,7 @@ function NumberField({
         step={step}
         min="0"
         value={value}
+        disabled={disabled}
         onChange={(event) => onChange(event.target.value)}
       />
     </label>
@@ -2276,7 +3004,7 @@ interface GeometryDraft {
   touched: Record<GeometryField, boolean>;
 }
 
-function geometryDraft(box: FrogLabelBoxV1 | null): GeometryDraft {
+function geometryDraft(box: FrogLabelBoxV2 | null): GeometryDraft {
   return {
     start: box ? box.startTimeSeconds.toFixed(3) : '',
     end: box ? box.endTimeSeconds.toFixed(3) : '',
@@ -2355,60 +3083,128 @@ function readError(error: unknown): string {
   return error instanceof Error ? error.message : 'An unexpected error occurred.';
 }
 
+function isAbortError(error: unknown): boolean {
+  return error instanceof DOMException && error.name === 'AbortError';
+}
+
 function formatSeconds(seconds: number): string {
   const minutes = Math.floor(seconds / 60);
   return `${minutes}:${(seconds % 60).toFixed(1).padStart(4, '0')}`;
 }
 
-function playBox(
-  audio: LoadedAudio | null,
-  box: FrogLabelBoxV1,
-  onError: (message: string) => void,
-): void {
-  if (!audio) return;
-  const resource = audio;
-  const element = resource.element;
-  activeRangeCleanup.get(element)?.();
-  element.currentTime = box.startTimeSeconds;
-  let cleaned = false;
-  const interval = window.setInterval(() => stop(), 10);
-  const deadline = window.setTimeout(
-    () => stop(true),
-    Math.max(0, ((box.endTimeSeconds - box.startTimeSeconds) / element.playbackRate) * 1000) + 25,
-  );
-  const cleanup = () => {
-    if (cleaned) return;
-    cleaned = true;
-    element.removeEventListener('timeupdate', stop);
-    element.removeEventListener('pause', cleanup);
-    element.removeEventListener('ended', cleanup);
-    window.clearInterval(interval);
-    window.clearTimeout(deadline);
-    if (activeRangeCleanup.get(element) === cleanup) {
-      activeRangeCleanup.delete(element);
-    }
-  };
-  function stop(eventOrForce: Event | boolean = false) {
-    const force = eventOrForce === true;
-    if (force || element.currentTime >= box.endTimeSeconds) {
-      element.currentTime = Math.min(box.endTimeSeconds, resource.durationSeconds);
-      element.pause();
-      cleanup();
-    }
-  }
-  element.addEventListener('timeupdate', stop);
-  element.addEventListener('pause', cleanup);
-  element.addEventListener('ended', cleanup);
-  activeRangeCleanup.set(element, cleanup);
-  void element.play().catch((error) => {
-    cleanup();
-    onError(readError(error));
-  });
+const PLAYBACK_RATES = [0.25, 0.5, 0.75, 1, 1.25, 1.5, 2] as const;
+const LOG_FREQUENCY_FLOOR_HZ = 20;
+
+interface FrequencyViewWindow {
+  maximumFrequencyHz: number;
+  lowFrequencyHz: number;
+  highFrequencyHz: number;
 }
 
-const activeRangeCleanup = new WeakMap<AudioPlayback, () => void>();
+function frequencyFloor(maximumFrequencyHz: number, scale: FrequencyScale): number {
+  return scale === 'logarithmic' ? Math.min(LOG_FREQUENCY_FLOOR_HZ, maximumFrequencyHz / 2) : 0;
+}
 
-const PLAYBACK_RATES = [0.25, 0.5, 0.75, 1, 1.25, 1.5, 2] as const;
+function panFrequencyWindow(
+  current: FrequencyViewWindow,
+  axisFraction: number,
+  scale: FrequencyScale,
+): Pick<FrequencyViewWindow, 'lowFrequencyHz' | 'highFrequencyHz'> {
+  const floor = frequencyFloor(current.maximumFrequencyHz, scale);
+  if (scale === 'logarithmic' && floor > 0) {
+    const globalLow = Math.log(floor);
+    const globalHigh = Math.log(current.maximumFrequencyHz);
+    const low = clamp(Math.log(Math.max(floor, current.lowFrequencyHz)), globalLow, globalHigh);
+    const high = clamp(
+      Math.log(Math.max(current.lowFrequencyHz + Number.EPSILON, current.highFrequencyHz)),
+      low + Number.EPSILON,
+      globalHigh,
+    );
+    const span = Math.min(globalHigh - globalLow, Math.max(Number.EPSILON, high - low));
+    const nextLow = clamp(low + span * axisFraction, globalLow, globalHigh - span);
+    return { lowFrequencyHz: Math.exp(nextLow), highFrequencyHz: Math.exp(nextLow + span) };
+  }
+  const availableSpan = Math.max(Number.EPSILON, current.maximumFrequencyHz - floor);
+  const span = Math.min(
+    availableSpan,
+    Math.max(Number.EPSILON, current.highFrequencyHz - Math.max(floor, current.lowFrequencyHz)),
+  );
+  const lowFrequencyHz = clamp(
+    Math.max(floor, current.lowFrequencyHz) + span * axisFraction,
+    floor,
+    Math.max(floor, current.maximumFrequencyHz - span),
+  );
+  return { lowFrequencyHz, highFrequencyHz: lowFrequencyHz + span };
+}
+
+function zoomFrequencyWindow(
+  current: FrequencyViewWindow,
+  factor: number,
+  rawAnchorRatio: number,
+  scale: FrequencyScale,
+): Pick<FrequencyViewWindow, 'lowFrequencyHz' | 'highFrequencyHz'> {
+  const anchorRatio = clamp(rawAnchorRatio, 0, 1);
+  const floor = frequencyFloor(current.maximumFrequencyHz, scale);
+  const availableSpan = Math.max(Number.EPSILON, current.maximumFrequencyHz - floor);
+  const low = clamp(current.lowFrequencyHz, floor, current.maximumFrequencyHz);
+  const high = clamp(current.highFrequencyHz, low + Number.EPSILON, current.maximumFrequencyHz);
+  const minimumSpan = Math.min(100, availableSpan);
+
+  if (scale !== 'logarithmic' || floor <= 0) {
+    const span = high - low;
+    const nextSpan = Math.max(minimumSpan, Math.min(availableSpan, span / factor));
+    const anchor = low + span * anchorRatio;
+    const lowFrequencyHz = clamp(
+      anchor - nextSpan * anchorRatio,
+      floor,
+      Math.max(floor, current.maximumFrequencyHz - nextSpan),
+    );
+    return { lowFrequencyHz, highFrequencyHz: lowFrequencyHz + nextSpan };
+  }
+
+  const globalLow = Math.log(floor);
+  const globalHigh = Math.log(current.maximumFrequencyHz);
+  const globalSpan = globalHigh - globalLow;
+  const currentLow = Math.log(Math.max(floor, low));
+  const currentHigh = Math.log(Math.max(low + Number.EPSILON, high));
+  const currentSpan = Math.max(Number.EPSILON, currentHigh - currentLow);
+  const anchor = currentLow + currentSpan * anchorRatio;
+  let nextSpan = clamp(currentSpan / factor, Number.EPSILON, globalSpan);
+
+  const boundsForSpan = (span: number) => {
+    let nextLow = anchor - span * anchorRatio;
+    let nextHigh = nextLow + span;
+    if (nextLow < globalLow) {
+      nextHigh += globalLow - nextLow;
+      nextLow = globalLow;
+    }
+    if (nextHigh > globalHigh) {
+      nextLow -= nextHigh - globalHigh;
+      nextHigh = globalHigh;
+    }
+    nextLow = Math.max(globalLow, nextLow);
+    return { lowFrequencyHz: Math.exp(nextLow), highFrequencyHz: Math.exp(nextHigh) };
+  };
+
+  let next = boundsForSpan(nextSpan);
+  if (next.highFrequencyHz - next.lowFrequencyHz < minimumSpan && availableSpan > minimumSpan) {
+    let tooSmall = nextSpan;
+    let largeEnough = globalSpan;
+    for (let iteration = 0; iteration < 24; iteration += 1) {
+      const middle = (tooSmall + largeEnough) / 2;
+      const candidate = boundsForSpan(middle);
+      if (candidate.highFrequencyHz - candidate.lowFrequencyHz < minimumSpan) tooSmall = middle;
+      else largeEnough = middle;
+    }
+    nextSpan = largeEnough;
+    next = boundsForSpan(nextSpan);
+  }
+  return next;
+}
+
+function clamp(value: number, minimum: number, maximum: number): number {
+  return Math.max(minimum, Math.min(maximum, value));
+}
 
 function assignPlaybackRate(element: AudioPlayback, rate: number): boolean {
   if (!PLAYBACK_RATES.includes(rate as (typeof PLAYBACK_RATES)[number])) return false;
@@ -2420,7 +3216,17 @@ function assignPlaybackRate(element: AudioPlayback, rate: number): boolean {
   }
 }
 
-function boxesOverlap(left: FrogLabelBoxV1, right: FrogLabelBoxV1): boolean {
+function boxAuditionRevision(box: FrogLabelBoxV2): string {
+  return [
+    box.startTimeSeconds,
+    box.endTimeSeconds,
+    box.lowFrequencyHz,
+    box.highFrequencyHz,
+    box.updatedAt ?? '',
+  ].join(':');
+}
+
+function boxesOverlap(left: FrogLabelBoxV2, right: FrogLabelBoxV2): boolean {
   return (
     left.startTimeSeconds < right.endTimeSeconds &&
     left.endTimeSeconds > right.startTimeSeconds &&

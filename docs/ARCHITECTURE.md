@@ -33,13 +33,19 @@ CE uses the external-source message protocol and the owned same-origin project-c
 
 ## Species catalog
 
-Codes are uppercase three-letter ASCII and unique case-insensitively within a project. Full Species Name is required. `speciesId` is immutable; code/name are current mutable fields. Historical annotations remain interpretable through snapshots. Removal, merge, deprecation, aliases, and reserved old-code behavior are deliberately absent.
+Active V2 codes are 1–6 uppercase letters from `QWERTASDFGZXCVB` and are unique within a project. `selectionPriority` is an administrator-set integer from 0 to 1,000,000; it affects ambiguous prefix selection but is excluded from annotation snapshots. Full Species Name is required. `speciesId` is immutable, while code/name/priority are current mutable catalog fields. A V2 catalog's optional `historicalSpecies` lane contains validated V1 records for display only; those records are never offered to the Space prefix index, even when an old code happens to use left-hand letters. V1 documents remain readable and are upgraded in memory; historical box snapshots retain codes such as `PER` and `COR` unchanged.
+
+Reading and promotion are deliberately separate. Local files and CE/Enterprise runtime catalogs can expose an unmapped V1 catalog as `historicalSpecies` while keeping the active `species` array empty. Administrative synchronization is the only promotion path and requires an explicit code and priority for every legacy immutable ID in one transaction; partial mappings fail without changing storage.
 
 CE persists one descriptor plus project-linked species Label values inside a transaction and uses the authoritative project ID to detect clones. Enterprise embeds seed state in the generated JSX; ecologist additions are annotation-local snapshots until an offline export reconciliation is reviewed and a new Interface version is published.
 
 ## Audio and rendering
 
 One `AudioResource` fetches/decodes a task once and preserves native stereo playback. Scientific analysis is mono and selectable as Average energy, Max, Left, or Right. Complete overlapping STFT windows run in a task-scoped Blob worker when available and in a cancellable cooperative executor otherwise. The two paths share the same algorithm. The bounded POC accepts at most two channels, 192 kHz source rate, five minutes, 128 MiB, and 30 million decoded channel-samples.
+
+Exact replacement frames are partitioned into palette-independent 256×256 dB tiles and assembled offscreen before one atomic Canvas2D front-surface commit. WebGL2 stores those tiles in one slot-based `R32F` atlas capped at 48 MiB and applies palette, brightness, and contrast through a 256-entry lookup texture; the fallback retains the same dB tiles and colorizes cooperatively in Canvas2D. The CPU tile LRU is independently byte-capped at 48 MiB. Visible misses run first, followed by best-effort adjacent center-zoom prefetch, and all background work is preemptible by a newer view generation. Out-of-grid rings are deliberately omitted because an exact view-grid key can never reuse them after a pan.
+
+The authoritative tiles are deliberately keyed to the exact viewport grid: audio generation, channel mode, frequency scale, Q/E zoom level, full IEEE-754 view bounds, raster dimensions, and tile coordinates. A fixed pooled world raster cannot preserve FrogLabel's peak-pooling result at arbitrary fractional pan offsets because nearly every output pixel's half-open frame/bin rectangle changes. Each view tile is therefore computed using its global pixel offset and the full raster dimensions, which makes seams and arbitrary offsets bit-for-bit equivalent to monolithic pooling. Overscan and adjacent-zoom tiles are only best-effort warmups; retained-frame reprojection supplies immediate feedback when a new fractional view has a different exact key. Display-only settings are excluded from the scientific key and never rerun pooling.
 
 ## Packaging
 

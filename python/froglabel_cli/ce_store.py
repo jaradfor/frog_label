@@ -237,6 +237,7 @@ class CeProjectAdministrator:
                     catalog_id=live.descriptor.catalog_id,
                     species_id=desired.species_id,
                     code=desired.code,
+                    selection_priority=desired.selection_priority,
                     species_name=desired.species_name,
                     scientific_name=desired.scientific_name,
                     external_taxon=desired.external_taxon,
@@ -250,7 +251,9 @@ class CeProjectAdministrator:
                 prior = current[change.species_id]
                 entry = prior.model_copy(
                     update={
+                        "schema_version": 2,
                         "code": desired.code,
+                        "selection_priority": desired.selection_priority,
                         "species_name": desired.species_name,
                         "scientific_name": desired.scientific_name,
                         "external_taxon": desired.external_taxon,
@@ -270,6 +273,8 @@ class CeProjectAdministrator:
 
         descriptor = live.descriptor.model_copy(
             update={
+                "schema_version": 2,
+                "adapter_version": 2,
                 "catalog_revision": plan.next_revision,
                 "default_species_id": plan.default_change.after,
                 "config_managed_species_ids": plan.managed_species_ids_after,
@@ -311,7 +316,7 @@ class CeProjectAdministrator:
                     "CATALOG_ORGANIZATION_MISMATCH", "Catalog label belongs to another organization"
                 )
             value = link.label.value
-            if not isinstance(value, dict) or value.get("schemaVersion") != 1:
+            if not isinstance(value, dict) or value.get("schemaVersion") not in (1, 2):
                 raise FrogLabelCliError(
                     "CATALOG_SCHEMA_UNSUPPORTED",
                     "A reserved FrogLabel catalog link has an unsupported value/schemaVersion",

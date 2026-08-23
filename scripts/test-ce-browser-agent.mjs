@@ -254,8 +254,10 @@ async function waitForBoxCount(expected) {
 
 async function drawBox(page, frame, startFraction) {
   await waitForFirstSpectrogramFrame(frame.locator('.spectrogram-shell'));
+  await ensurePanelOpen(frame, '1 Species');
   await frame.getByRole('option', { name: 'GRE Green Tree Frog' }).click();
-  await frame.getByRole('button', { name: /Draw Box/ }).click();
+  await frame.getByRole('button', { name: '1 Species' }).click();
+  await ensureDrawTool(frame, true);
   const canvas = frame.locator('canvas.spectrogram-canvas');
   const rectangle = await canvas.boundingBox();
   if (!rectangle) throw new Error('FrogLabel spectrogram canvas has no bounding box');
@@ -270,6 +272,17 @@ async function drawBox(page, frame, startFraction) {
     { steps: 6 },
   );
   await page.mouse.up();
+  await ensurePanelOpen(frame, '4 Dataset');
+}
+
+async function ensurePanelOpen(frame, name) {
+  const button = frame.getByRole('button', { name });
+  if ((await button.getAttribute('aria-pressed')) !== 'true') await button.click();
+}
+
+async function ensureDrawTool(frame, draw) {
+  const button = frame.getByRole('button', { name: 'Toggle Select and Draw tools (T)' });
+  if ((await button.getAttribute('aria-pressed')) !== String(draw)) await button.click();
 }
 
 async function waitForFirstSpectrogramFrame(shell) {
@@ -333,6 +346,10 @@ try {
     'ce',
     '--project',
     '1',
+    '--source',
+    source,
+    '--data-dir',
+    dataDir,
     '--config-dir',
     path.join(repository, 'examples', 'configs'),
     '--config-name',
@@ -352,7 +369,11 @@ try {
   page.on('console', (message) => {
     const entry = `console:${message.type()} ${message.text()}`;
     browserEvents.push(entry);
-    if (['warning', 'error'].includes(message.type())) fatalEvents.push(entry);
+    if (
+      ['warning', 'error'].includes(message.type()) &&
+      !isBenignSoftwareWebGlWarning(message.type(), message.text())
+    )
+      fatalEvents.push(entry);
   });
   page.on('pageerror', (error) => {
     const entry = `pageerror:${error.stack ?? error.message}`;
@@ -372,6 +393,7 @@ try {
   });
 
   const frame = page.frameLocator('[data-testid="froglabel-reactcode-frame"]');
+  await ensurePanelOpen(frame, '1 Species');
   await frame.getByRole('option', { name: 'GRE Green Tree Frog' }).waitFor({ timeout: 60_000 });
   await waitForNetworkSettled();
   assertClean('initial WSGI task load');
@@ -391,6 +413,7 @@ try {
   await page.goto(`${browserOrigin}/projects/${projectId}/data?task=${taskId}`, {
     waitUntil: 'domcontentloaded',
   });
+  await ensurePanelOpen(frame, '4 Dataset');
   await frame.getByRole('row', { name: /GRE — Green Tree Frog/ }).waitFor({ timeout: 60_000 });
   await drawBox(page, frame, 0.58);
   await nativeSubmit(page, 'Update').click();
@@ -403,6 +426,7 @@ try {
   recordAction('reload, draw, native Update', 'two boxes and stable outer result identity');
 
   await page.reload({ waitUntil: 'domcontentloaded' });
+  await ensurePanelOpen(frame, '4 Dataset');
   await frame
     .getByRole('row', { name: /GRE — Green Tree Frog/ })
     .nth(1)
@@ -463,4 +487,8 @@ try {
   await browser?.close();
   bridge?.close();
   await rm(runtime, { recursive: true, force: true });
+}
+
+function isBenignSoftwareWebGlWarning(type, text) {
+  return type === 'warning' && text.includes('GPU stall due to ReadPixels');
 }

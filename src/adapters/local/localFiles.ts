@@ -1,13 +1,15 @@
 import type {
-  FrogLabelDocumentV1,
-  FrogLabelLocalFileV1,
+  FrogLabelDocument,
+  FrogLabelLocalFile,
   LocalAudioDescriptor,
-  SpeciesCatalogV1,
+  SpeciesCatalog,
+  SpeciesEntry,
   SpeciesEntryV1,
 } from '../../domain/types';
 import { deterministicJson, deterministicSerialize } from '../../domain/document';
 import { ValidationError } from '../../domain/errors';
 import { assertCatalog, assertDocument, assertLocalFile } from '../../domain/validation';
+import { readLocalFileWithHistory } from '../../domain/migrations';
 import type { LoadedAudio } from '../../audio/AudioResource';
 import { AUDIO_LIMITS } from '../../audio/wav';
 
@@ -32,31 +34,34 @@ export async function fingerprintFile(
 
 export function buildLocalFile(
   audio: LocalAudioDescriptor,
-  catalog: SpeciesCatalogV1,
-  document: FrogLabelDocumentV1 | null,
-): FrogLabelLocalFileV1 {
+  catalog: SpeciesCatalog,
+  document: FrogLabelDocument | null,
+): FrogLabelLocalFile {
   if (document)
     assertDocument(document, {
       durationSeconds: audio.durationSeconds,
       maximumFrequencyHz: audio.sampleRateHz / 2,
     });
-  const value: FrogLabelLocalFileV1 = {
+  const value: FrogLabelLocalFile = {
     kind: 'froglabel.local-file',
-    schemaVersion: 1,
+    schemaVersion: 2,
     audio: structuredClone(audio),
     catalogSnapshot: structuredClone(catalog.species),
+    ...(catalog.historicalSpecies?.length
+      ? { historicalCatalogSnapshot: structuredClone(catalog.historicalSpecies) }
+      : {}),
     document: structuredClone(document),
   };
   assertLocalFile(value);
   return value;
 }
 
-export function serializeLocalFile(value: FrogLabelLocalFileV1): string {
+export function serializeLocalFile(value: FrogLabelLocalFile): string {
   assertLocalFile(value);
   return `${deterministicJson(value, 2)}\n`;
 }
 
-export async function parseLocalFile(file: File): Promise<FrogLabelLocalFileV1> {
+export async function parseLocalFile(file: File): Promise<FrogLabelLocalFile> {
   if (file.size > MAX_LOCAL_JSON_BYTES)
     throw new ValidationError('Annotation file exceeds the 10 MiB limit');
   let parsed: unknown;
@@ -67,12 +72,11 @@ export async function parseLocalFile(file: File): Promise<FrogLabelLocalFileV1> 
   }
   if (parsed && typeof parsed === 'object' && 'schemaVersion' in parsed) {
     const version = (parsed as { schemaVersion?: unknown }).schemaVersion;
-    if (typeof version === 'number' && version > 1) {
+    if (typeof version === 'number' && version > 2) {
       throw new ValidationError('This file was created by a newer FrogLabel version');
     }
   }
-  assertLocalFile(parsed);
-  return structuredClone(parsed);
+  return readLocalFileWithHistory(parsed);
 }
 
 export async function assertMatchingAudio(
@@ -94,9 +98,9 @@ export async function assertMatchingAudio(
   return fingerprint;
 }
 
-export function catalogFromLocalFile(value: FrogLabelLocalFileV1): SpeciesCatalogV1 {
-  const catalog: SpeciesCatalogV1 = {
-    schemaVersion: 1,
+export function catalogFromLocalFile(value: FrogLabelLocalFile): SpeciesCatalog {
+  const catalog: SpeciesCatalog = {
+    schemaVersion: 2,
     kind: 'froglabel.species-catalog',
     catalogId: value.document?.catalogId ?? `local:${value.audio.fingerprint.value}`,
     initializedAt: new Date(0).toISOString(),
@@ -104,20 +108,25 @@ export function catalogFromLocalFile(value: FrogLabelLocalFileV1): SpeciesCatalo
     catalogRevision: 1,
     defaultSpeciesId: null,
     species: structuredClone(value.catalogSnapshot),
+    ...(value.historicalCatalogSnapshot?.length
+      ? { historicalSpecies: structuredClone(value.historicalCatalogSnapshot) }
+      : {}),
   };
   assertCatalog(catalog);
   return catalog;
 }
 
 export function mergeCatalogSnapshots(
-  current: SpeciesCatalogV1,
-  candidate: readonly SpeciesEntryV1[],
-): SpeciesCatalogV1 {
-  const byId = new Map(current.species.map((entry) => [entry.speciesId, entry]));
+  current: SpeciesCatalog,
+  candidate: readonly SpeciesEntry[],
+  historicalCandidate: readonly SpeciesEntryV1[] = [],
+): SpeciesCatalog {
+  const allCurrent = [...current.species, ...(current.historicalSpecies ?? [])];
+  const byId = new Map(allCurrent.map((entry) => [entry.speciesId, entry]));
   const byCode = new Map(
-    current.species.map((entry) => [entry.code.toLocaleLowerCase('en'), entry.speciesId]),
+    allCurrent.map((entry) => [entry.code.toLocaleLowerCase('en'), entry.speciesId]),
   );
-  const additions: SpeciesEntryV1[] = [];
+  const additions: SpeciesEntry[] = [];
   for (const entry of candidate) {
     const existing = byId.get(entry.speciesId);
     if (existing) {
@@ -136,16 +145,41 @@ export function mergeCatalogSnapshots(
     byId.set(entry.speciesId, entry);
     byCode.set(entry.code.toLocaleLowerCase('en'), entry.speciesId);
   }
+  const historicalAdditions: SpeciesEntryV1[] = [];
+  for (const entry of historicalCandidate) {
+    const existing = byId.get(entry.speciesId);
+    if (existing) {
+      if (deterministicJson(existing) !== deterministicJson(entry)) {
+        throw new ValidationError(`Species ID ${entry.speciesId} has conflicting snapshots`);
+      }
+      continue;
+    }
+    const codeOwner = byCode.get(entry.code.toLocaleLowerCase('en'));
+    if (codeOwner) {
+      throw new ValidationError(
+        `Species code ${entry.code} conflicts with immutable ID ${codeOwner}`,
+      );
+    }
+    historicalAdditions.push(structuredClone(entry));
+    byId.set(entry.speciesId, entry);
+    byCode.set(entry.code.toLocaleLowerCase('en'), entry.speciesId);
+  }
+  const changed = additions.length > 0 || historicalAdditions.length > 0;
   const merged = {
     ...structuredClone(current),
-    catalogRevision: additions.length ? current.catalogRevision + 1 : current.catalogRevision,
+    catalogRevision: changed ? current.catalogRevision + 1 : current.catalogRevision,
     species: [...current.species, ...additions],
+    ...((current.historicalSpecies?.length ?? 0) + historicalAdditions.length > 0
+      ? {
+          historicalSpecies: [...(current.historicalSpecies ?? []), ...historicalAdditions],
+        }
+      : {}),
   };
   assertCatalog(merged);
   return merged;
 }
 
-export function downloadLocalFile(value: FrogLabelLocalFileV1): void {
+export function downloadLocalFile(value: FrogLabelLocalFile): void {
   downloadText(
     serializeLocalFile(value),
     `${safeStem(value.audio.filename)}.froglabel.json`,
@@ -153,7 +187,7 @@ export function downloadLocalFile(value: FrogLabelLocalFileV1): void {
   );
 }
 
-export function serializeFlatCsv(value: FrogLabelLocalFileV1): string {
+export function serializeFlatCsv(value: FrogLabelLocalFile): string {
   assertLocalFile(value);
   const headers = [
     'schemaVersion',
@@ -174,7 +208,7 @@ export function serializeFlatCsv(value: FrogLabelLocalFileV1): string {
     'provenanceSource',
   ];
   const common = [
-    '1',
+    '2',
     '',
     value.audio.filename,
     value.audio.fingerprint.value,
@@ -201,7 +235,7 @@ export function serializeFlatCsv(value: FrogLabelLocalFileV1): string {
   } else {
     for (const box of value.document.boxes) {
       rows.push([
-        '1',
+        '2',
         'box',
         value.audio.filename,
         value.audio.fingerprint.value,
@@ -223,7 +257,7 @@ export function serializeFlatCsv(value: FrogLabelLocalFileV1): string {
   return `${[headers, ...rows].map((row) => row.map(csvCell).join(',')).join('\r\n')}\r\n`;
 }
 
-export function downloadFlatCsv(value: FrogLabelLocalFileV1): void {
+export function downloadFlatCsv(value: FrogLabelLocalFile): void {
   downloadText(
     serializeFlatCsv(value),
     `${safeStem(value.audio.filename)}.froglabel.csv`,
@@ -248,7 +282,7 @@ export function localDescriptorFromAudio(
   };
 }
 
-export function localFileDocumentSignature(value: FrogLabelLocalFileV1): string {
+export function localFileDocumentSignature(value: FrogLabelLocalFile): string {
   return deterministicSerialize(value.document);
 }
 

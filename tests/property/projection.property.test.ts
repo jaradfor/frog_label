@@ -14,6 +14,11 @@ const viewport: ViewportTransform = {
   heightPixels: 600,
 };
 
+const logarithmicViewport: ViewportTransform = {
+  ...viewport,
+  frequencyScale: 'logarithmic',
+};
+
 describe('viewport projection properties', () => {
   it('round-trips canonical points within floating point tolerance', () => {
     fc.assert(
@@ -24,6 +29,24 @@ describe('viewport projection properties', () => {
           const roundTrip = pixelToCanonical(
             canonicalToPixel({ timeSeconds, frequencyHz }, viewport),
             viewport,
+          );
+          expect(roundTrip.timeSeconds).toBeCloseTo(timeSeconds, 9);
+          expect(roundTrip.frequencyHz).toBeCloseTo(frequencyHz, 7);
+        },
+      ),
+      { numRuns: 500 },
+    );
+  });
+
+  it('round-trips logarithmic-frequency points without shifting annotations', () => {
+    fc.assert(
+      fc.property(
+        fc.double({ min: 5, max: 35, noNaN: true, noDefaultInfinity: true }),
+        fc.double({ min: 100, max: 12000, noNaN: true, noDefaultInfinity: true }),
+        (timeSeconds, frequencyHz) => {
+          const roundTrip = pixelToCanonical(
+            canonicalToPixel({ timeSeconds, frequencyHz }, logarithmicViewport),
+            logarithmicViewport,
           );
           expect(roundTrip.timeSeconds).toBeCloseTo(timeSeconds, 9);
           expect(roundTrip.frequencyHz).toBeCloseTo(frequencyHz, 7);

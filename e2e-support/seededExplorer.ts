@@ -22,7 +22,10 @@ export async function runSeededStandaloneExplorer(
     actions.push({ action, assertion, at: actions.length });
 
   page.on('console', (message) => {
-    if (['warning', 'error'].includes(message.type())) {
+    if (
+      ['warning', 'error'].includes(message.type()) &&
+      !isBenignSoftwareWebGlWarning(message.type(), message.text())
+    ) {
       browserProblems.push(`console:${message.type()} ${message.text()}`);
     }
   });
@@ -48,14 +51,17 @@ export async function runSeededStandaloneExplorer(
   );
   record('open synthetic WAV through File API', 'source-faithful WAV decoded');
 
+  await page.getByRole('button', { name: '1 Species' }).click();
   await page.getByRole('button', { name: /Add missing species/ }).click();
-  await page.getByLabel('Three-letter code').fill('EXP');
+  await page.getByLabel('Left-hand code (1–6 letters)').fill('EXF');
   await page.getByLabel('Full Species Name').fill('Explorer Tree Frog');
   await page.getByRole('button', { name: 'Save species' }).click();
-  await expect(page.getByRole('option', { name: 'EXP Explorer Tree Frog' })).toBeVisible();
-  record('add/select project-session species', 'full name and three-letter code accepted');
+  await expect(page.getByRole('option', { name: 'EXF Explorer Tree Frog' })).toBeVisible();
+  record('add/select project-session species', 'full name and left-hand code accepted');
+  await page.getByRole('button', { name: '1 Species' }).click();
 
-  await page.getByRole('button', { name: /Draw Box/ }).click();
+  const tool = page.getByRole('button', { name: 'Toggle Select and Draw tools (T)' });
+  await expect(tool).toHaveAttribute('aria-pressed', 'true');
   const canvas = page.locator('canvas.spectrogram-canvas');
   const rectangle = await canvas.boundingBox();
   if (!rectangle) throw new Error('Seeded explorer spectrogram has no bounding box');
@@ -73,26 +79,28 @@ export async function runSeededStandaloneExplorer(
     );
     await page.mouse.up();
   }
-  await expect(page.getByRole('row', { name: /EXP — Explorer Tree Frog/ })).toHaveCount(2);
+  await page.getByRole('button', { name: '4 Dataset' }).click();
+  await expect(page.getByRole('row', { name: /EXF — Explorer Tree Frog/ })).toHaveCount(2);
   record('draw two overlapping boxes', 'two bounded canonical boxes visible');
 
-  await page.getByRole('button', { name: 'Select V' }).click();
+  await tool.click();
+  await expect(tool).toHaveAttribute('aria-pressed', 'false');
   await page.mouse.click(
     rectangle.x + rectangle.width * (0.4 + offset),
     rectangle.y + rectangle.height * 0.48,
   );
-  await page.keyboard.press('BracketRight');
-  await page.getByRole('button', { name: 'Play selected box' }).click();
-  record('select overlap, cycle forward, play selection', 'selection-only actions completed');
+  await page.keyboard.press('KeyC');
+  await page.getByRole('button', { name: '2 Details' }).click();
+  await page.getByRole('button', { name: /Replay box raw/i }).click();
+  record('select overlap, cycle forward, replay selection', 'selection-only actions completed');
 
   const beforeView = await downloadJson(page);
-  const palettes = ['Magma', 'Inferno', 'Plasma', 'Grayscale'];
+  const palettes = ['Magma', 'Inferno', 'Plasma', 'Gray'];
   const palette = palettes[Math.floor(random() * palettes.length)];
   await page.getByRole('button', { name: 'Zoom in spectrogram' }).click();
   await page.getByRole('button', { name: 'Zoom out spectrogram' }).click();
   await page.getByRole('button', { name: '3 Display' }).click();
-  const paletteSelect = page.getByLabel('Palette');
-  if (await paletteSelect.isVisible()) await paletteSelect.selectOption({ label: palette });
+  await page.getByRole('radio', { name: `${palette} palette`, exact: true }).click();
   await page.getByRole('button', { name: 'Toggle light and dark theme' }).click();
   const afterView = await downloadJson(page);
   expect(afterView.document).toEqual(beforeView.document);
@@ -108,13 +116,11 @@ export async function runSeededStandaloneExplorer(
   record('tutorial Space then Escape', 'isolated practice left live document unchanged');
 
   page.once('dialog', (dialog) => dialog.accept());
-  await page
-    .getByRole('button', { name: /No calls present/ })
-    .first()
-    .click();
-  await expect(page.getByText('Reviewed: no calls present')).toBeVisible();
+  const noCalls = page.getByRole('button', { name: /No calls present/ }).first();
+  await noCalls.click();
+  await expect(noCalls).toHaveAttribute('aria-pressed', 'true');
   await page.getByRole('button', { name: /Undo/ }).click();
-  await expect(page.getByRole('row', { name: /EXP — Explorer Tree Frog/ })).toHaveCount(2);
+  await expect(page.getByRole('row', { name: /EXF — Explorer Tree Frog/ })).toHaveCount(2);
   record('No calls then one semantic Undo', 'prior boxes and calls-present state restored');
 
   const csvDownload = page.waitForEvent('download');
@@ -153,6 +159,10 @@ export async function runSeededStandaloneExplorer(
     contentType: 'application/json',
   });
   await page.screenshot({ path: testInfo.outputPath('seeded-explorer-final.png'), fullPage: true });
+}
+
+function isBenignSoftwareWebGlWarning(type: string, text: string): boolean {
+  return type === 'warning' && text.includes('GPU stall due to ReadPixels');
 }
 
 async function downloadJson(page: Page): Promise<Record<string, unknown>> {
