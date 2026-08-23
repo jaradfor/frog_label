@@ -1,8 +1,8 @@
 {
   "kind": "froglabel.enterprise-component-bundle",
   "schemaVersion": 1,
-  "buildVersion": "1.0.0+903ff7bd7e47",
-  "sourceCommit": "903ff7bd7e47",
+  "buildVersion": "1.0.0+994e8ce2dadb",
+  "sourceCommit": "994e8ce2dadb",
   "entry": "src/enterprise/entry.tsx",
   "exportName": "renderEnterpriseFrogLabel",
   "hostReactExternal": true,
@@ -14,7 +14,7 @@
     "FrogLabel logo",
     "spectrogram worker source"
   ],
-  "minifiedBytes": 556414,
-  "unminifiedBytes": 883241,
+  "minifiedBytes": 559377,
+  "unminifiedBytes": 888260,
   "forbiddenScan": "passed"
 }

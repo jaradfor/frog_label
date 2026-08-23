@@ -82,14 +82,14 @@ export const WORKSPACE_COMMANDS: readonly WorkspaceCommandDefinition[] = [
   },
   {
     id: 'viewport.zoomIn',
-    label: 'Zoom in',
+    label: 'Zoom in at pointer target',
     shortcut: 'Q',
     code: 'KeyQ',
     repeatable: true,
   },
   {
     id: 'viewport.zoomOut',
-    label: 'Zoom out',
+    label: 'Zoom out at pointer target',
     shortcut: 'E',
     code: 'KeyE',
     repeatable: true,

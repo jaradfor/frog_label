@@ -216,6 +216,7 @@ test('keeps the 5,000-box workspace responsive and enforces the rendering ceilin
   await waitForExactRender(spectrogramShell);
   const rapidNavigation = await exerciseRapidKeyboardNavigation(page, SAMPLE_COUNT);
   expect(rapidNavigation.samples).toBe(SAMPLE_COUNT);
+  expect(rapidNavigation.missedSamples).toEqual([]);
   expect(rapidNavigation.missedNextFrameFeedback).toBe(0);
   expect(rapidNavigation.blankFrames).toBe(0);
   expect(rapidNavigation.overlayFrames).toBe(0);
@@ -377,6 +378,15 @@ async function exerciseRapidKeyboardNavigation(
   missedNextFrameFeedback: number;
   maximumFeedbackMilliseconds: number;
   requestGenerationDelta: number;
+  missedSamples: Array<{
+    index: number;
+    code: string;
+    priorPaint: number;
+    paint: number;
+    priorRequest: number;
+    requested: number;
+    paintedRequest: number;
+  }>;
 }> {
   return page.evaluate(async (count) => {
     const shell = document.querySelector<HTMLElement>('.spectrogram-shell');
@@ -391,7 +401,20 @@ async function exerciseRapidKeyboardNavigation(
     let blankFrames = 0;
     let overlayFrames = 0;
     let missedNextFrameFeedback = 0;
+    const missedSamples: Array<{
+      index: number;
+      code: string;
+      priorPaint: number;
+      paint: number;
+      priorRequest: number;
+      requested: number;
+      paintedRequest: number;
+    }> = [];
     let maximumFeedbackMilliseconds = 0;
+    // Every later sample starts immediately after the preceding rAF. Align the
+    // first sample to that same boundary so an input dispatched just before
+    // vsync is not incorrectly judged against a nearly elapsed frame budget.
+    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
     const initialRequestGeneration = Number(shell.dataset.renderRequestGeneration ?? 0);
 
     for (let index = 0; index < count; index += 1) {
@@ -412,12 +435,18 @@ async function exerciseRapidKeyboardNavigation(
       );
       const requested = Number(shell.dataset.renderRequestGeneration ?? 0);
       const paintedRequest = Number(shell.dataset.renderPaintedRequestGeneration ?? 0);
-      if (
-        Number(shell.dataset.renderGeneration ?? 0) <= priorPaint ||
-        requested <= priorRequest ||
-        paintedRequest !== requested
-      ) {
+      const paint = Number(shell.dataset.renderGeneration ?? 0);
+      if (paint <= priorPaint || requested <= priorRequest || paintedRequest !== requested) {
         missedNextFrameFeedback += 1;
+        missedSamples.push({
+          index,
+          code,
+          priorPaint,
+          paint,
+          priorRequest,
+          requested,
+          paintedRequest,
+        });
       }
       probeContext.drawImage(canvas, 0, 0, probe.width, probe.height);
       const pixels = probeContext.getImageData(0, 0, probe.width, probe.height).data;
@@ -441,6 +470,7 @@ async function exerciseRapidKeyboardNavigation(
       maximumFeedbackMilliseconds,
       requestGenerationDelta:
         Number(shell.dataset.renderRequestGeneration ?? 0) - initialRequestGeneration,
+      missedSamples,
     };
   }, sampleCount);
 }

@@ -21,6 +21,14 @@ import { boxToPixelRect, canonicalToPixel, geometryFromDrag } from '../../domain
 
 type Tool = 'select' | 'draw' | 'pan';
 type ResizeHandle = 'nw' | 'ne' | 'sw' | 'se';
+export type SpectrogramZoomScope = 'both' | 'time' | 'frequency';
+
+export interface SpectrogramPointerZoomContext {
+  scope: SpectrogramZoomScope;
+  timeRatio: number;
+  frequencyRatio: number;
+}
+
 const DENSE_ANNOTATION_THRESHOLD = 500;
 const INITIAL_RENDER_STATE: SpectrogramRenderState = {
   status: 'initializing',
@@ -84,12 +92,7 @@ interface SpectrogramCanvasProps {
   ): Promise<boolean> | boolean;
   onPan?(deltaSeconds: number): void;
   onPanView?(deltaTimeSeconds: number, deltaFrequencyAxisFraction: number): void;
-  onPointerAnchorChange?(
-    anchor: {
-      timeRatio: number;
-      frequencyRatio: number;
-    } | null,
-  ): void;
+  onPointerZoomContextChange?(context: SpectrogramPointerZoomContext | null): void;
   onError(message: string): void;
   onSemanticEvent(event: string, detail?: string): void;
   onLifecycleChange?(phase: SpectrogramRenderPhase): void;
@@ -112,16 +115,19 @@ export function SpectrogramCanvas({
   onResize,
   onPan,
   onPanView,
-  onPointerAnchorChange,
+  onPointerZoomContextChange,
   onError,
   onSemanticEvent,
   onLifecycleChange,
   onRenderStateChange,
 }: SpectrogramCanvasProps) {
+  const shellRef = useRef<HTMLDivElement>(null);
   const rootRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const annotationCanvasRef = useRef<HTMLCanvasElement>(null);
+  const waveformStripRef = useRef<HTMLDivElement>(null);
   const waveformRef = useRef<HTMLCanvasElement>(null);
+  const frequencyAxisRef = useRef<HTMLDivElement>(null);
   const rendererRef = useRef<SpectrogramRenderer | null>(null);
   const gestureRef = useRef<Gesture | null>(null);
   const [gesture, setGesture] = useState<Gesture | null>(null);
@@ -132,6 +138,8 @@ export function SpectrogramCanvas({
   const [paintedViewport, setPaintedViewport] = useState<ViewportTransform | null>(null);
   const [waveformIndexVersion, setWaveformIndexVersion] = useState(0);
   const [retryVersion, setRetryVersion] = useState(0);
+  const [pointerZoomScope, setPointerZoomScope] = useState<SpectrogramZoomScope | null>(null);
+  const pointerZoomScopeRef = useRef<SpectrogramZoomScope | null>(null);
   const clickCycleRef = useRef<{
     key: string;
     x: number;
@@ -211,6 +219,13 @@ export function SpectrogramCanvas({
     observer.observe(root);
     return () => observer.disconnect();
   }, []);
+
+  useEffect(
+    () => () => {
+      onPointerZoomContextChange?.(null);
+    },
+    [onPointerZoomContextChange],
+  );
 
   useEffect(() => {
     reportPhase('analyzing');
@@ -301,19 +316,73 @@ export function SpectrogramCanvas({
     return { x: event.clientX - (rect?.left ?? 0), y: event.clientY - (rect?.top ?? 0) };
   };
 
-  const reportPointerAnchor = (event: React.PointerEvent) => {
-    const rect = rootRef.current?.getBoundingClientRect();
-    if (!rect || rect.width <= 0 || rect.height <= 0) return;
-    onPointerAnchorChange?.({
+  const publishPointerZoomContext = (context: SpectrogramPointerZoomContext | null) => {
+    const nextScope = context?.scope ?? null;
+    if (pointerZoomScopeRef.current !== nextScope) {
+      pointerZoomScopeRef.current = nextScope;
+      setPointerZoomScope(nextScope);
+    }
+    onPointerZoomContextChange?.(context);
+  };
+
+  const reportPointerZoomContext = (event: React.PointerEvent) => {
+    const target = event.target instanceof Node ? event.target : null;
+    const waveform = waveformStripRef.current;
+    if (target && waveform?.contains(target)) {
+      const rect = waveform.getBoundingClientRect();
+      if (rect.width <= 0) return;
+      publishPointerZoomContext({
+        scope: 'time',
+        timeRatio: clampRatio((event.clientX - rect.left) / rect.width),
+        frequencyRatio: 0.5,
+      });
+      return;
+    }
+
+    const frequencyAxis = frequencyAxisRef.current;
+    if (target && frequencyAxis?.contains(target)) {
+      const rect = frequencyAxis.getBoundingClientRect();
+      if (rect.height <= 0) return;
+      publishPointerZoomContext({
+        scope: 'frequency',
+        timeRatio: 0.5,
+        frequencyRatio: clampRatio(1 - (event.clientY - rect.top) / rect.height),
+      });
+      return;
+    }
+
+    const stage = rootRef.current;
+    if (!stage || !target || !stage.contains(target)) {
+      publishPointerZoomContext(null);
+      return;
+    }
+    const rect = stage.getBoundingClientRect();
+    if (rect.width <= 0 || rect.height <= 0) return;
+    const y = event.clientY - rect.top;
+    publishPointerZoomContext({
+      scope: 'both',
       timeRatio: clampRatio((event.clientX - rect.left) / rect.width),
-      frequencyRatio: clampRatio(1 - (event.clientY - rect.top) / rect.height),
+      frequencyRatio: clampRatio(1 - y / rect.height),
     });
+  };
+
+  const clearPointerZoomContextOutsideShell = (event: React.PointerEvent) => {
+    const rect = shellRef.current?.getBoundingClientRect();
+    if (
+      rect &&
+      (event.clientX < rect.left ||
+        event.clientX > rect.right ||
+        event.clientY < rect.top ||
+        event.clientY > rect.bottom)
+    ) {
+      publishPointerZoomContext(null);
+    }
   };
 
   const begin = (event: React.PointerEvent<HTMLDivElement>) => {
     if (event.button !== 0 && event.button !== 1 && event.button !== 2) return;
     event.currentTarget.focus({ preventScroll: true });
-    reportPointerAnchor(event);
+    reportPointerZoomContext(event);
     const point = pointForEvent(event);
     const cameraPan = event.button === 1 || event.button === 2 || tool === 'pan';
     if (!cameraPan && tool === 'select') {
@@ -378,6 +447,7 @@ export function SpectrogramCanvas({
   ) => {
     if (disabled || !annotationGesturesReady || event.button !== 0) return;
     event.stopPropagation();
+    reportPointerZoomContext(event);
     onSelect(box.id);
     const opposite = {
       nw: { timeSeconds: box.endTimeSeconds, frequencyHz: box.lowFrequencyHz },
@@ -399,7 +469,6 @@ export function SpectrogramCanvas({
   };
 
   const move = (event: React.PointerEvent<HTMLDivElement>) => {
-    reportPointerAnchor(event);
     const active = gestureRef.current;
     if (!active || active.pointerId !== event.pointerId) return;
     const point = pointForEvent(event);
@@ -431,6 +500,7 @@ export function SpectrogramCanvas({
       rootRef.current.releasePointerCapture(event.pointerId);
     if (active.kind === 'pan') {
       onSemanticEvent('viewport.panned');
+      clearPointerZoomContextOutsideShell(event);
       return;
     }
     try {
@@ -443,6 +513,8 @@ export function SpectrogramCanvas({
       }
     } catch (error) {
       onError(error instanceof Error ? error.message : 'The gesture could not be committed.');
+    } finally {
+      clearPointerZoomContextOutsideShell(event);
     }
   };
 
@@ -450,7 +522,7 @@ export function SpectrogramCanvas({
     if (gestureRef.current?.pointerId !== event.pointerId) return;
     gestureRef.current = null;
     setGesture(null);
-    onPointerAnchorChange?.(null);
+    publishPointerZoomContext(null);
   };
 
   const previewRect =
@@ -458,6 +530,7 @@ export function SpectrogramCanvas({
 
   return (
     <div
+      ref={shellRef}
       className="spectrogram-shell"
       data-tutorial="spectrogram"
       data-spectrogram-state={renderPhase}
@@ -471,9 +544,19 @@ export function SpectrogramCanvas({
       data-view-time-end-seconds={view.timeEndSeconds}
       data-view-low-frequency-hz={view.lowFrequencyHz}
       data-view-high-frequency-hz={view.highFrequencyHz}
+      data-pointer-zoom-scope={pointerZoomScope ?? 'idle'}
       aria-busy={!renderState.hasFrame && renderState.status !== 'error'}
+      onPointerMove={reportPointerZoomContext}
+      onPointerLeave={() => {
+        if (!gestureRef.current) publishPointerZoomContext(null);
+      }}
     >
-      <div className="waveform-strip" role="img" aria-label="Waveform aligned with the spectrogram">
+      <div
+        ref={waveformStripRef}
+        className="waveform-strip"
+        role="img"
+        aria-label="Waveform aligned with the spectrogram"
+      >
         <canvas ref={waveformRef} aria-hidden="true" />
         {playheadSeconds >= view.timeStartSeconds && playheadSeconds <= view.timeEndSeconds && (
           <span
@@ -484,7 +567,7 @@ export function SpectrogramCanvas({
           />
         )}
       </div>
-      <div className="frequency-axis" aria-hidden="true">
+      <div ref={frequencyAxisRef} className="frequency-axis" aria-hidden="true">
         <span>{Math.round(view.highFrequencyHz / 1000)} kHz</span>
         <span>{Math.round((view.highFrequencyHz + view.lowFrequencyHz) / 2000)} kHz</span>
         <span>{Math.round(view.lowFrequencyHz / 1000)} kHz</span>
@@ -502,9 +585,6 @@ export function SpectrogramCanvas({
         onPointerUp={(event) => void finish(event)}
         onPointerCancel={cancel}
         onLostPointerCapture={cancel}
-        onPointerLeave={() => {
-          if (!gestureRef.current) onPointerAnchorChange?.(null);
-        }}
         onContextMenu={(event) => event.preventDefault()}
       >
         <canvas
@@ -563,6 +643,7 @@ export function SpectrogramCanvas({
                 onPointerDown={(event) => {
                   if (tool !== 'select' || event.button !== 0) return;
                   event.stopPropagation();
+                  reportPointerZoomContext(event);
                   rootRef.current?.focus({ preventScroll: true });
                   selectAtPoint(event, box.id);
                 }}
