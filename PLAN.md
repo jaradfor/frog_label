@@ -49,9 +49,9 @@
   | Hold **Space** + left-side letters   | Preview species; release to commit and enter Draw                              |
   | **W** / **S**                        | Pan frequency up/down by 10% of the visible span                               |
   | **A** / **D**                        | Pan earlier/later by 10% of the visible span                                   |
-  | **Q** / **E**                        | Zoom both axes in/out by 1.25× around the mouse pointer, or viewport center    |
+  | **E** / **Q**                        | Zoom both axes in/out by 1.25× around the mouse pointer, or viewport center    |
   | **Shift+D** / **Shift+A**            | Zoom time only in/out, preserving the frequency window exactly                 |
-  | **Shift+E** / **Shift+Q**            | Zoom frequency only in/out, preserving the time window exactly                 |
+  | **Shift+W** / **Shift+S**            | Zoom frequency only in/out, preserving the time window exactly                 |
   | **X**                                | Fit complete time and frequency bounds                                         |
   | **V**                                | Play/pause                                                                     |
   | **F** / **R**                        | Faster/slower playback through the existing discrete rates                     |
@@ -133,9 +133,9 @@
 
 ## Stateless Axis Zoom — 2026-08-22
 
-- `Q` and `E` remain the fast, repeatable combined zoom pair.
+- `E` zooms both axes in and `Q` zooms both axes out; both commands are fast and repeatable.
 - `Shift+D` zooms time in and `Shift+A` zooms time out, preserving both frequency bounds exactly.
-- `Shift+E` zooms frequency in and `Shift+Q` zooms frequency out, preserving both time bounds exactly.
+- `Shift+W` zooms frequency in and `Shift+S` zooms frequency out, preserving both time bounds exactly.
 - Delete moves from `Shift+D` to the unused mnemonic `Shift+R` (remove), keeping the complete command set on the left hand.
 - All zoom commands remain pointer-anchored when the pointer is over the spectrogram and centered otherwise. `X` always fits both axes.
 

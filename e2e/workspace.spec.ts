@@ -82,7 +82,7 @@ test('selects GRE by chord, draws with the mouse, toggles tools, and deletes by 
     'true',
   );
 
-  await pressAndWaitForPaint(page, shell, 'KeyQ');
+  await pressAndWaitForPaint(page, shell, 'KeyE');
   const viewportBeforeMiddlePan = await readViewport(canvas);
   const boxRectangle = await annotation.boundingBox();
   if (!boxRectangle) throw new Error('Selected annotation box has no bounding box');
@@ -220,7 +220,7 @@ test('switches palettes and adjustable frequency emphasis without blanking', asy
 
   const beforeAdjustableZoom = await readViewport(page.locator('canvas.spectrogram-canvas'));
   await page.locator('.spectrogram-stage').focus();
-  await pressAndWaitForPaint(page, shell, 'Shift+KeyE');
+  await pressAndWaitForPaint(page, shell, 'Shift+KeyW');
   const afterAdjustableZoom = await readViewport(page.locator('canvas.spectrogram-canvas'));
   expect(afterAdjustableZoom.timeStart).toBe(beforeAdjustableZoom.timeStart);
   expect(afterAdjustableZoom.timeEnd).toBe(beforeAdjustableZoom.timeEnd);
@@ -259,7 +259,7 @@ test('WASD, Q/E, and X control both camera axes with painted feedback', async ({
   const canvas = page.locator('canvas.spectrogram-canvas');
   const initial = await readViewport(canvas);
 
-  await pressAndWaitForPaint(page, shell, 'KeyQ');
+  await pressAndWaitForPaint(page, shell, 'KeyE');
   const zoomed = await readViewport(canvas);
   expect(zoomed.timeEnd - zoomed.timeStart).toBeLessThan(initial.timeEnd - initial.timeStart);
   expect(zoomed.highFrequency - zoomed.lowFrequency).toBeLessThan(
@@ -280,7 +280,7 @@ test('WASD, Q/E, and X control both camera axes with painted feedback', async ({
   const lower = await readViewport(canvas);
   expect(lower.lowFrequency).toBeLessThan(higher.lowFrequency);
 
-  await pressAndWaitForPaint(page, shell, 'KeyE');
+  await pressAndWaitForPaint(page, shell, 'KeyQ');
   const zoomedOut = await readViewport(canvas);
   expect(zoomedOut.timeEnd - zoomedOut.timeStart).toBeGreaterThanOrEqual(
     zoomed.timeEnd - zoomed.timeStart,
@@ -296,12 +296,12 @@ test('WASD, Q/E, and X control both camera axes with painted feedback', async ({
   await page.getByLabel('Frequency scale').selectOption('logarithmic');
   await expect(shell).toHaveAttribute('data-frequency-scale', 'logarithmic');
   await expect.poll(async () => (await readViewport(canvas)).lowFrequency).toBeGreaterThan(0);
-  await pressAndWaitForPaint(page, shell, 'KeyQ');
+  await pressAndWaitForPaint(page, shell, 'KeyE');
   await pressAndWaitForPaint(page, shell, 'KeyX');
   const logarithmicFit = await readViewport(canvas);
   expect(logarithmicFit.lowFrequency).toBeCloseTo(20, 0);
   expect(logarithmicFit.highFrequency).toBeCloseTo(initial.highFrequency, 0);
-  await pressAndWaitForPaint(page, shell, 'KeyQ');
+  await pressAndWaitForPaint(page, shell, 'KeyE');
   const logarithmicZoom = await readViewport(canvas);
   await pressAndWaitForPaint(page, shell, 'KeyW');
   const logarithmicPan = await readViewport(canvas);
@@ -339,14 +339,14 @@ test('modifier zoom isolates time and frequency while Q/E remains combined', asy
   await pressAndWaitForPaint(page, shell, 'KeyX');
 
   const beforeFrequencyZoom = await readViewport(canvas);
-  await pressAndWaitForPaint(page, shell, 'Shift+KeyE');
+  await pressAndWaitForPaint(page, shell, 'Shift+KeyW');
   const frequencyZoom = await readViewport(canvas);
   expect(frequencyZoom.highFrequency - frequencyZoom.lowFrequency).toBeLessThan(
     beforeFrequencyZoom.highFrequency - beforeFrequencyZoom.lowFrequency,
   );
   expect(frequencyZoom.timeStart).toBe(beforeFrequencyZoom.timeStart);
   expect(frequencyZoom.timeEnd).toBe(beforeFrequencyZoom.timeEnd);
-  await pressAndWaitForPaint(page, shell, 'Shift+KeyQ');
+  await pressAndWaitForPaint(page, shell, 'Shift+KeyS');
   const frequencyZoomedOut = await readViewport(canvas);
   expect(frequencyZoomedOut.highFrequency - frequencyZoomedOut.lowFrequency).toBeGreaterThan(
     frequencyZoom.highFrequency - frequencyZoom.lowFrequency,
@@ -356,7 +356,7 @@ test('modifier zoom isolates time and frequency while Q/E remains combined', asy
   await pressAndWaitForPaint(page, shell, 'KeyX');
 
   const beforeCombinedZoom = await readViewport(canvas);
-  await pressAndWaitForPaint(page, shell, 'KeyQ');
+  await pressAndWaitForPaint(page, shell, 'KeyE');
   const combinedZoom = await readViewport(canvas);
   expect(combinedZoom.timeEnd - combinedZoom.timeStart).toBeLessThan(
     beforeCombinedZoom.timeEnd - beforeCombinedZoom.timeStart,

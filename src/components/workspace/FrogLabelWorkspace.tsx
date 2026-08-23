@@ -162,7 +162,7 @@ const tutorialSteps = [
   },
   {
     title: 'Zoom, pan, and fit',
-    text: 'Press Q/E for combined zoom, Shift+D/A for time in/out, Shift+E/Q for frequency in/out, WASD to pan, and X to fit. View changes never alter scientific coordinates.',
+    text: 'Press E/Q for combined zoom in/out, Shift+D/A for time in/out, Shift+W/S for frequency in/out, WASD to pan, and X to fit. View changes never alter scientific coordinates.',
     anchor: 'zoom',
   },
   {
@@ -1540,19 +1540,19 @@ function WorkspaceCore({
           onClick={() => runCommand('viewport.zoomIn')}
           disabled={!audio}
           data-tutorial="zoom"
-          aria-label="Zoom in spectrogram (Q)"
-          title="Q/E zoom both axes; Shift+D/A zoom time in/out; Shift+E/Q zoom frequency in/out"
+          aria-label="Zoom in spectrogram (E)"
+          title="E/Q zoom both axes in/out; Shift+D/A zoom time in/out; Shift+W/S zoom frequency in/out"
         >
-          <span className="toolbar-label">Zoom in</span> <kbd>Q</kbd>
+          <span className="toolbar-label">Zoom in</span> <kbd>E</kbd>
         </button>
         <button
           type="button"
           onClick={() => runCommand('viewport.zoomOut')}
           disabled={!audio}
-          aria-label="Zoom out spectrogram (E)"
-          title="Q/E zoom both axes; Shift+D/A zoom time in/out; Shift+E/Q zoom frequency in/out"
+          aria-label="Zoom out spectrogram (Q)"
+          title="E/Q zoom both axes in/out; Shift+D/A zoom time in/out; Shift+W/S zoom frequency in/out"
         >
-          <span className="toolbar-label">Zoom out</span> <kbd>E</kbd>
+          <span className="toolbar-label">Zoom out</span> <kbd>Q</kbd>
         </button>
         <button
           type="button"
