@@ -101,16 +101,16 @@ export const WORKSPACE_COMMANDS: readonly WorkspaceCommandDefinition[] = [
   {
     id: 'viewport.zoomTimeIn',
     label: 'Zoom time in',
-    shortcut: 'Shift+Q',
-    code: 'KeyQ',
+    shortcut: 'Shift+A',
+    code: 'KeyA',
     shift: true,
     repeatable: true,
   },
   {
     id: 'viewport.zoomTimeOut',
     label: 'Zoom time out',
-    shortcut: 'Shift+E',
-    code: 'KeyE',
+    shortcut: 'Shift+D',
+    code: 'KeyD',
     shift: true,
     repeatable: true,
   },
@@ -143,8 +143,8 @@ export const WORKSPACE_COMMANDS: readonly WorkspaceCommandDefinition[] = [
   {
     id: 'box.delete',
     label: 'Delete selected box',
-    shortcut: 'Shift+D',
-    code: 'KeyD',
+    shortcut: 'Shift+R',
+    code: 'KeyR',
     shift: true,
   },
   {

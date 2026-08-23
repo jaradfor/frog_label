@@ -50,13 +50,13 @@
   | **W** / **S**                        | Pan frequency up/down by 10% of the visible span                               |
   | **A** / **D**                        | Pan earlier/later by 10% of the visible span                                   |
   | **Q** / **E**                        | Zoom both axes in/out by 1.25× around the mouse pointer, or viewport center    |
-  | **Shift+Q** / **Shift+E**            | Zoom time only in/out, preserving the frequency window exactly                 |
+  | **Shift+A** / **Shift+D**            | Zoom time only in/out, preserving the frequency window exactly                 |
   | **Shift+W** / **Shift+S**            | Zoom frequency only in/out, preserving the time window exactly                 |
   | **X**                                | Fit complete time and frequency bounds                                         |
   | **V**                                | Play/pause                                                                     |
   | **F** / **R**                        | Faster/slower playback through the existing discrete rates                     |
   | **T**                                | Toggle Select/Draw                                                             |
-  | **Shift+D**                          | Delete selected box                                                            |
+  | **Shift+R**                          | Remove selected box                                                            |
   | **Tab** / **Shift+Tab**              | Cycle boxes when the command surface owns focus; remain native inside controls |
   | **C** / **Shift+C**                  | Cycle overlapping boxes forward/backward                                       |
   | **Shift+X**                          | Mark no-calls, retaining the existing destructive confirmation                 |
@@ -126,14 +126,15 @@
 ## Implementation Verification — 2026-08-22
 
 - Final source checks pass: 156/156 Vitest tests across 20 files, 33/33 Python tests, TypeScript, ESLint, generated-validator drift, Prettier, and `git diff --check`.
-- The production build remains within budget at 105,403 B Brotli JavaScript (150,000 B limit) and 5,073 B Brotli CSS (10,000 B limit). CE, Enterprise, and GitHub Pages artifacts were regenerated from this working tree; the Pages archive SHA-256 is `37426d76bdd702a83b00521505c73bea147bbf9c91623bea01169e366b826c29`.
-- The Chromium performance gate passed with a 71.5 ms first preview, 1.6 ms selection p95, 8.0 ms drag feedback, 8.6 ms pan feedback, 41.0 ms exact refinement, zero missed next-frame updates across 100 rapid camera actions, zero blank/opaque frames, and zero rendering long tasks.
+- The production build remains within budget at 105,400 B Brotli JavaScript (150,000 B limit) and 5,073 B Brotli CSS (10,000 B limit). CE, Enterprise, and GitHub Pages artifacts were regenerated from this working tree; the Pages archive SHA-256 is `4d9a37b4e62d52479ad733364660cf5bff4dfd03016275cd1ef28bd9da6125bc`.
+- The Chromium performance gate passed with a 64.2 ms first preview, 1.3 ms selection p95, 7.8 ms drag feedback, 7.1 ms pan feedback, 35.7 ms exact refinement, zero missed next-frame updates across 100 rapid camera actions, zero blank/opaque frames, and zero rendering long tasks.
 - The complete standalone Chromium workspace suite passes 14/14, including modifier-driven axis isolation, exact raw/band-pass/negative audition controls, reflowing dock geometry at 640×700, 844×720, 1280×720, and 1440×900; seven-palette switching without a blank frame; keyboard routing; tutorial isolation; and accessibility checks. The static Pages suite passes 6/6 and the exact generated Enterprise Interface passes its inline browser round trip.
 - The CE frontend artifact was regenerated. A new CE browser rerun still requires the normal full `ls-ce prepare` build: the existing derived checkout correctly rejected the new compatibility-manifest hash, while a disposable pristine source correctly refused to run before its upstream Yarn build/canary existed.
 
 ## Stateless Axis Zoom — 2026-08-22
 
 - `Q` and `E` remain the fast, repeatable combined zoom pair.
-- `Shift+Q` and `Shift+E` zoom time only, preserving both frequency bounds exactly.
+- `Shift+A` and `Shift+D` zoom time only, preserving both frequency bounds exactly.
 - `Shift+W` and `Shift+S` zoom frequency only, preserving both time bounds exactly; this keeps the shifted layer aligned with `W/S` frequency panning.
+- Delete moves from `Shift+D` to the unused mnemonic `Shift+R` (remove), keeping the complete command set on the left hand.
 - All zoom commands remain pointer-anchored when the pointer is over the spectrogram and centered otherwise. `X` always fits both axes.

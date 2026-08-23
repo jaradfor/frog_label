@@ -106,7 +106,7 @@ test('selects GRE by chord, draws with the mouse, toggles tools, and deletes by 
 
   await page.keyboard.press('KeyT');
   await expect(tool).toHaveAttribute('aria-pressed', 'true');
-  await page.keyboard.press('Shift+KeyD');
+  await page.keyboard.press('Shift+KeyR');
   await expect(page.locator('.spectrogram-stage')).toHaveAttribute('data-box-count', '0');
   await expect(page.getByRole('row', { name: /GRE — Green Tree Frog/ })).toHaveCount(0);
 });
@@ -301,14 +301,14 @@ test('modifier zoom isolates time and frequency while Q/E remains combined', asy
   await page.mouse.move(plot.x + plot.width / 2, plot.y + plot.height / 2);
 
   const beforeTimeZoom = await readViewport(canvas);
-  await pressAndWaitForPaint(page, shell, 'Shift+KeyQ');
+  await pressAndWaitForPaint(page, shell, 'Shift+KeyA');
   const timeZoom = await readViewport(canvas);
   expect(timeZoom.timeEnd - timeZoom.timeStart).toBeLessThan(
     beforeTimeZoom.timeEnd - beforeTimeZoom.timeStart,
   );
   expect(timeZoom.lowFrequency).toBe(beforeTimeZoom.lowFrequency);
   expect(timeZoom.highFrequency).toBe(beforeTimeZoom.highFrequency);
-  await pressAndWaitForPaint(page, shell, 'Shift+KeyE');
+  await pressAndWaitForPaint(page, shell, 'Shift+KeyD');
   const timeZoomedOut = await readViewport(canvas);
   expect(timeZoomedOut.timeEnd - timeZoomedOut.timeStart).toBeGreaterThan(
     timeZoom.timeEnd - timeZoom.timeStart,

@@ -157,7 +157,7 @@ const tutorialSteps = [
   },
   {
     title: 'Zoom, pan, and fit',
-    text: 'Press Q/E for combined zoom, Shift+Q/E for time-only zoom, Shift+W/S for frequency-only zoom, WASD to pan, and X to fit. View changes never alter scientific coordinates.',
+    text: 'Press Q/E for combined zoom, Shift+A/D for time-only zoom, Shift+W/S for frequency-only zoom, WASD to pan, and X to fit. View changes never alter scientific coordinates.',
     anchor: 'zoom',
   },
   {
@@ -1512,7 +1512,7 @@ function WorkspaceCore({
           disabled={!audio}
           data-tutorial="zoom"
           aria-label="Zoom in spectrogram (Q)"
-          title="Q/E zoom both axes; Shift+Q/E zoom time; Shift+W/S zoom frequency"
+          title="Q/E zoom both axes; Shift+A/D zoom time; Shift+W/S zoom frequency"
         >
           <span className="toolbar-label">Zoom in</span> <kbd>Q</kbd>
         </button>
@@ -1521,7 +1521,7 @@ function WorkspaceCore({
           onClick={() => runCommand('viewport.zoomOut')}
           disabled={!audio}
           aria-label="Zoom out spectrogram (E)"
-          title="Q/E zoom both axes; Shift+Q/E zoom time; Shift+W/S zoom frequency"
+          title="Q/E zoom both axes; Shift+A/D zoom time; Shift+W/S zoom frequency"
         >
           <span className="toolbar-label">Zoom out</span> <kbd>E</kbd>
         </button>
@@ -1573,9 +1573,9 @@ function WorkspaceCore({
           type="button"
           onClick={() => runCommand('box.delete')}
           disabled={!selectedBox || !editable}
-          aria-label="Delete selected box (Shift+D)"
+          aria-label="Delete selected box (Shift+R)"
         >
-          <span className="toolbar-label">Delete</span> <kbd>⇧D</kbd>
+          <span className="toolbar-label">Delete</span> <kbd>⇧R</kbd>
         </button>
         <button
           type="button"
