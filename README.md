@@ -1,16 +1,100 @@
 # FrogLabel
 
-FrogLabel is a spectrogram-first human annotation workspace for frog-call recordings. One React/TypeScript application supplies a browser demo, a private local-file workflow, Label Studio Community Edition 1.23.0, and a generated Label Studio Enterprise Interface.
+**Fast, precise bioacoustic annotation for people who work in spectrograms every day.**
 
-## Try the demo
+FrogLabel helps ecologists turn long field recordings into consistent, reviewable time–frequency annotations. It is designed for expert annotators: the right hand can remain on the mouse while the left hand controls species, playback, tools, panels, panning, and zooming.
 
-The [GitHub Pages demo](https://jaradfor.github.io/frog_label/) opens directly into the labeling workflow with the bundled `green_tree.mp3` Green Tree Frog recording and the `GRE — Green Tree Frog` species ready in the catalog. No login or Label Studio server is required. Demo annotations stay in memory and reset when the page reloads.
+[Try the live demo](https://jaradfor.github.io/frog_label/) · [Label your own audio](https://jaradfor.github.io/frog_label/?mode=local) · [Read the ecologist quick guide](docs/ECOLOGIST_GUIDE.md)
 
-Hold `Space`, tap `G`, and release to select `GRE` and arm Draw, then drag over a call in the spectrogram. The `?` button opens isolated practice. `T` activates Draw; `G` activates Select; `WASD` pans; `E`/`Q` zoom both axes in/out; `Shift+D/A` zooms time in/out; `Shift+W/S` zooms frequency in/out; `X` fits the recording; `Shift+R` removes the selected box; and number keys `1`–`4` toggle Species, Details, Display, and Dataset unless a text field owns the key or a mouse button is held.
+The demo opens immediately with a real Green Treefrog (_Hyla cinerea_) field recording. No account or server is required; press `?` for a guided two-minute tutorial.
 
-Use [Try your own audio](https://jaradfor.github.io/frog_label/?mode=local) for the private local workflow. WAV and MP3 bytes stay in the browser. FrogLabel accepts recordings up to five minutes, subject to the decoded channel-sample safety limit. JSON is the durable, lossless save format; CSV is a convenient flat export.
+## Why FrogLabel
 
-Panel `3` offers Linear, Adjustable, and Logarithmic frequency axes. Adjustable mode adds a continuous low-frequency-emphasis control from 0% (linear-like) through a balanced middle to 100% (strong low-frequency expansion without the full logarithmic bias). Axis changes affect display only; annotation coordinates remain exact Hz.
+- **Move quickly without leaving the spectrogram.** The main workspace never scrolls. Numbered panels move the spectrogram aside when opened, and the full workflow is reachable from the left side of the keyboard.
+- **Select species by muscle memory.** Hold `Space`, type the shortest useful prefix, and release. FrogLabel previews the likely match while you type and automatically arms Draw after selection.
+- **Hear what is inside each annotation.** Every box offers **Play Call Only**, **Play Full Sound**, and **Play Outside Box**. A configurable frequency margin helps distinguish the focal call from insects, overlapping species, and background noise.
+- **Navigate without losing visual context.** Panning and zooming preserve the previous spectrogram frame until the exact new view is ready, avoiding disruptive blank flashes.
+- **Adapt the display to the recording.** Choose from multiple scientific colour palettes, brightness and contrast controls, stereo-channel views, and Linear, Logarithmic, or Adjustable frequency spacing.
+- **Review an entire recording from one place.** The Annotation Dataset panel lists every box with species, time, frequency, bandwidth, listening controls, and deletion.
+- **Record true negatives explicitly.** “No calls present” is a deliberate reviewed state, distinct from an unfinished recording with no boxes.
+- **Protect the measurements.** Display, zoom, playback, palette, and panel changes never alter stored annotation coordinates.
+
+## Try it in one minute
+
+1. Open the [live demo](https://jaradfor.github.io/frog_label/).
+2. Press `V` to listen.
+3. Hold `Space`, tap `G`, and release to select `GRE — Green Treefrog`.
+4. Drag a box around one bright call.
+5. Press `2` to compare the call-only, full-sound, and outside-box audio.
+6. Press `4` to review and listen across all annotations.
+
+The [private local workflow](https://jaradfor.github.io/frog_label/?mode=local) accepts WAV and MP3 recordings. Audio stays in the browser, JSON preserves the complete annotation for later work, and CSV provides a convenient flat export.
+
+## Essential controls
+
+| Task                                          | Control                                  |
+| --------------------------------------------- | ---------------------------------------- |
+| Play or pause                                 | `V`                                      |
+| Slower / faster playback                      | `R` / `F`                                |
+| Choose a species                              | Hold `Space` + type prefix, then release |
+| Draw / Select and resize                      | `T` / `G`                                |
+| Pan through time and frequency                | `W` `A` `S` `D`                          |
+| Zoom both axes out / in                       | `Q` / `E`                                |
+| Zoom time out / in                            | `Shift+A` / `Shift+D`                    |
+| Zoom frequency out / in                       | `Shift+S` / `Shift+W`                    |
+| Fit the full recording                        | `X`                                      |
+| Species / Box Details / Spectrogram / Dataset | `1` / `2` / `3` / `4`                    |
+| Delete selected box                           | `Shift+R`                                |
+| Mark a reviewed recording with no calls       | `Shift+X`                                |
+
+Number shortcuts work after using buttons or the spectrogram. They are intentionally ignored only while typing in a field or holding a mouse button.
+
+## Designed for ecological research
+
+### Precise, stable annotations
+
+Each box stores full-precision start and end times, low and high frequencies in hertz, a stable identifier, and a species identity snapshot. Resizing updates the same box rather than silently replacing it. Undo and redo apply to labeling changes, while view preferences remain separate from research data.
+
+### Fast species switching at project scale
+
+Species codes use one to six left-hand letters. Unique prefixes resolve immediately: if only one species begins with `G`, `Space` + `G` is enough. When codes share a prefix, an administrator-set priority chooses the most useful default while the full code remains available.
+
+### Listening as part of quality control
+
+FrogLabel makes acoustic comparison available both for the selected box and for every row in the Dataset panel:
+
+- **Play Call Only** keeps the box frequency band, plus a configurable margin.
+- **Play Full Sound** plays the same time window without filtering.
+- **Play Outside Box** removes the boxed frequency band. If the suspected call disappears, the box is likely covering it well.
+
+These are listening aids only. They do not transform the source recording or the stored annotation.
+
+### Frequency views for different soundscapes
+
+Linear spacing can devote too much screen area to high frequencies, while a fully logarithmic axis can overemphasize the lowest frequencies. FrogLabel adds an **Adjustable** scale between them, with a continuous low-frequency-emphasis control. All three views use the same exact annotation bounds in hertz.
+
+## Ways to use FrogLabel
+
+| Setting                            | Intended use                                                                                      |
+| ---------------------------------- | ------------------------------------------------------------------------------------------------- |
+| **Live demo**                      | Evaluate the workflow with the bundled Green Treefrog recording.                                  |
+| **Private local mode**             | Label WAV or MP3 files without uploading audio. Save complete JSON or flat CSV.                   |
+| **Label Studio Community Edition** | Use the same workspace inside a project with shared species and Label Studio review/submission.   |
+| **Label Studio Enterprise**        | Generate a self-contained Interface JSX artifact using the same annotation contract and workflow. |
+
+FrogLabel deliberately leaves task assignment, review, submission, history, and export ownership with Label Studio. The embedded interface does not request personal access tokens, advance tasks, or create a second submission path.
+
+## Scientific and privacy boundaries
+
+- Time and frequency geometry remains in full-precision seconds and hertz.
+- Viewport, selection, playback, tutorial, palette, and open-panel state are never written into scientific annotations.
+- A final-box deletion returns the recording to unreviewed; only the explicit No Calls action creates a reviewed negative.
+- Local audio is processed in the browser and is not uploaded by FrogLabel.
+- Runtime assets are self-hosted, with no analytics or telemetry client.
+- Host messages and imported files are bounded and validated before use.
+- The current browser workflow supports WAV or MP3, up to two channels, 192 kHz, five minutes, and the documented decoded-sample safety limit.
+
+See [Security and data flow](docs/SECURITY_AND_DATA_FLOW.md) and [Architecture](docs/ARCHITECTURE.md) for the detailed boundaries.
 
 ## Run locally
 
@@ -23,15 +107,13 @@ npm run dev -- --host 127.0.0.1 --port 4175
 
 Open:
 
-- `http://127.0.0.1:4175/frog_label/` — the auto-loaded GRE demo.
+- `http://127.0.0.1:4175/frog_label/` — the Green Treefrog demo.
 - `http://127.0.0.1:4175/frog_label/froglabel-local/` — private local WAV/MP3 labeling.
-- `http://127.0.0.1:4175/frog_label/fake-host/` — deterministic embedded-host development.
+- `http://127.0.0.1:4175/frog_label/fake-host/` — the embedded-host development harness.
 
-## Label Studio
+## Label Studio deployment
 
-Label Studio owns tasks, annotations, review, Submit/Update, history, and export. FrogLabel owns the canonical annotation document, scientific display, box editing, and semantic undo/redo. Embedded FrogLabel never asks an annotator for a token and never calls task, annotation, Submit, or export APIs.
-
-The Python CLI composes operator configuration with Hydra, validates it with strict Pydantic models, and supports the pinned Label Studio CE source plus offline Enterprise artifact generation:
+The Python CLI validates project configuration and prepares either the pinned Label Studio CE integration or the offline Enterprise artifact:
 
 ```bash
 python3 -m venv .venv
@@ -41,7 +123,7 @@ froglabel project init --target ce --project 1 \
   --source /src/label-studio-1.23.0 --data-dir /var/lib/froglabel-ce \
   --config-dir examples/configs --config-name demo-seeded
 
-# Website-only Enterprise artifact; this does not contact Enterprise.
+# Produces files locally; it does not contact Label Studio Enterprise.
 froglabel project init --target enterprise \
   --config-dir examples/configs --config-name enterprise-seeded \
   --output-dir dist/enterprise
@@ -49,13 +131,13 @@ froglabel project init --target enterprise \
 
 Integration targets:
 
-- Label Studio CE: exact version 1.23.0 at commit `2a9bfbcbf0a844b999de97e601d16050a893f5fb`, derived at build time with an owned custom-tag import, same-origin assets, native region summaries, and a project-catalog overlay.
-- Label Studio Enterprise: deterministic, self-contained `specVersion: 1` Interface JSX generated from the same workspace, with current input/output schemas and `getResults`/`parseResults` serializers.
-- GitHub Pages: deterministic static artifact built for `/frog_label/`; it has no Label Studio runtime dependency and auto-loads the GRE demo recording.
+- **Label Studio CE:** version 1.23.0 at commit `2a9bfbcbf0a844b999de97e601d16050a893f5fb`, with same-origin assets, native region summaries, and a project species catalog.
+- **Label Studio Enterprise:** deterministic, self-contained `specVersion: 1` Interface JSX generated from the shared workspace, including schemas and result serializers.
+- **GitHub Pages:** deterministic static artifact built for `/frog_label/`, with no Label Studio runtime dependency.
 
-Start with [Architecture](docs/ARCHITECTURE.md), [CE installation](docs/CE_INSTALLATION.md), [Enterprise setup](docs/ENTERPRISE_SETUP.md), [project initialization](docs/PROJECT_INITIALIZATION.md), and [the ecologist guide](docs/ECOLOGIST_GUIDE.md).
+Setup references: [CE installation](docs/CE_INSTALLATION.md) · [Enterprise setup](docs/ENTERPRISE_SETUP.md) · [Project initialization](docs/PROJECT_INITIALIZATION.md)
 
-## Validation
+## Validation and reproducibility
 
 ```bash
 npm test
@@ -72,12 +154,8 @@ npm run test:e2e:pages:agent
 .venv/bin/pytest
 ```
 
-GitHub Pages deployment repeats validator generation checks, TypeScript, lint, formatting, unit/component tests, the production build, bundle-size checks, and the Pages browser workflow before uploading `build/pages`.
+Automated checks cover the annotation domain, keyboard routing, audio decoding and filtering, spectrogram rendering, cache behaviour, accessibility, local file round trips, Label Studio boundaries, and complete browser workflows. Browser tests reject unexpected external requests.
 
-All checked-in browser tests reject unexpected external requests. The pinned agent Chromium is a reproducible fallback when Playwright's browser CDN is unavailable.
+## Demo recording and attribution
 
-## Scientific and privacy boundary
-
-CE stores one singleton `reactcode` result. The Enterprise Interface stores one `labels` result from `froglabel` to `audio`, whose one-item value contains the same versioned canonical FrogLabel document. Geometry remains full-precision seconds/hertz; view and playback state never enter scientific data. Species boxes snapshot immutable identity, current code, and full name. Enterprise export parsing remains backward-compatible with the former ReactCode envelope.
-
-Runtime assets are self-hosted. Private local audio never uploads, and the checked-in application contains no analytics or telemetry client. Host messages are source/origin/tag checked and runtime validated. See [Security and data flow](docs/SECURITY_AND_DATA_FLOW.md).
+The demo and tutorial use an adult male Green Treefrog (_Hyla cinerea_) recorded at the University of Mississippi Field Station by Wikimedia Commons contributor Fredlyfish4. The excerpt is distributed under [CC BY-SA 3.0](https://creativecommons.org/licenses/by-sa/3.0/). See [audio provenance and edits](docs/TUTORIAL_AUDIO_PROVENANCE.md) and [dependencies and licenses](docs/DEPENDENCIES_AND_LICENSES.md).

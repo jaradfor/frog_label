@@ -35,27 +35,35 @@ test('selects GRE by chord, draws with the mouse, switches tools, and deletes by
   await page.mouse.up();
   await expect(page.locator('.spectrogram-stage')).toHaveAttribute('data-box-count', '1');
   await page.keyboard.press('Digit4');
-  await expect(page.getByRole('row', { name: /GRE — Green Tree Frog/ })).toBeVisible();
+  const datasetRow = page.getByRole('row', { name: /GRE — Green Treefrog/i });
+  await expect(datasetRow).toBeVisible();
+  const datasetCallOnly = datasetRow.getByRole('button', { name: 'Play Call Only' });
+  const datasetFullSound = datasetRow.getByRole('button', { name: 'Play Full Sound' });
+  await expect(datasetCallOnly).toHaveClass(/audition-call-only/);
+  await expect(datasetFullSound).toHaveClass(/audition-full-sound/);
+  await datasetCallOnly.click();
+  await expect(datasetCallOnly).toHaveAttribute('aria-pressed', 'true');
+  await datasetFullSound.click();
+  await expect(datasetFullSound).toHaveAttribute('aria-pressed', 'true');
   await page.keyboard.press('Digit2');
   await expect(page.getByText('Origin').locator('..')).toContainText('Human');
-  const rawReplay = page.getByRole('button', { name: /Replay box raw/i });
-  const bandReplay = page.getByRole('button', { name: /Replay box band-pass/i });
-  const negativeReplay = page.getByRole('button', { name: /Play negative outside box/i });
+  const details = page.locator('.right-panel');
+  const rawReplay = details.getByRole('button', { name: /Play Full Sound/i });
+  const bandReplay = details.getByRole('button', { name: /Play Call Only/i });
+  const negativeReplay = details.getByRole('button', { name: /Play Outside Box/i });
   const bandMargin = page.getByRole('spinbutton', { name: 'Band-pass margin' });
   await expect(rawReplay).toBeEnabled();
   await expect(bandReplay).toBeEnabled();
   await expect(negativeReplay).toBeEnabled();
   await expect(bandMargin).toHaveValue('250');
   await expect(page.locator('.audition-band-summary')).toContainText(
-    /Band-pass .*Negative removes/,
+    /Call Only keeps .*Outside Box removes/,
   );
   await bandReplay.click();
   await expect(bandReplay).toHaveAttribute('aria-pressed', 'true');
   await negativeReplay.click();
   await expect(negativeReplay).toHaveAttribute('aria-pressed', 'true');
-  await expect(
-    page.getByRole('status').filter({ hasText: 'Negative replay playing' }),
-  ).toBeVisible();
+  await expect(page.getByRole('status').filter({ hasText: 'Outside box playing' })).toBeVisible();
   await page.screenshot({ path: 'test-results/playwright/gre-annotation.png' });
 
   // C is a selection command even when Draw is armed; it must not silently
@@ -108,7 +116,7 @@ test('selects GRE by chord, draws with the mouse, switches tools, and deletes by
   await expect(drawTool).toHaveAttribute('aria-pressed', 'true');
   await page.keyboard.press('Shift+KeyR');
   await expect(page.locator('.spectrogram-stage')).toHaveAttribute('data-box-count', '0');
-  await expect(page.getByRole('row', { name: /GRE — Green Tree Frog/ })).toHaveCount(0);
+  await expect(page.getByRole('row', { name: /GRE — Green Treefrog/i })).toHaveCount(0);
 });
 
 test('routes expert controls after buttons and the spectrogram, but protects fields and held pointers', async ({
@@ -458,7 +466,9 @@ for (const viewport of [
   });
 }
 
-test('tutorial writes only to memory and closes on an epoch switch', async ({ page }) => {
+test('tutorial leaves the live annotation unchanged and closes on an epoch switch', async ({
+  page,
+}) => {
   await page.goto('./fake-host/index.html');
   const frame = page.frameLocator('#froglabel');
   await frame.getByRole('button', { name: 'Help and tutorial' }).click();
@@ -467,15 +477,15 @@ test('tutorial writes only to memory and closes on an epoch switch', async ({ pa
   await frame.getByRole('button', { name: /^Next/ }).click();
   await frame.getByRole('button', { name: /^Next/ }).click();
   await page.keyboard.down('Space');
-  await page.keyboard.press('KeyE');
+  await page.keyboard.press('KeyG');
   await expect(frame.locator('.tutorial-practice-layer .expert-status-line')).toHaveAttribute(
     'data-species-candidate',
-    'ETF',
+    'GRE',
   );
   await page.keyboard.up('Space');
   await expect(
     frame.locator('.tutorial-practice-layer [aria-label="Current species"]'),
-  ).toContainText('ETF');
+  ).toContainText('GRE');
   await frame.getByRole('button', { name: /^Next/ }).click();
   await frame.getByRole('button', { name: /^Next/ }).click();
   const canvas = frame.locator('.tutorial-practice-layer canvas.spectrogram-canvas');

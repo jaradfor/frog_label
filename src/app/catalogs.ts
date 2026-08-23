@@ -11,7 +11,7 @@ export const demoCatalog: SpeciesCatalog = {
   catalogRevision: 1,
   defaultSpeciesId: null,
   species: [
-    ['demo:green-tree-frog', 'GRE', 'Green Tree Frog'],
+    ['demo:green-tree-frog', 'GRE', 'Green Treefrog'],
     ['demo:perons-tree-frog', 'ETF', "Peron's Tree Frog"],
     ['demo:red-eyed-tree-frog', 'RED', 'Red-Eyed Tree Frog'],
     ['demo:corroboree-frog', 'CRF', 'Corroboree Frog'],
@@ -40,10 +40,10 @@ export const tutorialCatalog: SpeciesCatalog = {
     {
       schemaVersion: 2,
       kind: 'froglabel.species',
-      speciesId: 'tutorial:perons-tree-frog',
-      code: 'ETF',
+      speciesId: 'tutorial:green-treefrog',
+      code: 'GRE',
       selectionPriority: 0,
-      speciesName: "Peron's Tree Frog",
+      speciesName: 'Green Treefrog',
       addedAfterInitialization: false,
       createdAt: initializedAt,
       updatedAt: initializedAt,

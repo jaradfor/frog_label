@@ -53,6 +53,6 @@ Frequency projection is centralized in `domain/frequencyScale.ts`. Linear and lo
 
 - Standalone/Pages: Vite artifact using local/session ports at `/frog_label/`.
 - CE 1.23.0: same workspace built at `/react-app/froglabel/`; a small upstream patch registers the custom tag early and fixes detached-entity lifecycle reads found by real-browser testing.
-- Enterprise: one generated Interface JSX file with compiled shared workspace code, CSS, schemas, synthetic tutorial audio, and embedded catalog; host React is injected, not bundled a second time.
+- Enterprise: one generated Interface JSX file with compiled shared workspace code, CSS, schemas, licensed Green Treefrog tutorial audio, and embedded catalog; host React is injected, not bundled a second time.
 
 Models are outside this human-demo pass. Optional versioned provenance in the canonical schema remains a future-compatible data boundary, without a supported compiler or prediction workflow.

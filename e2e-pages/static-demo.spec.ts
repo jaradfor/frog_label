@@ -22,11 +22,11 @@ test('opens the seeded root, locks early drawing, and preserves one UUID through
 }, testInfo) => {
   await page.goto('./');
   await expect(page.getByText('Browser workflow demo')).toBeAttached();
-  await expect(page.getByText('green_tree.mp3', { exact: true })).toBeVisible();
+  await expect(page.getByText('green-treefrog-hyla-cinerea.mp3', { exact: true })).toBeVisible();
   await expect(page.getByText('GRE demo recording', { exact: true })).toBeVisible();
   await page.getByRole('button', { name: '1 Species' }).click();
   for (const species of [
-    'GRE Green Tree Frog',
+    'GRE Green Treefrog',
     "ETF Peron's Tree Frog",
     'RED Red-Eyed Tree Frog',
     'CRF Corroboree Frog',
@@ -58,7 +58,7 @@ test('opens the seeded root, locks early drawing, and preserves one UUID through
   await expect(shell).toHaveAttribute('data-spectrogram-state', 'firstFrameReady', {
     timeout: 15_000,
   });
-  await page.getByRole('option', { name: 'GRE Green Tree Frog' }).click();
+  await page.getByRole('option', { name: 'GRE Green Treefrog' }).click();
   await drawTool.click();
   await expect(drawTool).toHaveAttribute('aria-pressed', 'true');
   const ready = await stage.boundingBox();
@@ -80,7 +80,7 @@ test('opens the seeded root, locks early drawing, and preserves one UUID through
   await expect(selectTool).toHaveAttribute('aria-pressed', 'true');
   await page.keyboard.press('Escape');
   await expect(stage).toHaveAttribute('data-selected-box-id', '');
-  await page.getByRole('button', { name: /Select GRE, Green Tree Frog box/ }).press('Enter');
+  await page.getByRole('button', { name: /Select GRE, Green Treefrog box/ }).press('Enter');
   await expect(stage).toHaveAttribute('data-selected-box-id', boxId!);
   const beforeStyle = await selected.getAttribute('style');
   const handle = await selected.locator('.handle-se').boundingBox();
@@ -126,11 +126,13 @@ test('runs the complete private WAV/MP3, JSON/CSV, tutorial, and dirty-state flo
   await page.goto('./?mode=local');
   await expect(page).toHaveTitle('FrogLabel local demo');
   await expect(page.getByText('Private local workspace')).toBeAttached();
-  await expect(page.getByText('No JSON prepared', { exact: true })).toBeVisible();
+  await expect(page.getByText('Nothing to download yet', { exact: true })).toBeVisible();
 
   const audioInput = page.locator('input[type="file"][accept*="audio/wav"]');
   await audioInput.setInputFiles(path.join(root, 'public/audio/synthetic-frog-practice.wav'));
-  await expect(page.getByText(/source-faithful PCM/)).toBeVisible({ timeout: 15_000 });
+  await expect(page.getByText('synthetic-frog-practice.wav', { exact: true })).toBeVisible({
+    timeout: 15_000,
+  });
   await expect(page.locator('.spectrogram-shell')).toHaveAttribute(
     'data-spectrogram-state',
     'firstFrameReady',
@@ -186,22 +188,22 @@ test('runs the complete private WAV/MP3, JSON/CSV, tutorial, and dirty-state flo
   expect(updatedGeometry.endTimeSeconds).toBe(originalGeometry.endTimeSeconds);
   expect(updatedGeometry.lowFrequencyHz).toBe(originalGeometry.lowFrequencyHz);
   expect(updatedGeometry.highFrequencyHz).toBe(originalGeometry.highFrequencyHz);
-  await expect(page.getByText(/JSON download prepared at/)).toBeVisible();
+  await expect(page.getByText(/Downloaded at/)).toBeVisible();
 
   page.once('dialog', (dialog) => dialog.accept());
   const noCalls = page.getByRole('button', { name: /No calls present/ }).first();
   await noCalls.click();
   await expect(noCalls).toHaveAttribute('aria-pressed', 'true');
-  await expect(page.getByText('Changes since JSON preparation', { exact: true })).toBeVisible();
+  await expect(page.getByText('New changes to download', { exact: true })).toBeVisible();
 
   page.once('dialog', (dialog) => dialog.accept());
   await page.locator('input[type="file"][accept*="application/json"]').setInputFiles(jsonPath!);
   await page.getByRole('button', { name: '4 Dataset' }).click();
   await expect(page.getByRole('row', { name: /GTF — Green Tree Frog/ })).toBeVisible();
-  await expect(page.getByText('No JSON prepared', { exact: true })).toBeVisible();
+  await expect(page.getByText('Nothing to download yet', { exact: true })).toBeVisible();
 
   await page.getByRole('button', { name: 'Delete GTF box' }).click();
-  await expect(page.getByText(/changes in memory/)).toBeVisible();
+  await expect(page.getByText('Work not downloaded yet', { exact: true })).toBeVisible();
 
   const mp3 = Buffer.from(
     (await readFile(path.join(root, 'tests/fixtures/short-stereo.mp3.b64'), 'utf8')).trim(),
@@ -228,8 +230,7 @@ test('runs the complete private WAV/MP3, JSON/CSV, tutorial, and dirty-state flo
   await page.mouse.move(mp3Early!.x + 160, mp3Early!.y + 150);
   await page.mouse.up();
   await expect(mp3Stage).toHaveAttribute('data-box-count', '0');
-  await expect(page.getByText(/browser-decoded range/)).toBeVisible({ timeout: 15_000 });
-  await expect(page.getByText(/native stereo playback/)).toBeVisible();
+  await expect(page.locator('.audio-summary')).toContainText('Stereo', { timeout: 15_000 });
   await expect(mp3Shell).toHaveAttribute('data-spectrogram-state', 'firstFrameReady', {
     timeout: 15_000,
   });
@@ -252,7 +253,7 @@ test('runs the complete private WAV/MP3, JSON/CSV, tutorial, and dirty-state flo
   await page.getByRole('button', { name: /Start 2-minute tutorial/ }).click();
   await expect(page.getByRole('dialog', { name: /Tutorial step 1/ })).toBeVisible();
   await page.getByRole('button', { name: /Next/ }).click();
-  await expect(page.getByText(/Temporary synthetic practice audio/)).toBeVisible();
+  await expect(page.getByText(/real Green Treefrog recording/)).toBeVisible();
   await page.getByRole('button', { name: /Exit tutorial/ }).click();
 
   const csvPromise = page.waitForEvent('download');
@@ -278,9 +279,7 @@ function isBenignSoftwareWebGlWarning(type: string, text: string): boolean {
   return type === 'warning' && text.includes('GPU stall due to ReadPixels');
 }
 
-test('completes, restarts, recovers, and exits the full isolated tutorial', async ({
-  page,
-}, testInfo) => {
+test('completes, restarts, recovers, and exits the full tutorial', async ({ page }, testInfo) => {
   await page.goto('./');
   await expect(page.locator('.spectrogram-shell')).toHaveAttribute(
     'data-spectrogram-state',

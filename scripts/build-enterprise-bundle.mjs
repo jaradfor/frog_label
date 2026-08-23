@@ -36,7 +36,12 @@ await writeFile(
       exportName: 'renderEnterpriseFrogLabel',
       hostReactExternal: true,
       bundledDependencies: ['generated JSON-schema validators'],
-      embeddedAssets: ['scoped CSS', 'FrogLabel logo', 'spectrogram worker source'],
+      embeddedAssets: [
+        'scoped CSS',
+        'FrogLabel logo',
+        'spectrogram worker source',
+        'CC BY-SA Green Treefrog tutorial audio',
+      ],
       minifiedBytes: Buffer.byteLength(minified),
       unminifiedBytes: Buffer.byteLength(unminified),
       forbiddenScan: 'passed',

@@ -58,7 +58,9 @@ test('keeps the 5,000-box workspace responsive and enforces the rendering ceilin
   await audioInput.setInputFiles(
     path.resolve(import.meta.dirname, '../public/audio/synthetic-frog-practice.wav'),
   );
-  await expect(page.getByText(/source-faithful PCM/)).toBeVisible({ timeout: 15_000 });
+  await expect(page.getByText('synthetic-frog-practice.wav', { exact: true })).toBeVisible({
+    timeout: 15_000,
+  });
   await expect(page.locator('.spectrogram-shell')).toHaveAttribute(
     'data-spectrogram-state',
     'firstFrameReady',

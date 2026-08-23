@@ -54,6 +54,12 @@
     --muted: #afc0b3;
     --accent: #62db94;
     --accent-dark: #123e27;
+    --call-only: #62db94;
+    --call-only-bg: #123e27;
+    --full-sound: #77baff;
+    --full-sound-bg: #112f4d;
+    --outside-box: #f0b76b;
+    --outside-box-bg: #402c13;
     --danger: #ff8c82;
     --shadow: 0 18px 48px rgb(0 0 0 / 0.25);
     display: flex;
@@ -83,6 +89,12 @@
     --muted: #526459;
     --accent: #08783d;
     --accent-dark: #d7f5e3;
+    --call-only: #08783d;
+    --call-only-bg: #d7f5e3;
+    --full-sound: #155ea8;
+    --full-sound-bg: #deedfc;
+    --outside-box: #8a5100;
+    --outside-box-bg: #fff0d5;
     --danger: #a7271f;
     color-scheme: light;
   }
@@ -808,6 +820,23 @@
     background: transparent;
     color: var(--danger);
   }
+  .dataset-audition-actions {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 4px;
+  }
+  .dataset-play {
+    min-height: 26px;
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    padding: 3px 7px;
+    background: var(--panel);
+    color: var(--text);
+    font-size: 0.68rem;
+    font-weight: 750;
+    white-space: nowrap;
+  }
   .empty-cell {
     padding: 12px;
     color: var(--muted);
@@ -953,10 +982,35 @@
     line-height: 1.05;
     text-align: center;
   }
+  .audition-call-only {
+    --audition-color: var(--call-only);
+    --audition-background: var(--call-only-bg);
+  }
+  .audition-full-sound {
+    --audition-color: var(--full-sound);
+    --audition-background: var(--full-sound-bg);
+  }
+  .audition-outside-box {
+    --audition-color: var(--outside-box);
+    --audition-background: var(--outside-box-bg);
+  }
+  .audition-actions button.audition-control,
+  button.dataset-play.audition-control {
+    border-color: color-mix(in srgb, var(--audition-color) 72%, var(--line));
+    background: color-mix(in srgb, var(--audition-background) 68%, var(--panel));
+    color: var(--audition-color);
+  }
   .audition-actions button.active {
-    border-color: var(--accent);
-    background: var(--accent-dark);
-    color: var(--accent);
+    border-color: var(--audition-color, var(--accent));
+    background: var(--audition-background, var(--accent-dark));
+    color: var(--audition-color, var(--accent));
+    box-shadow: inset 0 0 0 1px var(--audition-color, var(--accent));
+  }
+  button.dataset-play.active {
+    border-color: var(--audition-color, var(--accent));
+    background: var(--audition-background, var(--accent-dark));
+    color: var(--audition-color, var(--accent));
+    box-shadow: inset 0 0 0 1px var(--audition-color, var(--accent));
   }
   .audition-actions button:disabled {
     cursor: not-allowed;

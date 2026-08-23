@@ -87,7 +87,9 @@ describe('FrogLabelWorkspace controls', () => {
       name: /RED Legacy Red Frog.*historical/i,
     });
     expect(historical).toHaveAttribute('aria-disabled', 'true');
-    expect(screen.getByText(/visible but not selectable until an administrator/i)).toBeVisible();
+    expect(
+      screen.getByText(/shown for reference but cannot be selected.*project administrator/i),
+    ).toBeVisible();
 
     fireEvent.keyDown(window, { code: 'Space', key: ' ' });
     fireEvent.keyDown(window, { code: 'KeyR', key: 'r' });
@@ -442,7 +444,7 @@ describe('FrogLabelWorkspace controls', () => {
     expect(screen.queryByText(/^Pause$/)).not.toBeInTheDocument();
   });
 
-  it('advances the tutorial with Enter, reserves Space, and teaches the ETF chord', async () => {
+  it('advances the tutorial with Enter, reserves Space, and teaches the GRE chord', async () => {
     const user = userEvent.setup();
     renderWorkspace();
     await user.click(screen.getByRole('button', { name: 'Help and tutorial' }));
@@ -462,8 +464,8 @@ describe('FrogLabelWorkspace controls', () => {
     expect(screen.getByRole('dialog', { name: 'Tutorial step 2 of 12' })).toBeVisible();
     fireEvent.keyDown(window, { code: 'Enter', key: 'Enter' });
     expect(screen.getByRole('dialog', { name: 'Tutorial step 3 of 12' })).toBeVisible();
-    expect(screen.getByText('Choose ETF')).toBeVisible();
-    expect(screen.getByText(/Hold Space, type E, and release to choose ETF/)).toBeVisible();
+    expect(screen.getByText('Choose GRE')).toBeVisible();
+    expect(screen.getByText(/Hold Space, tap G, then release Space to choose GRE/)).toBeVisible();
     await user.click(screen.getByRole('button', { name: /Exit tutorial/ }));
     expect(screen.queryByRole('dialog', { name: /Tutorial step/ })).not.toBeInTheDocument();
   });

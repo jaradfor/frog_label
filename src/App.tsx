@@ -86,9 +86,9 @@ export function DemoApp({
       catalog: new MemorySpeciesCatalogPort(demoCatalog),
       audio: new MemoryAudioSourcePort({
         url: audioUrl,
-        filename: 'green_tree.mp3',
+        filename: 'green-treefrog-hyla-cinerea.mp3',
         mimeType: 'audio/mpeg',
-        trustedSampleRateHz: 44_100,
+        trustedSampleRateHz: 48_000,
       }),
     };
   }, []);
@@ -303,7 +303,7 @@ export function LocalApp({ demoHref }: { demoHref?: string } = {}) {
     if (
       dirty &&
       !window.confirm(
-        'This audio replacement clears the current annotation. Continue? Session species remain available.',
+        'Opening different audio clears the current labels. Continue? Your species list will stay available.',
       )
     )
       return;
@@ -344,8 +344,8 @@ export function LocalApp({ demoHref }: { demoHref?: string } = {}) {
       );
       setNotice(
         pendingResume
-          ? `Validated and resumed ${pendingResume.audio.filename}.`
-          : `Opened ${file.name}. Audio stays in this browser tab.`,
+          ? `Opened saved work for ${pendingResume.audio.filename}.`
+          : `Opened ${file.name}.`,
       );
       setPendingResume(null);
     } catch (caught) {
@@ -361,7 +361,10 @@ export function LocalApp({ demoHref }: { demoHref?: string } = {}) {
     try {
       const parsed = await parseLocalFile(file);
       if (operationRef.current !== operation || operation.controller.signal.aborted) return;
-      if (dirty && !window.confirm('Loading this JSON replaces the current annotation. Continue?'))
+      if (
+        dirty &&
+        !window.confirm('Opening this saved work replaces the current labels. Continue?')
+      )
         return;
       const candidateCatalog = catalogFromLocalFile(parsed);
       const currentCatalog = await session.catalog.read();
@@ -389,7 +392,7 @@ export function LocalApp({ demoHref }: { demoHref?: string } = {}) {
           mergedCatalog,
           parsed.document,
         );
-        setNotice(`Validated and resumed annotations for ${parsed.audio.filename}.`);
+        setNotice(`Opened saved work for ${parsed.audio.filename}.`);
       } else {
         setPendingResume(parsed);
         setNotice(
@@ -420,7 +423,7 @@ export function LocalApp({ demoHref }: { demoHref?: string } = {}) {
 
   const downloadJson = async () => {
     if (!session.descriptor) {
-      setError('Wait for audio decoding to finish before preparing JSON.');
+      setError('Wait for the audio to finish opening before downloading JSON.');
       return;
     }
     try {
@@ -440,7 +443,7 @@ export function LocalApp({ demoHref }: { demoHref?: string } = {}) {
         baselineSignature: localWorkSignature(catalog, document),
         preparedAt,
       }));
-      setNotice('JSON download prepared. Audio bytes are not included.');
+      setNotice('JSON download ready.');
     } catch (caught) {
       setError(readLocalError(caught));
     }
@@ -448,25 +451,21 @@ export function LocalApp({ demoHref }: { demoHref?: string } = {}) {
 
   const downloadCsv = async () => {
     if (!session.descriptor) {
-      setError('Wait for audio decoding to finish before preparing CSV.');
+      setError('Wait for the audio to finish opening before downloading CSV.');
       return;
     }
     try {
       const catalog = await session.catalog.read();
       const document = session.annotation.getSnapshot().document;
       downloadFlatCsv(buildLocalFile(session.descriptor, catalog, document));
-      setNotice('CSV download prepared. JSON preparation status is unchanged.');
+      setNotice('CSV download ready.');
     } catch (caught) {
       setError(readLocalError(caught));
     }
   };
 
   const startUnrelatedCatalog = async () => {
-    if (
-      dirty &&
-      !window.confirm('Reset the annotation and the entire page-session species catalog?')
-    )
-      return;
+    if (dirty && !window.confirm('Clear all labels and species from this session?')) return;
     const catalog = emptyLocalCatalog();
     replaceSession(
       makeLocalSession(
@@ -482,7 +481,7 @@ export function LocalApp({ demoHref }: { demoHref?: string } = {}) {
     );
     setPendingResume(null);
     setError('');
-    setNotice('Started an unrelated empty catalog.');
+    setNotice('Started with an empty species list.');
   };
 
   const addDemoSpecies = async () => {
@@ -501,7 +500,7 @@ export function LocalApp({ demoHref }: { demoHref?: string } = {}) {
         local.document,
         { baselineSignature: local.baselineSignature, preparedAt: local.preparedAt },
       );
-      setNotice('Added the explicit demo species to this page-session catalog.');
+      setNotice('Added the example species.');
     } catch (caught) {
       setError(readLocalError(caught));
     }
@@ -509,11 +508,11 @@ export function LocalApp({ demoHref }: { demoHref?: string } = {}) {
 
   const persistenceLabel = dirty
     ? local.preparedAt
-      ? 'Changes since JSON preparation'
-      : 'No JSON prepared · changes in memory'
+      ? 'New changes to download'
+      : 'Work not downloaded yet'
     : local.preparedAt
-      ? `JSON download prepared at ${local.preparedAt}`
-      : 'No JSON prepared';
+      ? `Downloaded at ${local.preparedAt}`
+      : 'Nothing to download yet';
   const canResetLocalWork =
     local.catalog.species.length > 0 ||
     (local.catalog.historicalSpecies?.length ?? 0) > 0 ||

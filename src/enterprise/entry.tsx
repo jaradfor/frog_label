@@ -36,9 +36,9 @@ function EnterpriseApplication({ host, catalog }: EnterpriseApplicationProps) {
   const tutorialAudioSource = useMemo(
     () => ({
       url: embeddedTutorialAudioUrl(),
-      filename: 'synthetic-frog-practice.wav',
-      mimeType: 'audio/wav',
-      trustedSampleRateHz: 8_000,
+      filename: 'green-treefrog-hyla-cinerea.mp3',
+      mimeType: 'audio/mpeg',
+      trustedSampleRateHz: 48_000,
     }),
     [],
   );
@@ -67,10 +67,8 @@ function EnterpriseApplication({ host, catalog }: EnterpriseApplicationProps) {
         mode="embedded"
         speciesCreateScope="annotation"
         tutorialAudioSource={tutorialAudioSource}
-        persistenceLabel="Current Enterprise annotation updated"
-        headerExtras={
-          <span className="mode-badge">Enterprise inline · {__FROGLABEL_BUILD_VERSION__}</span>
-        }
+        persistenceLabel="Ready to submit"
+        headerExtras={<span className="mode-badge">Enterprise</span>}
       />
     </div>
   );

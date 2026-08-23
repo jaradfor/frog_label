@@ -43,7 +43,9 @@ export async function runSeededStandaloneExplorer(
   await audioInput.setInputFiles(
     path.resolve(import.meta.dirname, '../public/audio/synthetic-frog-practice.wav'),
   );
-  await expect(page.getByText(/source-faithful PCM/)).toBeVisible({ timeout: 15_000 });
+  await expect(page.getByText('synthetic-frog-practice.wav', { exact: true })).toBeVisible({
+    timeout: 15_000,
+  });
   await expect(page.locator('.spectrogram-shell')).toHaveAttribute(
     'data-spectrogram-state',
     'firstFrameReady',
@@ -81,7 +83,23 @@ export async function runSeededStandaloneExplorer(
     await page.mouse.up();
   }
   await page.getByRole('button', { name: '4 Dataset' }).click();
-  await expect(page.getByRole('row', { name: /EXF — Explorer Tree Frog/ })).toHaveCount(2);
+  const explorerRows = page.getByRole('row', { name: /EXF — Explorer Tree Frog/ });
+  await expect(explorerRows).toHaveCount(2);
+  const selectedBeforeRowPlayback = await page
+    .locator('.spectrogram-stage')
+    .getAttribute('data-selected-box-id');
+  const firstRowCallOnly = explorerRows.first().getByRole('button', { name: 'Play Call Only' });
+  await firstRowCallOnly.click();
+  await expect(firstRowCallOnly).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.locator('.spectrogram-stage')).toHaveAttribute(
+    'data-selected-box-id',
+    selectedBeforeRowPlayback!,
+  );
+  const secondRowFullSound = explorerRows.nth(1).getByRole('button', {
+    name: 'Play Full Sound',
+  });
+  await secondRowFullSound.click();
+  await expect(secondRowFullSound).toHaveAttribute('aria-pressed', 'true');
   record('draw two overlapping boxes', 'two bounded canonical boxes visible');
 
   await selectTool.click();
@@ -93,7 +111,10 @@ export async function runSeededStandaloneExplorer(
   );
   await page.keyboard.press('KeyC');
   await page.getByRole('button', { name: '2 Details' }).click();
-  await page.getByRole('button', { name: /Replay box raw/i }).click();
+  await page
+    .locator('.right-panel')
+    .getByRole('button', { name: /Play Full Sound/i })
+    .click();
   record('select overlap, cycle forward, replay selection', 'selection-only actions completed');
 
   const beforeView = await downloadJson(page);
@@ -115,7 +136,7 @@ export async function runSeededStandaloneExplorer(
   await expect(page.getByRole('dialog', { name: /Tutorial step/ })).toHaveCount(0);
   const afterTutorial = await downloadJson(page);
   expect(afterTutorial.document).toEqual(beforeView.document);
-  record('tutorial Space then Escape', 'isolated practice left live document unchanged');
+  record('tutorial Space then Escape', 'tutorial left live document unchanged');
 
   page.once('dialog', (dialog) => dialog.accept());
   const noCalls = page.getByRole('button', { name: /No calls present/ }).first();

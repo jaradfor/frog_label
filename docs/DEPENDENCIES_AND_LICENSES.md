@@ -15,7 +15,7 @@ The artifacts contain no runtime CDN, web font, analytics SDK, model runtime, or
 
 Vite, TypeScript, Vitest, Playwright, axe-core, fast-check, ESLint, Prettier, and size-limit are development dependencies. The Python operator uses Pydantic v2, Hydra/OmegaConf, PyYAML, and Label Studio's own Django ORM in CE mode. pytest and Ruff are development-only. See `package-lock.json` and `pyproject.toml` for constraints.
 
-Label Studio CE source is not included in the implemented source archive. The separate patch applies only to independently obtained Apache-2.0 Label Studio CE 1.23.0 source; preserve its LICENSE/NOTICE. The synthetic tutorial WAV is original deterministic synthesis and is described in `TUTORIAL_AUDIO_PROVENANCE.md` and `public/audio/LICENSE.txt`.
+Label Studio CE source is not included in the implemented source archive. The separate patch applies only to independently obtained Apache-2.0 Label Studio CE 1.23.0 source; preserve its LICENSE/NOTICE. The Green Treefrog demo/tutorial recording is CC BY-SA 3.0; its attribution and edits are documented in `TUTORIAL_AUDIO_PROVENANCE.md`. The synthetic WAV retained for automated tests is CC0-1.0 under `public/audio/LICENSE.txt`.
 
 The repository software is licensed under the root `LICENSE`. The deployed demo includes the
 FrogID/FrogLabel logo supplied with the baseline; the project owner must confirm authorization

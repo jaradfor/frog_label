@@ -44,7 +44,7 @@ export async function runCompleteTutorialWorkflow(
   await assertStep(surface, 2, geometry);
   await playOnce(surface);
   await next(surface);
-  await chooseEtf(page, surface);
+  await chooseGre(page, surface);
   await next(surface);
   await ensureDrawTool(surface, true);
   await next(surface);
@@ -82,7 +82,7 @@ export async function runCompleteTutorialWorkflow(
   await playOnce(surface);
   await next(surface);
   await assertStep(surface, 3, geometry);
-  await chooseEtf(page, surface);
+  await chooseGre(page, surface);
   await next(surface);
   await assertStep(surface, 4, geometry);
   await ensureDrawTool(surface, true);
@@ -106,19 +106,29 @@ export async function runCompleteTutorialWorkflow(
   );
   await expect(practiceLocator(surface, `[data-box-id="${stableBoxId}"]`)).toHaveCount(1);
 
-  // Deliberately hide the next target. The tutorial must restore the panel and
-  // re-resolve a live, nonzero anchor instead of retaining a stale rectangle.
-  // This is test setup rather than a step-7 user action, so bypass a coachmark
-  // that can legitimately cover this unrelated control at narrow placements.
-  await surface.getByRole('button', { name: '2 Details' }).click({ force: true });
   await next(surface);
+  await expect(surface.getByRole('dialog', { name: 'Tutorial step 8 of 12' })).toBeVisible();
+  await expect(surface.getByRole('button', { name: /^Next/ })).toBeDisabled();
+  await surface.locator('.coachmark').focus();
+  await page.keyboard.press('Digit2');
+  await expect(surface.getByRole('button', { name: '2 Details' })).toHaveAttribute(
+    'aria-pressed',
+    'true',
+  );
+  await expect(surface.getByRole('button', { name: /^Next/ })).toBeEnabled();
   await assertStep(surface, 8, geometry);
   await expect(practiceRoot(surface).getByLabel('Start (s)')).toHaveValue(/^\d+\.\d{3}$/u);
   await expect(practiceRoot(surface).getByLabel('Low (Hz)')).toHaveValue(/^\d+$/u);
+  await expect(surface.getByRole('button', { name: /Play Call Only/i })).toBeVisible();
+  await expect(surface.getByRole('button', { name: /Play Full Sound/i })).toBeVisible();
+  await expect(surface.getByRole('button', { name: /Play Outside Box/i })).toBeVisible();
 
+  await surface.getByRole('button', { name: '4 Dataset' }).click({ force: true });
   const datasetBeforeView = await surface
-    .getByRole('row', { name: /ETF — Peron's Tree Frog/ })
+    .getByRole('row', { name: /GRE — Green Treefrog/ })
     .innerText();
+  expect(datasetBeforeView).toContain('Play Call Only');
+  expect(datasetBeforeView).toContain('Play Full Sound');
   await next(surface);
   await assertStep(surface, 9, geometry);
   await surface.getByRole('button', { name: 'Zoom in spectrogram' }).click();
@@ -134,7 +144,7 @@ export async function runCompleteTutorialWorkflow(
   await page.mouse.up({ button: 'middle' });
   await surface.getByRole('button', { name: 'Reset and fit spectrogram view' }).click();
   await waitForFirstFrame(surface);
-  expect(await surface.getByRole('row', { name: /ETF — Peron's Tree Frog/ }).innerText()).toBe(
+  expect(await surface.getByRole('row', { name: /GRE — Green Treefrog/ }).innerText()).toBe(
     datasetBeforeView,
   );
 
@@ -199,12 +209,12 @@ async function playOnce(surface: TutorialSurface): Promise<void> {
   await expect(play).toHaveAttribute('aria-pressed', 'false');
 }
 
-async function chooseEtf(page: Page, surface: TutorialSurface): Promise<void> {
+async function chooseGre(page: Page, surface: TutorialSurface): Promise<void> {
   await surface.locator('.coachmark').focus();
   await page.keyboard.down('Space');
-  await page.keyboard.press('KeyE');
+  await page.keyboard.press('KeyG');
   await page.keyboard.up('Space');
-  await expect(practiceRoot(surface).getByLabel('Current species')).toContainText('ETF');
+  await expect(practiceRoot(surface).getByLabel('Current species')).toContainText('GRE');
   await ensureDrawTool(surface, true);
 }
 
@@ -238,13 +248,13 @@ async function assertPracticeBoxCoversCall(surface: TutorialSurface): Promise<vo
   const dataset = surface.getByRole('button', { name: '4 Dataset' });
   const wasOpen = (await dataset.getAttribute('aria-pressed')) === 'true';
   if (!wasOpen) await dataset.click({ force: true });
-  const row = surface.getByRole('row', { name: /ETF — Peron's Tree Frog/ });
+  const row = surface.getByRole('row', { name: /GRE — Green Treefrog/ });
   await expect(row).toBeVisible();
   const cells = await row.locator('td').allTextContents();
   if (!wasOpen) await dataset.click({ force: true });
   const [start, end, low, high] = cells.slice(0, 4).map(Number);
-  expect(start).toBeLessThanOrEqual(3.6);
-  expect(end).toBeGreaterThanOrEqual(4.4);
+  expect(start).toBeLessThanOrEqual(5.4);
+  expect(end).toBeGreaterThanOrEqual(6.6);
   expect(low).toBeLessThanOrEqual(1_050);
   expect(high).toBeGreaterThanOrEqual(5_000);
 }

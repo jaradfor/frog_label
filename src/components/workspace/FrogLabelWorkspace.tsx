@@ -9,6 +9,7 @@ import {
   type ReactNode,
 } from 'react';
 import logo from '../../assets/frog_id_logo.png';
+import greenTreefrogTutorialAudioUrl from '../../assets/green_tree.mp3?url';
 import type { AnnotationDocumentPort } from '../../ports/AnnotationDocumentPort';
 import type { AudioSourcePort, AudioSourceSnapshot } from '../../ports/AudioSourcePort';
 import type { SpeciesCatalogPort } from '../../ports/SpeciesCatalogPort';
@@ -111,76 +112,72 @@ interface ActiveSpeciesCapture {
   rejected: string;
 }
 
-// TODO(tutorial-real-audio): replace only this asset/descriptor with the user's
-// licensed, biologically verified Peron's Tree Frog call; tutorial logic must remain unchanged.
 const DEFAULT_TUTORIAL_AUDIO = {
-  url: `${import.meta.env.BASE_URL}audio/synthetic-frog-practice.wav`,
-  filename: 'synthetic-frog-practice.wav',
-  mimeType: 'audio/wav',
-  trustedSampleRateHz: 44_100,
-  description:
-    "Temporary synthetic practice audio — not a verified Peron's Tree Frog reference recording",
+  url: greenTreefrogTutorialAudioUrl,
+  filename: 'green-treefrog-hyla-cinerea.mp3',
+  mimeType: 'audio/mpeg',
+  trustedSampleRateHz: 48_000,
 } as const;
 
 const tutorialSteps = [
   {
-    title: 'Welcome',
-    text: 'Two-minute practice using the real FrogLabel workspace. Practice changes are never saved.',
+    title: 'Learn the workflow',
+    text: 'Label one Green Treefrog call and learn the controls you will use most often.',
     anchor: 'help',
   },
   {
-    title: 'Listen',
-    text: `${DEFAULT_TUTORIAL_AUDIO.description}. Press V to play or pause while your right hand stays on the mouse.`,
+    title: 'Listen first',
+    text: 'This is a real Green Treefrog recording. Press V to play or pause while your right hand stays on the mouse.',
     anchor: 'play',
   },
   {
-    title: 'Choose ETF',
-    text: "Hold Space, type E, and release to choose ETF — Peron's Tree Frog.",
+    title: 'Choose GRE',
+    text: 'Hold Space, tap G, then release Space to choose GRE — Green Treefrog.',
     anchor: 'species',
   },
   {
     title: 'Draw tool',
-    text: 'Species selection arms Draw automatically. Press T for Draw and G for Select.',
+    text: 'Choosing a species switches to Draw automatically. Press T for Draw and G for Select.',
     anchor: 'tool',
   },
   {
     title: 'Draw',
-    text: 'Drag a time–frequency box around one bright call in the real spectrogram.',
+    text: 'Drag a box tightly around one bright call in the spectrogram.',
     anchor: 'spectrogram',
   },
   {
     title: 'Select tool',
-    text: 'Press G to enter Select so the practice box can be inspected and resized.',
+    text: 'Press G for Select so you can inspect and resize the box.',
     anchor: 'tool',
   },
   {
     title: 'Select and resize',
-    text: 'Select the same box and drag one corner handle. Keep one box; its identity and scientific coordinates update in place.',
+    text: 'Drag a corner handle to tighten the box around the call.',
     anchor: 'spectrogram',
   },
   {
-    title: 'Inspect',
-    text: 'Inspect the selected species, time, and frequency in Box Details and Annotation Dataset.',
+    title: 'Check the call',
+    text: 'Press 2 to open Box Details. Play Call Only keeps the sound inside the box frequency band, which helps separate the frog from insects and background noise. Play Full Sound gives you the unfiltered recording for comparison. Play Outside Box removes the boxed band; if the call disappears, the box is covering it well.',
     anchor: 'details',
   },
   {
     title: 'Zoom, pan, and fit',
-    text: 'Press E/Q for combined zoom in/out, Shift+D/A for time in/out, Shift+W/S for frequency in/out, WASD to pan, and X to fit. View changes never alter scientific coordinates.',
+    text: 'Use E/Q to zoom both axes, Shift+D/A for time, Shift+W/S for frequency, and WASD to pan. Press X to fit the full recording again.',
     anchor: 'zoom',
   },
   {
     title: 'Missing species',
-    text: 'Open Add missing species if you wish. The real form writes only to this isolated practice catalog and is never required.',
+    text: 'If the species is not listed, press 1 and choose Add missing species. Enter the code and species name supplied by your project lead.',
     anchor: 'add-species',
   },
   {
     title: 'No calls present',
-    text: 'Use No calls present (Shift+X) only for a reviewed recording with no calls. Do not activate it in this positive-call exercise.',
+    text: 'Use No calls present (Shift+X) only after checking the whole recording and finding no frog calls. This recording has calls, so leave it off.',
     anchor: 'no-calls',
   },
   {
     title: 'Finished',
-    text: 'Finish to discard practice and restore the authoritative task paused. Nothing from this tutorial is submitted or saved.',
+    text: 'You are ready to label calls. Press Finish to return to your recording.',
     anchor: null,
   },
 ] as const;
@@ -222,23 +219,20 @@ export function FrogLabelWorkspace(props: FrogLabelWorkspaceProps) {
     [tutorialSession],
   );
 
-  const exitTutorial = useCallback(
-    (message = 'Practice discarded. Your live annotation was not changed.') => {
-      setTutorialActive(false);
-      setTutorialStep(0);
-      setTutorialEvents(new Set());
-      setEntryEpoch(null);
-      setTutorialMessage(message);
-      queueMicrotask(() => liveHelpButtonRef.current?.focus());
-    },
-    [],
-  );
+  const exitTutorial = useCallback((message = 'Tutorial closed.') => {
+    setTutorialActive(false);
+    setTutorialStep(0);
+    setTutorialEvents(new Set());
+    setEntryEpoch(null);
+    setTutorialMessage(message);
+    queueMicrotask(() => liveHelpButtonRef.current?.focus());
+  }, []);
 
   useEffect(
     () =>
       props.annotationPort.subscribe((snapshot) => {
         if (tutorialActive && entryEpoch !== null && snapshot.epoch !== entryEpoch) {
-          exitTutorial('The task changed; the tutorial was closed. Practice was discarded.');
+          exitTutorial('The recording changed, so the tutorial closed.');
         }
       }),
     [entryEpoch, exitTutorial, props.annotationPort, tutorialActive],
@@ -256,13 +250,15 @@ export function FrogLabelWorkspace(props: FrogLabelWorkspaceProps) {
       } else if (event.code === 'Enter' && !isNativeActivationTarget(event.target)) {
         event.preventDefault();
         event.stopImmediatePropagation();
+        const requiredEvent = eventForStep(tutorialStep);
+        if (tutorialStepRequiresAction(tutorialStep) && !tutorialEvents.has(requiredEvent!)) return;
         if (tutorialStep === tutorialSteps.length - 1) exitTutorial();
         else setTutorialStep((step) => step + 1);
       }
     };
     window.addEventListener('keydown', handle, true);
     return () => window.removeEventListener('keydown', handle, true);
-  }, [exitTutorial, helpOpen, tutorialActive, tutorialStep]);
+  }, [exitTutorial, helpOpen, tutorialActive, tutorialEvents, tutorialStep]);
 
   const startTutorial = () => {
     setEntryEpoch(props.annotationPort.getSnapshot().epoch);
@@ -305,13 +301,13 @@ export function FrogLabelWorkspace(props: FrogLabelWorkspaceProps) {
             catalogPort={tutorialSession.catalog}
             audioSourcePort={tutorialSession.audio}
             mode="demo"
-            headerExtras={<span className="mode-badge tutorial">Tutorial · changes discarded</span>}
+            headerExtras={<span className="mode-badge tutorial">Tutorial</span>}
             onHelp={() => setHelpOpen(true)}
             helpButtonRef={tutorialHelpButtonRef}
             onSemanticEvent={semanticEvent}
             speciesCreateScope="session"
             tutorialMessage=""
-            persistenceLabel="Practice only — changes discarded"
+            persistenceLabel="Tutorial"
             tutorialStep={tutorialStep}
             suspended={helpOpen}
           />
@@ -336,6 +332,9 @@ export function FrogLabelWorkspace(props: FrogLabelWorkspaceProps) {
             eventForStep(tutorialStep) ? tutorialEvents.has(eventForStep(tutorialStep)!) : false
           }
           onNext={() => {
+            const requiredEvent = eventForStep(tutorialStep);
+            if (tutorialStepRequiresAction(tutorialStep) && !tutorialEvents.has(requiredEvent!))
+              return;
             if (tutorialStep === tutorialSteps.length - 1) exitTutorial();
             else setTutorialStep((step) => step + 1);
           }}
@@ -618,13 +617,16 @@ function WorkspaceCore({
       });
       setDomain(next);
       domainRef.current = next;
-      setAnnouncement('Annotation reconciled with the host.');
+      setAnnouncement('Latest changes loaded.');
     }
   }, [audio, catalog, host.document, host.epoch, host.locked, settings.frequencyScale]);
 
   const visualDomain = pendingDomain ?? domain;
   const boxes = useMemo(() => visualDomain.document?.boxes ?? [], [visualDomain.document?.boxes]);
   const selectedBox = boxes.find((box) => box.id === visualDomain.selectedBoxId) ?? null;
+  const activeAuditionBox = activeBoxAudition
+    ? (boxes.find((box) => box.id === activeBoxAudition.boxId) ?? null)
+    : null;
   const currentSpecies =
     catalog?.species.find((entry) => entry.speciesId === currentSpeciesId) ?? null;
   const quickSpeciesIndex = useMemo(() => {
@@ -667,15 +669,14 @@ function WorkspaceCore({
     if (
       !activeBoxAudition ||
       (!host.hidden &&
-        activeBoxAudition.boxId === visualDomain.selectedBoxId &&
-        selectedBox !== null &&
-        boxAuditionRevision(selectedBox) === activeBoxAudition.boxRevision)
+        activeAuditionBox !== null &&
+        boxAuditionRevision(activeAuditionBox) === activeBoxAudition.boxRevision)
     )
       return;
     auditionRequestRef.current += 1;
     audio?.element.pause();
     setActiveBoxAudition(null);
-  }, [activeBoxAudition, audio, host.hidden, selectedBox, visualDomain.selectedBoxId]);
+  }, [activeAuditionBox, activeBoxAudition, audio, host.hidden]);
 
   useEffect(() => {
     if (!hostEditable) setTool((current) => (current === 'select' ? current : 'select'));
@@ -696,9 +697,7 @@ function WorkspaceCore({
     async (command: DomainCommand, reason: MutationReason) => {
       if (!editable || pendingExpectedRef.current !== null) {
         setMutationError(
-          host.locked
-            ? 'This prediction or annotation is read-only.'
-            : 'Wait for the current save to finish.',
+          host.locked ? 'This recording is read-only.' : 'Wait for the current save to finish.',
         );
         return false;
       }
@@ -728,8 +727,8 @@ function WorkspaceCore({
         setHostStatus(annotationPort.getStatus());
         setAnnouncement(
           mode === 'embedded'
-            ? `${humanizeReason(reason)} updated in the current Label Studio annotation. Use outer Submit/Update to persist it.`
-            : `${humanizeReason(reason)} updated in memory.`,
+            ? `${humanizeReason(reason)} updated. Use Submit or Update when you are finished.`
+            : `${humanizeReason(reason)} updated.`,
         );
         return true;
       } catch (error) {
@@ -756,10 +755,9 @@ function WorkspaceCore({
     } else audio.element.pause();
   }, [audio]);
 
-  const auditionSelectedBox = useCallback(
-    (mode: BoxAuditionMode, paddingHz: number) => {
-      if (!audio || !selectedBox) return;
-      const box = selectedBox;
+  const auditionBox = useCallback(
+    (box: FrogLabelBoxV2, mode: BoxAuditionMode, paddingHz: number) => {
+      if (!audio) return;
       const request = ++auditionRequestRef.current;
       let filter: AudioFrequencyFilter | undefined;
       let bandLabel = 'full spectrum';
@@ -799,7 +797,7 @@ function WorkspaceCore({
         .then(() => {
           if (request !== auditionRequestRef.current) return;
           setAnnouncement(
-            `${mode === 'raw' ? 'Raw' : mode === 'band-pass' ? 'Band-pass' : 'Negative'} audition ${box.startTimeSeconds.toFixed(3)}–${box.endTimeSeconds.toFixed(3)} seconds · ${bandLabel}.`,
+            `${mode === 'raw' ? 'Full sound' : mode === 'band-pass' ? 'Call only' : 'Outside box'} playing from ${box.startTimeSeconds.toFixed(3)}–${box.endTimeSeconds.toFixed(3)} seconds · ${bandLabel}.`,
           );
         })
         .catch((error) => {
@@ -808,7 +806,14 @@ function WorkspaceCore({
           setAudioError(readError(error));
         });
     },
-    [audio, selectedBox],
+    [audio],
+  );
+
+  const auditionSelectedBox = useCallback(
+    (mode: BoxAuditionMode, paddingHz: number) => {
+      if (selectedBox) auditionBox(selectedBox, mode, paddingHz);
+    },
+    [auditionBox, selectedBox],
   );
 
   const changeAuditionPadding = useCallback(
@@ -1032,6 +1037,7 @@ function WorkspaceCore({
           setPanels((value) => ({ ...value, species: !value.species }));
           break;
         case 'panel.details':
+          if (!panels.details) onSemanticEvent('panel.detailsOpened');
           setPanels((value) => ({ ...value, details: !value.details, display: false }));
           break;
         case 'panel.display':
@@ -1149,6 +1155,7 @@ function WorkspaceCore({
       hostEditable,
       toggleNoCalls,
       onSemanticEvent,
+      panels.details,
       panByViewFraction,
       selectBox,
       spectrogramReady,
@@ -1343,11 +1350,6 @@ function WorkspaceCore({
       if (practiceBox) selectBox(practiceBox.id);
     }
     if (tutorialStep === 7) {
-      setPanels((current) =>
-        current.details && !current.display && current.dataset
-          ? current
-          : { ...current, details: true, display: false, dataset: true },
-      );
       if (practiceBox) selectBox(practiceBox.id);
       fitView();
     }
@@ -1374,10 +1376,10 @@ function WorkspaceCore({
       if (drawingAllowed) setTool('draw');
       const scopeMessage =
         speciesCreateScope === 'annotation'
-          ? 'Added to this annotation. The project lead can include it in a later project catalog update.'
+          ? 'Ask your project lead to add it to the project species list.'
           : speciesCreateScope === 'project'
-            ? 'Added to this project catalog. Other annotators will see it on their next catalog refresh.'
-            : 'Added to this page session and selected.';
+            ? 'It is now available to the project team.'
+            : 'It is ready to use.';
       setAnnouncement(
         `${species.code} — ${species.speciesName} added and selected.${drawingAllowed ? ' Draw armed.' : ' Drawing is now locked.'} ${scopeMessage}`,
       );
@@ -1401,10 +1403,10 @@ function WorkspaceCore({
   const readyPersistenceLabel =
     persistenceLabel ??
     (mode === 'embedded'
-      ? 'Current Label Studio annotation updated'
+      ? 'Ready to submit'
       : mode === 'local'
-        ? 'No JSON prepared'
-        : 'Demo memory only');
+        ? 'Nothing to download yet'
+        : 'Demo');
   const captureResolution = speciesCapture?.selection.resolution ?? null;
   const captureAlternatives = captureResolution?.candidates
     .slice(1, 3)
@@ -1417,7 +1419,7 @@ function WorkspaceCore({
   const statusMain = speciesCapture
     ? `SPECIES ${speciesCapture.selection.query || ''}_ → ${captureResolution ? `${captureResolution.winner.code} — ${captureResolution.winner.speciesName}` : 'no match'}${captureAmbiguity}${captureAlternatives ? ` · also ${captureAlternatives}` : ''}${speciesCapture.rejected ? ` · rejected ${speciesCapture.rejected}` : ''} · release Space`
     : `${tool.toUpperCase()} · ${currentSpecies ? `${currentSpecies.code} — ${currentSpecies.speciesName}` : 'NO SPECIES'} · ${isPlaying ? 'PLAYING' : 'PAUSED'} ${playbackRate}×${visualDomain.document?.reviewStatus === 'no_calls' ? ' · NO CALLS' : ''}`;
-  const statusMeta = `${view.timeStartSeconds.toFixed(2)}–${view.timeEndSeconds.toFixed(2)}s · ${Math.round(view.lowFrequencyHz)}–${Math.round(view.highFrequencyHz)}Hz · render ${spectrogramRenderStatus} · ${hostStatus.phase}`;
+  const statusMeta = `${view.timeStartSeconds.toFixed(2)}–${view.timeEndSeconds.toFixed(2)}s · ${Math.round(view.lowFrequencyHz)}–${Math.round(view.highFrequencyHz)}Hz`;
 
   return (
     <main
@@ -1448,14 +1450,14 @@ function WorkspaceCore({
           {headerExtras}
           <span
             className={`save-status status-${hostStatus.phase}`}
-            aria-label={`Persistence status: ${hostStatus.phase}`}
+            aria-label={`Save status: ${hostStatus.phase}`}
           >
             {hostStatus.phase === 'saving' || pendingDomain
               ? 'Saving…'
               : hostStatus.phase === 'read-only'
                 ? 'Read-only'
                 : hostStatus.phase === 'error'
-                  ? 'Host error'
+                  ? 'Save error'
                   : readyPersistenceLabel}
           </span>
           <button
@@ -1712,12 +1714,8 @@ function WorkspaceCore({
               <strong>{audio?.source.filename ?? 'Waiting for audio'}</strong>
               {audio && (
                 <span>
-                  {formatSeconds(audio.durationSeconds)} · decoded{' '}
-                  {Math.round(audio.analysis.sampleRateHz).toLocaleString()} Hz analysis ·{' '}
-                  {audio.channelCount === 1 ? 'mono' : 'native stereo playback'} ·{' '}
-                  {audio.decoder === 'source-faithful-wav'
-                    ? 'source-faithful PCM'
-                    : 'browser-decoded range'}
+                  {formatSeconds(audio.durationSeconds)} ·{' '}
+                  {audio.channelCount === 1 ? 'Mono' : 'Stereo'}
                 </span>
               )}
             </div>
@@ -1730,9 +1728,7 @@ function WorkspaceCore({
 
           <div className="spectrogram-frame">
             {interfacePhase === 'loading' && (
-              <StateNotice
-                title={audioPhase === 'loading' ? 'Decoding audio once…' : 'Loading workspace…'}
-              />
+              <StateNotice title={audioPhase === 'loading' ? 'Preparing audio…' : 'Opening…'} />
             )}
             {interfacePhase === 'error' && (
               <StateNotice
@@ -1747,7 +1743,7 @@ function WorkspaceCore({
                 detail={
                   mode === 'local'
                     ? 'The spectrogram will appear here after an audio file is opened.'
-                    : 'The host has not supplied an audio file yet.'
+                    : 'No audio file is available for this recording.'
                 }
               >
                 {emptyAudioState}
@@ -1815,10 +1811,21 @@ function WorkspaceCore({
             <DatasetTable
               boxes={host.hidden ? [] : boxes}
               selectedBoxId={visualDomain.selectedBoxId}
+              activeAudition={activeBoxAudition}
+              auditionPaddingHz={
+                Number.isFinite(Number(auditionPaddingHz)) && Number(auditionPaddingHz) >= 0
+                  ? clamp(
+                      Number(auditionPaddingHz),
+                      0,
+                      audio?.maximumFrequencyHz ?? view.maximumFrequencyHz,
+                    )
+                  : null
+              }
               onSelect={(id) => {
                 selectBox(id);
                 onSemanticEvent('box.selected', id);
               }}
+              onPlay={(box, mode, paddingHz) => auditionBox(box, mode, paddingHz)}
               onDelete={(id) => void commit({ type: 'box/delete', boxId: id }, 'box/delete')}
               disabled={!editable}
             />
@@ -2020,7 +2027,7 @@ function SpeciesPicker({
                   aria-disabled="true"
                   aria-selected="false"
                   style={{ top: (firstVisibleSpecies + offset) * speciesRowHeight }}
-                  title="Historical V1 species — an administrator must assign a V2 code and priority before selection"
+                  title="Historical species — ask a project administrator to update it before selection"
                 >
                   <strong>{entry.code}</strong>
                   <span>{entry.speciesName} · historical</span>
@@ -2052,8 +2059,9 @@ function SpeciesPicker({
       {Boolean(catalog.historicalSpecies?.length) && (
         <p className="permission-note">
           {catalog.historicalSpecies!.length} historical species{' '}
-          {catalog.historicalSpecies!.length === 1 ? 'entry is' : 'entries are'} visible but not
-          selectable until an administrator completes V2 migration.
+          {catalog.historicalSpecies!.length === 1 ? 'entry is' : 'entries are'} shown for reference
+          but cannot be selected. Ask a project administrator to update{' '}
+          {catalog.historicalSpecies!.length === 1 ? 'it' : 'them'}.
         </p>
       )}
       <button
@@ -2217,12 +2225,12 @@ function DetailsPanel({
     Boolean(box) && box!.lowFrequencyHz <= 0 && box!.highFrequencyHz >= maximumFrequencyHz;
   const activeAuditionLabel =
     activeAuditionMode === 'raw'
-      ? 'Raw replay playing'
+      ? 'Full sound playing'
       : activeAuditionMode === 'band-pass'
-        ? 'Band-pass replay playing'
+        ? 'Call only playing'
         : activeAuditionMode === 'negative'
-          ? 'Negative replay playing'
-          : 'Ready to audition';
+          ? 'Outside box playing'
+          : 'Ready to listen';
   return (
     <section data-tutorial="details">
       <PanelHeading number="2" title="Box Details" />
@@ -2237,41 +2245,41 @@ function DetailsPanel({
             <span>{box.species.speciesName}</span>
           </div>
           <fieldset className="box-audition">
-            <legend>Audition selected window</legend>
+            <legend>Listen to selected box</legend>
             <div className="audition-actions">
               <button
                 type="button"
-                className={activeAuditionMode === 'raw' ? 'active' : ''}
+                className={`audition-control audition-full-sound${activeAuditionMode === 'raw' ? ' active' : ''}`}
                 aria-pressed={activeAuditionMode === 'raw'}
                 onClick={() => onPlay('raw', paddingValid ? paddingValue : 0)}
               >
-                <span>Replay box</span>
-                <small>raw</small>
+                <span>Play Full Sound</span>
+                <small>all frequencies</small>
               </button>
               <button
                 type="button"
-                className={activeAuditionMode === 'band-pass' ? 'active' : ''}
+                className={`audition-control audition-call-only${activeAuditionMode === 'band-pass' ? ' active' : ''}`}
                 aria-pressed={activeAuditionMode === 'band-pass'}
                 disabled={!paddingValid}
                 onClick={() => onPlay('band-pass', paddingValue)}
               >
-                <span>Replay box</span>
-                <small>band-pass</small>
+                <span>Play Call Only</span>
+                <small>boxed band</small>
               </button>
               <button
                 type="button"
-                className={activeAuditionMode === 'negative' ? 'active' : ''}
+                className={`audition-control audition-outside-box${activeAuditionMode === 'negative' ? ' active' : ''}`}
                 aria-pressed={activeAuditionMode === 'negative'}
                 disabled={negativeWouldBeSilent}
                 title={
                   negativeWouldBeSilent
-                    ? 'The box covers the full frequency range, so its negative would be silent.'
-                    : 'Replay the selected time with frequencies inside the box removed.'
+                    ? 'The box covers every frequency, so there would be no sound left to play.'
+                    : 'Play the selected time with frequencies inside the box removed.'
                 }
                 onClick={() => onPlay('negative', paddingValid ? paddingValue : 0)}
               >
-                <span>Play negative</span>
-                <small>outside box</small>
+                <span>Play Outside Box</span>
+                <small>boxed band removed</small>
               </button>
             </div>
             <label className="audition-margin">
@@ -2295,8 +2303,8 @@ function DetailsPanel({
             </label>
             <p id={auditionBandSummaryId} className="audition-band-summary">
               {paddedBand
-                ? `Band-pass ${Math.round(paddedBand.lowFrequencyHz)}–${Math.round(paddedBand.highFrequencyHz)} Hz. Negative removes the exact ${Math.round(box.lowFrequencyHz)}–${Math.round(box.highFrequencyHz)} Hz box band.`
-                : 'Enter a valid non-negative margin to enable band-pass replay.'}
+                ? `Call Only keeps ${Math.round(paddedBand.lowFrequencyHz)}–${Math.round(paddedBand.highFrequencyHz)} Hz. Outside Box removes ${Math.round(box.lowFrequencyHz)}–${Math.round(box.highFrequencyHz)} Hz.`
+                : 'Enter a valid margin to enable Play Call Only.'}
             </p>
             <p className="audition-status" role="status" aria-live="polite">
               {activeAuditionLabel} · {box.startTimeSeconds.toFixed(3)}–
@@ -2478,25 +2486,24 @@ function DisplayPanel({
           </span>
         </div>
       </fieldset>
-      <p className="muted">Complete ~20 ms Hann analysis · 75% overlap · fixed −120 dBFS floor</p>
+      <p className="muted">Adjust the display until calls stand out clearly.</p>
       {channelCount > 1 ? (
         <label>
-          Analysis channel
+          Sound channel
           <select
             value={settings.channelMode}
-            title="Average mixdown averages channel energy so opposite-phase calls are not erased."
             onChange={(event) =>
               onChange({ ...settings, channelMode: event.target.value as AnalysisChannelMode })
             }
           >
-            <option value="average">Average mixdown</option>
-            <option value="max">Max</option>
+            <option value="average">Both (average)</option>
+            <option value="max">Both (strongest)</option>
             <option value="left">Left</option>
             <option value="right">Right</option>
           </select>
         </label>
       ) : (
-        <p className="muted">Analysis channel: Mono</p>
+        <p className="muted">Sound channel: Mono</p>
       )}
       <label>
         Frequency scale
@@ -2528,7 +2535,7 @@ function DisplayPanel({
             }
           />
           <span className="muted">
-            0% is linear-like · 50% balanced · 100% strongly expands low frequencies
+            0% even spacing · 50% balanced · 100% gives low sounds more space
           </span>
         </label>
       )}
@@ -2555,7 +2562,7 @@ function DisplayPanel({
         />
       </label>
       <label>
-        Display minimum <output>{Math.round(view.lowFrequencyHz)} Hz</output>
+        Lowest frequency shown <output>{Math.round(view.lowFrequencyHz)} Hz</output>
         <input
           type="range"
           min={frequencyFloor(view.maximumFrequencyHz, settings.frequencyScale)}
@@ -2569,7 +2576,7 @@ function DisplayPanel({
         />
       </label>
       <label>
-        Display maximum <output>{Math.round(view.highFrequencyHz)} Hz</output>
+        Highest frequency shown <output>{Math.round(view.highFrequencyHz)} Hz</output>
         <input
           type="range"
           min="1000"
@@ -2579,9 +2586,6 @@ function DisplayPanel({
           onChange={(event) => onCutoff(Number(event.target.value))}
         />
       </label>
-      <p className="muted">
-        Settings redraw the cached decode. They never refetch audio or change annotations.
-      </p>
     </section>
   );
 }
@@ -2589,18 +2593,24 @@ function DisplayPanel({
 function DatasetTable({
   boxes,
   selectedBoxId,
+  activeAudition,
+  auditionPaddingHz,
   onSelect,
+  onPlay,
   onDelete,
   disabled,
 }: {
   boxes: FrogLabelBoxV2[];
   selectedBoxId: string | null;
+  activeAudition: ActiveBoxAudition | null;
+  auditionPaddingHz: number | null;
   onSelect(id: string): void;
+  onPlay(box: FrogLabelBoxV2, mode: 'raw' | 'band-pass', paddingHz: number): void;
   onDelete(id: string): void;
   disabled: boolean;
 }) {
   const [scrollTop, setScrollTop] = useState(0);
-  const rowHeight = 32;
+  const rowHeight = 36;
   const firstVisible = Math.max(0, Math.floor(scrollTop / rowHeight) - 5);
   const lastVisible = Math.min(boxes.length, firstVisible + 24);
   const visibleBoxes = boxes.slice(firstVisible, lastVisible);
@@ -2656,18 +2666,56 @@ function DatasetTable({
                     <td>{Math.round(box.highFrequencyHz)}</td>
                     <td>{Math.round(box.highFrequencyHz - box.lowFrequencyHz)}</td>
                     <td>
-                      <button
-                        type="button"
-                        className="delete-row"
-                        aria-label={`Delete ${box.species.code} box`}
-                        disabled={disabled}
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          onDelete(box.id);
-                        }}
-                      >
-                        ×
-                      </button>
+                      <div className="dataset-audition-actions">
+                        <button
+                          type="button"
+                          className={
+                            activeAudition?.boxId === box.id && activeAudition.mode === 'band-pass'
+                              ? 'dataset-play audition-control audition-call-only active'
+                              : 'dataset-play audition-control audition-call-only'
+                          }
+                          aria-pressed={
+                            activeAudition?.boxId === box.id && activeAudition.mode === 'band-pass'
+                          }
+                          disabled={auditionPaddingHz === null}
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            if (auditionPaddingHz !== null)
+                              onPlay(box, 'band-pass', auditionPaddingHz);
+                          }}
+                        >
+                          Play Call Only
+                        </button>
+                        <button
+                          type="button"
+                          className={
+                            activeAudition?.boxId === box.id && activeAudition.mode === 'raw'
+                              ? 'dataset-play audition-control audition-full-sound active'
+                              : 'dataset-play audition-control audition-full-sound'
+                          }
+                          aria-pressed={
+                            activeAudition?.boxId === box.id && activeAudition.mode === 'raw'
+                          }
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            onPlay(box, 'raw', auditionPaddingHz ?? 0);
+                          }}
+                        >
+                          Play Full Sound
+                        </button>
+                        <button
+                          type="button"
+                          className="delete-row"
+                          aria-label={`Delete ${box.species.code} box`}
+                          disabled={disabled}
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            onDelete(box.id);
+                          }}
+                        >
+                          ×
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -2763,7 +2811,7 @@ function HelpDialog({
           </button>
         </div>
         <button type="button" className="tutorial-start" onClick={onStart}>
-          Start 2-minute tutorial <span>Uses the real workspace; practice is discarded.</span>
+          Start 2-minute tutorial <span>Label a real Green Treefrog call.</span>
         </button>
         <dl className="shortcut-list">
           <div>
@@ -2783,10 +2831,10 @@ function HelpDialog({
         </dl>
         <p className="help-note">
           {mode === 'embedded'
-            ? 'Embedded work is saved through Label Studio’s outer Submit/Update. FrogLabel never stores a personal token or advances tasks itself.'
+            ? 'When you are finished, use Label Studio’s Submit or Update button.'
             : mode === 'local'
-              ? 'Local work stays in this browser tab until you prepare and download JSON. Audio bytes are never included, and no server is contacted.'
-              : 'This demo uses the bundled Green Tree Frog recording. Changes stay in memory and are discarded on reload.'}
+              ? 'Download JSON before closing this tab if you want to keep your work.'
+              : 'This demo uses a real Green Treefrog recording.'}
         </p>
       </section>
     </div>
@@ -2887,12 +2935,18 @@ function TutorialOverlay({
         </span>
         <h2>{current.title}</h2>
         <p>{current.text}</p>
-        {tried && <p className="tried">Tried ✓</p>}
+        {tutorialStepRequiresAction(step) && (
+          <p className="tried">{tried ? 'Opened ✓' : 'Press 2 to continue.'}</p>
+        )}
         <div className="coach-actions">
           <button type="button" onClick={onBack} disabled={step === 0}>
             Back
           </button>
-          <button type="button" onClick={onNext}>
+          <button
+            type="button"
+            onClick={onNext}
+            disabled={tutorialStepRequiresAction(step) && !tried}
+          >
             {step === tutorialSteps.length - 1 ? 'Finish' : 'Next'} <kbd>Enter</kbd>
           </button>
           <button type="button" onClick={onExit}>
@@ -3100,13 +3154,17 @@ function eventForStep(step: number): string | null {
       'box.created',
       'tool.select',
       'box.resized',
-      'box.selected',
+      'panel.detailsOpened',
       'viewport.zoomed',
       'species.formOpened',
       null,
       null,
     ][step] ?? null
   );
+}
+
+function tutorialStepRequiresAction(step: number): boolean {
+  return step === 7;
 }
 
 const FOCUSABLE_SELECTOR =
