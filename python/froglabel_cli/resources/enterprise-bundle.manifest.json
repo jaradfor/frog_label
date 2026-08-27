@@ -1,8 +1,8 @@
 {
   "kind": "froglabel.enterprise-component-bundle",
   "schemaVersion": 1,
-  "buildVersion": "1.0.0+tree.4d2984d63260",
-  "sourceCommit": "tree.4d2984d63260",
+  "buildVersion": "0.1.0+tree.3a3cdf099e65",
+  "sourceCommit": "tree.3a3cdf099e65",
   "entry": "src/enterprise/entry.tsx",
   "exportName": "renderEnterpriseFrogLabel",
   "hostReactExternal": true,

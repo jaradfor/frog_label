@@ -11,8 +11,9 @@ import { spectrogramWorkerSource } from './vite-spectrogram-worker-plugin.mjs';
 const repository = path.resolve(import.meta.dirname, '..');
 const temporaryRoot = path.join(repository, '.cache', 'enterprise-build');
 const resourceRoot = path.join(repository, 'python', 'froglabel_cli', 'resources');
+const packageMetadata = JSON.parse(await readFile(path.join(repository, 'package.json'), 'utf8'));
 const sourceRevision = await resolveSourceRevision();
-const buildVersion = `1.0.0+${sourceRevision}`;
+const buildVersion = `${packageMetadata.version}+${sourceRevision}`;
 
 await rm(temporaryRoot, { recursive: true, force: true });
 await mkdir(resourceRoot, { recursive: true });
