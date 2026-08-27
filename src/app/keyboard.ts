@@ -15,6 +15,7 @@ export type WorkspaceCommandId =
   | 'viewport.zoomFrequencyOut'
   | 'viewport.fit'
   | 'audio.playPause'
+  | 'audio.toggleFollow'
   | 'audio.faster'
   | 'audio.slower'
   | 'tool.draw'
@@ -131,6 +132,13 @@ export const WORKSPACE_COMMANDS: readonly WorkspaceCommandDefinition[] = [
   },
   { id: 'viewport.fit', label: 'Fit complete recording', shortcut: 'X', code: 'KeyX' },
   { id: 'audio.playPause', label: 'Play or pause', shortcut: 'V', code: 'KeyV' },
+  {
+    id: 'audio.toggleFollow',
+    label: 'Toggle playback follow',
+    shortcut: 'Shift+V',
+    code: 'KeyV',
+    shift: true,
+  },
   { id: 'audio.faster', label: 'Faster playback', shortcut: 'F', code: 'KeyF' },
   { id: 'audio.slower', label: 'Slower playback', shortcut: 'R', code: 'KeyR' },
   { id: 'tool.draw', label: 'Use Draw tool', shortcut: 'T', code: 'KeyT' },

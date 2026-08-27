@@ -470,12 +470,34 @@
     height: 100%;
     min-height: 140px;
   }
+  .spectrogram-shell.time-zoomed {
+    grid-template-rows: 90px minmax(0, 1fr);
+  }
+  .waveform-stack {
+    grid-area: waveform;
+    display: grid;
+    grid-template-rows: minmax(0, 1fr);
+    min-width: 0;
+    min-height: 0;
+    overflow: hidden;
+  }
+  .waveform-stack.is-zoomed {
+    grid-template-rows: 32px minmax(0, 1fr);
+  }
   .waveform-strip {
     position: relative;
-    grid-area: waveform;
     overflow: hidden;
     border-bottom: 1px solid #31463a;
     background: #122019;
+    touch-action: none;
+    user-select: none;
+  }
+  .waveform-overview {
+    border-bottom-color: #597161;
+    background: #0b1510;
+  }
+  .waveform-detail {
+    min-height: 0;
   }
   .waveform-strip::before {
     position: absolute;
@@ -491,6 +513,53 @@
     display: block;
     width: 100%;
     height: 100%;
+    pointer-events: none;
+  }
+  .waveform-seek-surface {
+    position: absolute;
+    z-index: 2;
+    inset: 0;
+    cursor: crosshair;
+    outline: none;
+  }
+  .waveform-seek-surface:focus-visible,
+  .waveform-viewport-window:focus-visible {
+    outline: 2px solid #fff68a;
+    outline-offset: -2px;
+  }
+  .waveform-viewport-window {
+    position: absolute;
+    z-index: 3;
+    top: 9px;
+    bottom: 2px;
+    min-width: 2px;
+    border: 2px solid #b8f0c5;
+    border-radius: 3px;
+    background: rgb(112 230 161 / 0.13);
+    box-shadow:
+      0 0 0 1px rgb(4 10 6 / 0.8),
+      inset 0 0 8px rgb(112 230 161 / 0.18);
+    cursor: grab;
+    outline: none;
+  }
+  .waveform-viewport-window::before {
+    position: absolute;
+    inset: 0 -4px;
+    content: '';
+  }
+  .waveform-playhead-hit-target {
+    position: absolute;
+    z-index: 5;
+    top: 0;
+    width: 14px;
+    height: 9px;
+    transform: translateX(-7px);
+    background: #ffef7a;
+    clip-path: polygon(0 0, 100% 0, 50% 100%);
+    cursor: ew-resize;
+  }
+  .waveform-overview.is-panning .waveform-viewport-window {
+    cursor: grabbing;
   }
   .frequency-axis {
     grid-area: frequency;
@@ -568,7 +637,10 @@
     pointer-events: none;
   }
   .waveform-playhead {
-    z-index: 3;
+    z-index: 4;
+  }
+  .overview-playhead {
+    z-index: 4;
   }
   .hidden-annotation-notice {
     position: absolute;
@@ -614,8 +686,14 @@
       0 0 0 2px #132016,
       0 0 16px rgb(255 246 138 / 0.5);
   }
+  .annotation-box.editable {
+    cursor: grab;
+  }
+  .annotation-box.editable:active {
+    cursor: grabbing;
+  }
   .annotation-box.preview {
-    z-index: 4;
+    z-index: 6;
     border-style: dashed;
     pointer-events: none;
   }
@@ -655,10 +733,34 @@
     right: -8px;
     cursor: nesw-resize;
   }
+  .handle-n {
+    top: -8px;
+    left: 50%;
+    transform: translateX(-50%);
+    cursor: ns-resize;
+  }
+  .handle-e {
+    top: 50%;
+    right: -8px;
+    transform: translateY(-50%);
+    cursor: ew-resize;
+  }
   .handle-sw {
     bottom: -8px;
     left: -8px;
     cursor: nesw-resize;
+  }
+  .handle-s {
+    bottom: -8px;
+    left: 50%;
+    transform: translateX(-50%);
+    cursor: ns-resize;
+  }
+  .handle-w {
+    top: 50%;
+    left: -8px;
+    transform: translateY(-50%);
+    cursor: ew-resize;
   }
   .handle-se {
     right: -8px;
@@ -1539,6 +1641,12 @@
     }
     .spectrogram-shell {
       grid-template-rows: 44px minmax(0, 1fr);
+    }
+    .spectrogram-shell.time-zoomed {
+      grid-template-rows: 70px minmax(0, 1fr);
+    }
+    .waveform-stack.is-zoomed {
+      grid-template-rows: 26px minmax(0, 1fr);
     }
   }
   @media (prefers-reduced-motion: reduce) {

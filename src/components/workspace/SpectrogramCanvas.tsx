@@ -18,12 +18,19 @@ import type {
   PixelPoint,
   ViewportTransform,
 } from '../../domain/types';
-import { boxToPixelRect, canonicalToPixel, geometryFromDrag } from '../../domain/projection';
+import {
+  boxToPixelRect,
+  geometryForBoxEdit,
+  geometryFromDrag,
+  type BoxEditHandle,
+} from '../../domain/projection';
 import { frequencyAtAxisRatio } from '../../domain/frequencyScale';
 
 type Tool = 'select' | 'draw' | 'pan';
-type ResizeHandle = 'nw' | 'ne' | 'sw' | 'se';
+type ResizeHandle = Exclude<BoxEditHandle, 'move'>;
 const DENSE_ANNOTATION_THRESHOLD = 500;
+const MOVE_GESTURE_THRESHOLD_PIXELS = 3;
+const TIME_ZOOM_EPSILON_SECONDS = 0.000001;
 const INITIAL_RENDER_STATE: SpectrogramRenderState = {
   status: 'initializing',
   quality: 'none',
@@ -43,12 +50,24 @@ interface ViewWindow {
 }
 
 interface Gesture {
-  kind: 'draw' | 'resize' | 'pan';
+  kind: 'draw' | 'resize' | 'move' | 'pan';
   pointerId: number;
   start: PixelPoint;
   current: PixelPoint;
   viewport: ViewportTransform;
-  boxId?: string;
+  box?: FrogLabelBoxV2;
+  handle?: BoxEditHandle;
+  moved?: boolean;
+}
+
+interface WaveformGesture {
+  kind: 'detail-seek' | 'overview-seek' | 'playhead-seek' | 'viewport-pan';
+  pointerId: number;
+  startClientX: number;
+  initialTimeStartSeconds: number;
+  initialSeekSeconds?: number;
+  lastSeekSeconds?: number;
+  captureTarget: HTMLElement;
 }
 
 interface SpectrogramCanvasProps {
@@ -87,6 +106,8 @@ interface SpectrogramCanvasProps {
       'startTimeSeconds' | 'endTimeSeconds' | 'lowFrequencyHz' | 'highFrequencyHz'
     >,
   ): Promise<boolean> | boolean;
+  onSeek?(timeSeconds: number): void;
+  onTimeWindowStartChange?(timeStartSeconds: number): void;
   onPan?(deltaSeconds: number): void;
   onPanView?(deltaTimeSeconds: number, deltaFrequencyAxisFraction: number): void;
   onPointerAnchorChange?(
@@ -115,6 +136,8 @@ export function SpectrogramCanvas({
   onSelect,
   onCreate,
   onResize,
+  onSeek,
+  onTimeWindowStartChange,
   onPan,
   onPanView,
   onPointerAnchorChange,
@@ -127,9 +150,20 @@ export function SpectrogramCanvas({
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const annotationCanvasRef = useRef<HTMLCanvasElement>(null);
   const waveformRef = useRef<HTMLCanvasElement>(null);
+  const detailWaveformRef = useRef<HTMLDivElement>(null);
+  const overviewWaveformRef = useRef<HTMLCanvasElement>(null);
+  const overviewRef = useRef<HTMLDivElement>(null);
   const rendererRef = useRef<SpectrogramRenderer | null>(null);
   const gestureRef = useRef<Gesture | null>(null);
+  const waveformGestureRef = useRef<WaveformGesture | null>(null);
+  const viewportPanFrameRef = useRef<number | null>(null);
+  const pendingViewportStartRef = useRef<number | null>(null);
+  const waveformSeekFrameRef = useRef<number | null>(null);
+  const pendingWaveformSeekRef = useRef<number | null>(null);
   const [gesture, setGesture] = useState<Gesture | null>(null);
+  const [waveformGestureKind, setWaveformGestureKind] = useState<WaveformGesture['kind'] | null>(
+    null,
+  );
   const [size, setSize] = useState({ width: 0, height: 0 });
   const [overlapStack, setOverlapStack] = useState<string[]>([]);
   const [renderPhase, setRenderPhase] = useState<SpectrogramRenderPhase>('analyzing');
@@ -174,6 +208,11 @@ export function SpectrogramCanvas({
   const denseAnnotations = boxes.length > DENSE_ANNOTATION_THRESHOLD;
   const annotationGesturesReady =
     renderState.hasFrame && sameViewportProjection(projectionViewport, viewport);
+  const viewTimeSpan = view.timeEndSeconds - view.timeStartSeconds;
+  const timeZoomed =
+    viewTimeSpan <
+    view.durationSeconds -
+      Math.max(TIME_ZOOM_EPSILON_SECONDS, view.durationSeconds * Number.EPSILON * 16);
 
   const reportPhase = useCallback(
     (phase: SpectrogramRenderPhase) => {
@@ -282,8 +321,33 @@ export function SpectrogramCanvas({
   useEffect(() => {
     const canvas = waveformRef.current;
     if (!canvas || size.width < 1) return;
-    paintWaveform(canvas, audio, view, settings.channelMode);
+    paintWaveform(canvas, audio, view.timeStartSeconds, view.timeEndSeconds, settings.channelMode);
   }, [audio, settings.channelMode, size.width, view, waveformIndexVersion]);
+
+  useEffect(() => {
+    const canvas = overviewWaveformRef.current;
+    if (!canvas || size.width < 1 || !timeZoomed) return;
+    paintWaveform(canvas, audio, 0, view.durationSeconds, settings.channelMode);
+  }, [
+    audio,
+    settings.channelMode,
+    size.width,
+    timeZoomed,
+    view.durationSeconds,
+    waveformIndexVersion,
+  ]);
+
+  useEffect(
+    () => () => {
+      if (viewportPanFrameRef.current !== null) {
+        globalThis.cancelAnimationFrame?.(viewportPanFrameRef.current);
+      }
+      if (waveformSeekFrameRef.current !== null) {
+        globalThis.cancelAnimationFrame?.(waveformSeekFrameRef.current);
+      }
+    },
+    [],
+  );
 
   useEffect(() => {
     const canvas = annotationCanvasRef.current;
@@ -296,11 +360,30 @@ export function SpectrogramCanvas({
   const viewKey = `${view.timeStartSeconds}:${view.timeEndSeconds}:${view.lowFrequencyHz}:${view.highFrequencyHz}:${settings.frequencyScale}:${settings.frequencyWarp}:${size.width}:${size.height}`;
   useEffect(() => {
     const active = gestureRef.current;
-    if (!active) return;
-    gestureRef.current = null;
-    setGesture(null);
-    const root = rootRef.current;
-    if (root?.hasPointerCapture(active.pointerId)) root.releasePointerCapture(active.pointerId);
+    if (active) {
+      gestureRef.current = null;
+      setGesture(null);
+      const root = rootRef.current;
+      if (root?.hasPointerCapture(active.pointerId)) root.releasePointerCapture(active.pointerId);
+    }
+    const activeWaveform = waveformGestureRef.current;
+    if (activeWaveform) {
+      waveformGestureRef.current = null;
+      setWaveformGestureKind(null);
+      pendingViewportStartRef.current = null;
+      pendingWaveformSeekRef.current = null;
+      if (viewportPanFrameRef.current !== null) {
+        globalThis.cancelAnimationFrame?.(viewportPanFrameRef.current);
+        viewportPanFrameRef.current = null;
+      }
+      if (waveformSeekFrameRef.current !== null) {
+        globalThis.cancelAnimationFrame?.(waveformSeekFrameRef.current);
+        waveformSeekFrameRef.current = null;
+      }
+      if (activeWaveform.captureTarget.hasPointerCapture(activeWaveform.pointerId)) {
+        activeWaveform.captureTarget.releasePointerCapture(activeWaveform.pointerId);
+      }
+    }
   }, [cancelVersion, disabled, tool]);
 
   useEffect(() => {
@@ -328,6 +411,234 @@ export function SpectrogramCanvas({
       timeRatio: clampRatio((event.clientX - rect.left) / rect.width),
       frequencyRatio: clampRatio(1 - (event.clientY - rect.top) / rect.height),
     });
+  };
+
+  const requestViewportStart = (timeStartSeconds: number) => {
+    const maximumStart = Math.max(0, view.durationSeconds - viewTimeSpan);
+    pendingViewportStartRef.current = clamp(timeStartSeconds, 0, maximumStart);
+    if (viewportPanFrameRef.current !== null) return;
+    if (typeof globalThis.requestAnimationFrame !== 'function') {
+      const pending = pendingViewportStartRef.current;
+      pendingViewportStartRef.current = null;
+      if (pending !== null) onTimeWindowStartChange?.(pending);
+      return;
+    }
+    viewportPanFrameRef.current = globalThis.requestAnimationFrame(() => {
+      viewportPanFrameRef.current = null;
+      const pending = pendingViewportStartRef.current;
+      pendingViewportStartRef.current = null;
+      if (pending !== null) onTimeWindowStartChange?.(pending);
+    });
+  };
+
+  const flushViewportStart = (timeStartSeconds: number) => {
+    if (viewportPanFrameRef.current !== null) {
+      globalThis.cancelAnimationFrame(viewportPanFrameRef.current);
+      viewportPanFrameRef.current = null;
+    }
+    pendingViewportStartRef.current = null;
+    const maximumStart = Math.max(0, view.durationSeconds - viewTimeSpan);
+    onTimeWindowStartChange?.(clamp(timeStartSeconds, 0, maximumStart));
+  };
+
+  const timeForWaveformClientX = (
+    clientX: number,
+    kind: WaveformGesture['kind'],
+    active?: WaveformGesture,
+  ): number => {
+    const element = kind === 'detail-seek' ? detailWaveformRef.current : overviewRef.current;
+    const rect = element?.getBoundingClientRect();
+    if (
+      kind === 'playhead-seek' &&
+      active?.initialSeekSeconds !== undefined &&
+      rect &&
+      rect.width > 0
+    ) {
+      return clamp(
+        active.initialSeekSeconds +
+          ((clientX - active.startClientX) / rect.width) * view.durationSeconds,
+        0,
+        view.durationSeconds,
+      );
+    }
+    const ratio = rect && rect.width > 0 ? clampRatio((clientX - rect.left) / rect.width) : 0;
+    if (kind === 'detail-seek') {
+      return view.timeStartSeconds + ratio * viewTimeSpan;
+    }
+    return ratio * view.durationSeconds;
+  };
+
+  const viewportStartForClientX = (clientX: number, active: WaveformGesture): number => {
+    const rect = overviewRef.current?.getBoundingClientRect();
+    if (!rect || rect.width <= 0) return active.initialTimeStartSeconds;
+    const deltaSeconds = ((clientX - active.startClientX) / rect.width) * view.durationSeconds;
+    return active.initialTimeStartSeconds + deltaSeconds;
+  };
+
+  const dispatchWaveformSeek = (timeSeconds: number) => {
+    const active = waveformGestureRef.current;
+    if (!active || active.kind === 'viewport-pan') return;
+    if (
+      active.lastSeekSeconds !== undefined &&
+      Math.abs(active.lastSeekSeconds - timeSeconds) <= 1e-9
+    ) {
+      return;
+    }
+    waveformGestureRef.current = { ...active, lastSeekSeconds: timeSeconds };
+    onSeek?.(timeSeconds);
+  };
+
+  const requestWaveformSeek = (timeSeconds: number) => {
+    pendingWaveformSeekRef.current = timeSeconds;
+    if (waveformSeekFrameRef.current !== null) return;
+    if (typeof globalThis.requestAnimationFrame !== 'function') {
+      const pending = pendingWaveformSeekRef.current;
+      pendingWaveformSeekRef.current = null;
+      if (pending !== null) dispatchWaveformSeek(pending);
+      return;
+    }
+    waveformSeekFrameRef.current = globalThis.requestAnimationFrame(() => {
+      waveformSeekFrameRef.current = null;
+      const pending = pendingWaveformSeekRef.current;
+      pendingWaveformSeekRef.current = null;
+      if (pending !== null) dispatchWaveformSeek(pending);
+    });
+  };
+
+  const flushWaveformSeek = (timeSeconds: number) => {
+    if (waveformSeekFrameRef.current !== null) {
+      globalThis.cancelAnimationFrame(waveformSeekFrameRef.current);
+      waveformSeekFrameRef.current = null;
+    }
+    pendingWaveformSeekRef.current = null;
+    dispatchWaveformSeek(timeSeconds);
+  };
+
+  const beginWaveformSeek = (
+    event: React.PointerEvent<HTMLElement>,
+    kind: Extract<WaveformGesture['kind'], 'detail-seek' | 'overview-seek' | 'playhead-seek'>,
+  ) => {
+    if (event.button !== 0 || !onSeek) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const initialSeekSeconds =
+      kind === 'playhead-seek'
+        ? clamp(playheadSeconds, 0, view.durationSeconds)
+        : timeForWaveformClientX(event.clientX, kind);
+    const next: WaveformGesture = {
+      kind,
+      pointerId: event.pointerId,
+      startClientX: event.clientX,
+      initialTimeStartSeconds: view.timeStartSeconds,
+      initialSeekSeconds,
+      lastSeekSeconds: initialSeekSeconds,
+      captureTarget: event.currentTarget,
+    };
+    waveformGestureRef.current = next;
+    setWaveformGestureKind(kind);
+    if (kind !== 'playhead-seek') onSeek(initialSeekSeconds);
+    event.currentTarget.setPointerCapture(event.pointerId);
+  };
+
+  const beginViewportPan = (event: React.PointerEvent<HTMLElement>) => {
+    if (event.button !== 0 || !onTimeWindowStartChange) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const next: WaveformGesture = {
+      kind: 'viewport-pan',
+      pointerId: event.pointerId,
+      startClientX: event.clientX,
+      initialTimeStartSeconds: view.timeStartSeconds,
+      captureTarget: event.currentTarget,
+    };
+    waveformGestureRef.current = next;
+    setWaveformGestureKind(next.kind);
+    event.currentTarget.setPointerCapture(event.pointerId);
+  };
+
+  const moveWaveformGesture = (event: React.PointerEvent<HTMLElement>) => {
+    const active = waveformGestureRef.current;
+    if (!active || active.pointerId !== event.pointerId) return;
+    event.preventDefault();
+    if (active.kind === 'viewport-pan') {
+      requestViewportStart(viewportStartForClientX(event.clientX, active));
+    } else {
+      requestWaveformSeek(timeForWaveformClientX(event.clientX, active.kind, active));
+    }
+  };
+
+  const finishWaveformGesture = (event: React.PointerEvent<HTMLElement>) => {
+    const active = waveformGestureRef.current;
+    if (!active || active.pointerId !== event.pointerId) return;
+    if (active.kind === 'viewport-pan') {
+      flushViewportStart(viewportStartForClientX(event.clientX, active));
+      onSemanticEvent('viewport.panned');
+    } else {
+      flushWaveformSeek(timeForWaveformClientX(event.clientX, active.kind, active));
+      onSemanticEvent('audio.seeked');
+    }
+    waveformGestureRef.current = null;
+    setWaveformGestureKind(null);
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+  };
+
+  const cancelWaveformGesture = (event: React.PointerEvent<HTMLElement>) => {
+    if (waveformGestureRef.current?.pointerId !== event.pointerId) return;
+    waveformGestureRef.current = null;
+    setWaveformGestureKind(null);
+    pendingViewportStartRef.current = null;
+    pendingWaveformSeekRef.current = null;
+    if (viewportPanFrameRef.current !== null) {
+      globalThis.cancelAnimationFrame?.(viewportPanFrameRef.current);
+      viewportPanFrameRef.current = null;
+    }
+    if (waveformSeekFrameRef.current !== null) {
+      globalThis.cancelAnimationFrame?.(waveformSeekFrameRef.current);
+      waveformSeekFrameRef.current = null;
+    }
+  };
+
+  const handleSeekKeyDown = (
+    event: React.KeyboardEvent<HTMLElement>,
+    minimum: number,
+    maximum: number,
+  ) => {
+    if (!onSeek) return;
+    const span = maximum - minimum;
+    const step = Math.max(0.01, span / 100) * (event.shiftKey ? 10 : 1);
+    const current = clamp(playheadSeconds, minimum, maximum);
+    let next: number | null = null;
+    if (event.key === 'ArrowLeft' || event.key === 'ArrowDown') next = current - step;
+    if (event.key === 'ArrowRight' || event.key === 'ArrowUp') next = current + step;
+    if (event.key === 'Home') next = minimum;
+    if (event.key === 'End') next = maximum;
+    if (next === null) return;
+    event.preventDefault();
+    event.stopPropagation();
+    onSeek(clamp(next, minimum, maximum));
+    onSemanticEvent('audio.seeked');
+  };
+
+  const handleViewportKeyDown = (event: React.KeyboardEvent<HTMLElement>) => {
+    if (!onTimeWindowStartChange) return;
+    const maximumStart = Math.max(0, view.durationSeconds - viewTimeSpan);
+    const step = viewTimeSpan * (event.shiftKey ? 0.5 : 0.1);
+    let next: number | null = null;
+    if (event.key === 'ArrowLeft' || event.key === 'ArrowDown') {
+      next = view.timeStartSeconds - step;
+    }
+    if (event.key === 'ArrowRight' || event.key === 'ArrowUp') {
+      next = view.timeStartSeconds + step;
+    }
+    if (event.key === 'Home') next = 0;
+    if (event.key === 'End') next = maximumStart;
+    if (next === null) return;
+    event.preventDefault();
+    event.stopPropagation();
+    onTimeWindowStartChange(clamp(next, 0, maximumStart));
+    onSemanticEvent('viewport.panned');
   };
 
   const begin = (event: React.PointerEvent<HTMLDivElement>) => {
@@ -375,7 +686,7 @@ export function SpectrogramCanvas({
       clickCycleRef.current = null;
       setOverlapStack([]);
       onSelect(null);
-      return;
+      return null;
     }
     const key = `${viewKey}:${ids.join('|')}`;
     const prior = clickCycleRef.current;
@@ -389,6 +700,7 @@ export function SpectrogramCanvas({
     setOverlapStack(ids);
     onSelect(selected);
     onSemanticEvent('box.selected', selected);
+    return selected;
   };
 
   const beginResize = (
@@ -398,20 +710,45 @@ export function SpectrogramCanvas({
   ) => {
     if (disabled || !annotationGesturesReady || event.button !== 0) return;
     event.stopPropagation();
+    event.preventDefault();
+    rootRef.current?.focus({ preventScroll: true });
     onSelect(box.id);
-    const opposite = {
-      nw: { timeSeconds: box.endTimeSeconds, frequencyHz: box.lowFrequencyHz },
-      ne: { timeSeconds: box.startTimeSeconds, frequencyHz: box.lowFrequencyHz },
-      sw: { timeSeconds: box.endTimeSeconds, frequencyHz: box.highFrequencyHz },
-      se: { timeSeconds: box.startTimeSeconds, frequencyHz: box.highFrequencyHz },
-    }[handle];
+    clickCycleRef.current = null;
+    setOverlapStack([]);
+    const point = pointForEvent(event);
     const next: Gesture = {
       kind: 'resize',
       pointerId: event.pointerId,
-      start: canonicalToPixel(opposite, viewport),
-      current: pointForEvent(event),
+      start: point,
+      current: point,
       viewport: structuredClone(viewport),
-      boxId: box.id,
+      box: structuredClone(box),
+      handle,
+    };
+    gestureRef.current = next;
+    setGesture(next);
+    rootRef.current?.setPointerCapture(event.pointerId);
+  };
+
+  const beginBoxMove = (event: React.PointerEvent<HTMLDivElement>, box: FrogLabelBoxV2) => {
+    if (tool !== 'select' || event.button !== 0) return;
+    event.stopPropagation();
+    rootRef.current?.focus({ preventScroll: true });
+    if (disabled || !annotationGesturesReady) {
+      selectAtPoint(event, box.id);
+      return;
+    }
+    event.preventDefault();
+    const point = pointForEvent(event);
+    const next: Gesture = {
+      kind: 'move',
+      pointerId: event.pointerId,
+      start: point,
+      current: point,
+      viewport: structuredClone(viewport),
+      box: structuredClone(box),
+      handle: 'move',
+      moved: false,
     };
     gestureRef.current = next;
     setGesture(next);
@@ -423,9 +760,23 @@ export function SpectrogramCanvas({
     const active = gestureRef.current;
     if (!active || active.pointerId !== event.pointerId) return;
     const point = pointForEvent(event);
-    const next = { ...active, current: point };
+    const crossedMoveThreshold =
+      active.kind === 'move' &&
+      (active.moved ||
+        Math.hypot(point.x - active.start.x, point.y - active.start.y) >=
+          MOVE_GESTURE_THRESHOLD_PIXELS);
+    const next = {
+      ...active,
+      current: point,
+      ...(active.kind === 'move' ? { moved: crossedMoveThreshold } : {}),
+    };
     gestureRef.current = next;
     setGesture(next);
+    if (active.kind === 'move' && crossedMoveThreshold && !active.moved && active.box) {
+      clickCycleRef.current = null;
+      setOverlapStack([active.box.id]);
+      onSelect(active.box.id);
+    }
     if (active.kind === 'pan') {
       const secondsPerPixel =
         (active.viewport.timeEndSeconds - active.viewport.timeStartSeconds) /
@@ -437,8 +788,8 @@ export function SpectrogramCanvas({
         if (onPanView) onPanView(deltaTimeSeconds, deltaFrequencyAxisFraction);
         else onPan?.(deltaTimeSeconds);
       }
-      event.preventDefault();
     }
+    event.preventDefault();
   };
 
   const finish = async (event: React.PointerEvent<HTMLDivElement>) => {
@@ -453,12 +804,42 @@ export function SpectrogramCanvas({
       onSemanticEvent('viewport.panned');
       return;
     }
+    if (completed.kind === 'move') {
+      const didMove =
+        completed.moved ||
+        Math.hypot(
+          completed.current.x - completed.start.x,
+          completed.current.y - completed.start.y,
+        ) >= MOVE_GESTURE_THRESHOLD_PIXELS;
+      if (!didMove) {
+        selectAtPoint(event, completed.box?.id ?? null);
+        return;
+      }
+      if (!completed.moved && completed.box) {
+        clickCycleRef.current = null;
+        setOverlapStack([completed.box.id]);
+        onSelect(completed.box.id);
+      }
+    }
     try {
-      const geometry = geometryFromDrag(completed.start, completed.current, completed.viewport);
-      if (completed.kind === 'resize' && completed.boxId) {
-        if (await onResize(completed.boxId, geometry))
-          onSemanticEvent('box.resized', completed.boxId);
+      if (
+        (completed.kind === 'resize' || completed.kind === 'move') &&
+        completed.box &&
+        completed.handle
+      ) {
+        const geometry = geometryForBoxEdit(
+          completed.box,
+          completed.handle,
+          completed.start,
+          completed.current,
+          completed.viewport,
+        );
+        if (sameBoxGeometry(completed.box, geometry)) return;
+        if (await onResize(completed.box.id, geometry)) {
+          onSemanticEvent('box.resized', completed.box.id);
+        }
       } else {
+        const geometry = geometryFromDrag(completed.start, completed.current, completed.viewport);
         if (await onCreate(geometry)) onSemanticEvent('box.created');
       }
     } catch (error) {
@@ -471,14 +852,16 @@ export function SpectrogramCanvas({
     gestureRef.current = null;
     setGesture(null);
     onPointerAnchorChange?.(null);
+    if (rootRef.current?.hasPointerCapture(event.pointerId)) {
+      rootRef.current.releasePointerCapture(event.pointerId);
+    }
   };
 
-  const previewRect =
-    gesture && gesture.kind !== 'pan' ? rectFromPoints(gesture.start, gesture.current) : null;
+  const previewRect = previewRectForGesture(gesture);
 
   return (
     <div
-      className="spectrogram-shell"
+      className={`spectrogram-shell ${timeZoomed ? 'time-zoomed' : ''}`}
       data-tutorial="spectrogram"
       data-spectrogram-state={renderPhase}
       data-render-status={renderState.status}
@@ -496,18 +879,118 @@ export function SpectrogramCanvas({
       data-view-time-end-seconds={view.timeEndSeconds}
       data-view-low-frequency-hz={view.lowFrequencyHz}
       data-view-high-frequency-hz={view.highFrequencyHz}
+      data-time-zoomed={timeZoomed}
       aria-busy={!renderState.hasFrame && renderState.status !== 'error'}
     >
-      <div className="waveform-strip" role="img" aria-label="Waveform aligned with the spectrogram">
-        <canvas ref={waveformRef} aria-hidden="true" />
-        {playheadSeconds >= view.timeStartSeconds && playheadSeconds <= view.timeEndSeconds && (
-          <span
-            className="playhead-line waveform-playhead"
-            style={{
-              left: `${((playheadSeconds - view.timeStartSeconds) / (view.timeEndSeconds - view.timeStartSeconds)) * 100}%`,
-            }}
-          />
+      <div
+        className={`waveform-stack ${timeZoomed ? 'is-zoomed' : ''}`}
+        data-waveform-tier-count={timeZoomed ? 2 : 1}
+      >
+        {timeZoomed && (
+          <div
+            ref={overviewRef}
+            className={`waveform-strip waveform-overview ${waveformGestureKind === 'viewport-pan' ? 'is-panning' : ''}`}
+            data-time-start-seconds={view.timeStartSeconds}
+            data-time-end-seconds={view.timeEndSeconds}
+          >
+            <canvas ref={overviewWaveformRef} aria-hidden="true" />
+            <div
+              className="waveform-seek-surface overview-seek-surface"
+              role="slider"
+              tabIndex={0}
+              aria-label="Seek within the full recording"
+              aria-valuemin={0}
+              aria-valuemax={view.durationSeconds}
+              aria-valuenow={clamp(playheadSeconds, 0, view.durationSeconds)}
+              aria-valuetext={`${clamp(playheadSeconds, 0, view.durationSeconds).toFixed(3)} seconds`}
+              onPointerDown={(event) => beginWaveformSeek(event, 'overview-seek')}
+              onPointerMove={moveWaveformGesture}
+              onPointerUp={finishWaveformGesture}
+              onPointerCancel={cancelWaveformGesture}
+              onLostPointerCapture={cancelWaveformGesture}
+              onKeyDown={(event) => handleSeekKeyDown(event, 0, view.durationSeconds)}
+            />
+            <div
+              className="waveform-viewport-window"
+              role="slider"
+              tabIndex={0}
+              aria-label="Visible time window"
+              aria-valuemin={0}
+              aria-valuemax={Math.max(0, view.durationSeconds - viewTimeSpan)}
+              aria-valuenow={view.timeStartSeconds}
+              aria-valuetext={`${view.timeStartSeconds.toFixed(3)} to ${view.timeEndSeconds.toFixed(3)} seconds`}
+              style={{
+                left: `${(view.timeStartSeconds / view.durationSeconds) * 100}%`,
+                width: `${(viewTimeSpan / view.durationSeconds) * 100}%`,
+              }}
+              onPointerDown={beginViewportPan}
+              onPointerMove={moveWaveformGesture}
+              onPointerUp={finishWaveformGesture}
+              onPointerCancel={cancelWaveformGesture}
+              onLostPointerCapture={cancelWaveformGesture}
+              onKeyDown={handleViewportKeyDown}
+            />
+            <span
+              className="playhead-line waveform-playhead overview-playhead"
+              style={{
+                left: `${(clamp(playheadSeconds, 0, view.durationSeconds) / view.durationSeconds) * 100}%`,
+              }}
+              aria-hidden="true"
+            />
+            <span
+              className="waveform-playhead-hit-target"
+              data-testid="overview-playhead-handle"
+              title="Drag playhead"
+              aria-hidden="true"
+              style={{
+                left: `${(clamp(playheadSeconds, 0, view.durationSeconds) / view.durationSeconds) * 100}%`,
+              }}
+              onPointerDown={(event) => beginWaveformSeek(event, 'playhead-seek')}
+              onPointerMove={moveWaveformGesture}
+              onPointerUp={finishWaveformGesture}
+              onPointerCancel={cancelWaveformGesture}
+              onLostPointerCapture={cancelWaveformGesture}
+            />
+          </div>
         )}
+        <div
+          ref={detailWaveformRef}
+          className="waveform-strip waveform-detail"
+          role="group"
+          aria-label="Waveform aligned with the spectrogram"
+        >
+          <canvas ref={waveformRef} aria-hidden="true" />
+          <div
+            className="waveform-seek-surface detail-seek-surface"
+            role="slider"
+            tabIndex={0}
+            aria-label="Seek within the visible waveform"
+            aria-valuemin={view.timeStartSeconds}
+            aria-valuemax={view.timeEndSeconds}
+            aria-valuenow={clamp(playheadSeconds, view.timeStartSeconds, view.timeEndSeconds)}
+            aria-valuetext={
+              playheadSeconds < view.timeStartSeconds || playheadSeconds > view.timeEndSeconds
+                ? `Playhead is outside the visible window; nearest boundary ${clamp(playheadSeconds, view.timeStartSeconds, view.timeEndSeconds).toFixed(3)} seconds`
+                : `${playheadSeconds.toFixed(3)} seconds`
+            }
+            onPointerDown={(event) => beginWaveformSeek(event, 'detail-seek')}
+            onPointerMove={moveWaveformGesture}
+            onPointerUp={finishWaveformGesture}
+            onPointerCancel={cancelWaveformGesture}
+            onLostPointerCapture={cancelWaveformGesture}
+            onKeyDown={(event) =>
+              handleSeekKeyDown(event, view.timeStartSeconds, view.timeEndSeconds)
+            }
+          />
+          {playheadSeconds >= view.timeStartSeconds && playheadSeconds <= view.timeEndSeconds && (
+            <span
+              className="playhead-line waveform-playhead"
+              style={{
+                left: `${((playheadSeconds - view.timeStartSeconds) / viewTimeSpan) * 100}%`,
+              }}
+            />
+          )}
+        </div>
       </div>
       <div className="frequency-axis" aria-hidden="true">
         <span>{Math.round(view.highFrequencyHz / 1000)} kHz</span>
@@ -586,7 +1069,7 @@ export function SpectrogramCanvas({
             return (
               <div
                 key={box.id}
-                className={`annotation-box ${selected ? 'selected' : ''}`}
+                className={`annotation-box ${selected ? 'selected' : ''} ${tool === 'select' && !disabled && annotationGesturesReady ? 'editable' : ''}`}
                 data-box-id={box.id}
                 data-overlap-count={selected ? overlapStack.length : undefined}
                 style={{
@@ -596,17 +1079,13 @@ export function SpectrogramCanvas({
                   height: rect.height,
                   pointerEvents: tool === 'select' ? 'auto' : 'none',
                 }}
-                onPointerDown={(event) => {
-                  if (tool !== 'select' || event.button !== 0) return;
-                  event.stopPropagation();
-                  rootRef.current?.focus({ preventScroll: true });
-                  selectAtPoint(event, box.id);
-                }}
+                onPointerDown={(event) => beginBoxMove(event, box)}
               >
                 <button
                   type="button"
                   className="box-label"
                   aria-label={`Select ${box.species.code}, ${box.species.speciesName} box`}
+                  onPointerDown={(event) => event.stopPropagation()}
                   onClick={(event) => {
                     event.stopPropagation();
                     onSelect(box.id);
@@ -620,12 +1099,12 @@ export function SpectrogramCanvas({
                   tool === 'select' &&
                   annotationGesturesReady &&
                   !disabled &&
-                  (['nw', 'ne', 'sw', 'se'] as const).map((handle) => (
+                  (['nw', 'n', 'ne', 'e', 'se', 's', 'sw', 'w'] as const).map((handle) => (
                     <button
                       type="button"
                       key={handle}
                       className={`resize-handle handle-${handle}`}
-                      aria-label={`Resize ${box.species.code} box from ${handle.toUpperCase()} corner`}
+                      aria-label={`Resize ${box.species.code} box from its ${resizeHandleLabel(handle)}`}
                       onPointerDown={(event) => beginResize(event, box, handle)}
                     />
                   ))}
@@ -654,6 +1133,53 @@ function rectFromPoints(left: PixelPoint, right: PixelPoint) {
   };
 }
 
+function previewRectForGesture(gesture: Gesture | null) {
+  if (!gesture || gesture.kind === 'pan') return null;
+  if (gesture.kind === 'draw') return rectFromPoints(gesture.start, gesture.current);
+  if (gesture.kind === 'move' && !gesture.moved) return null;
+  if (!gesture.box || !gesture.handle) return null;
+  try {
+    const geometry = geometryForBoxEdit(
+      gesture.box,
+      gesture.handle,
+      gesture.start,
+      gesture.current,
+      gesture.viewport,
+    );
+    return boxToPixelRect({ ...gesture.box, ...geometry }, gesture.viewport);
+  } catch {
+    return null;
+  }
+}
+
+function sameBoxGeometry(
+  left: FrogLabelBoxV2,
+  right: Pick<
+    FrogLabelBoxV2,
+    'startTimeSeconds' | 'endTimeSeconds' | 'lowFrequencyHz' | 'highFrequencyHz'
+  >,
+): boolean {
+  return (
+    left.startTimeSeconds === right.startTimeSeconds &&
+    left.endTimeSeconds === right.endTimeSeconds &&
+    left.lowFrequencyHz === right.lowFrequencyHz &&
+    left.highFrequencyHz === right.highFrequencyHz
+  );
+}
+
+function resizeHandleLabel(handle: ResizeHandle): string {
+  return {
+    nw: 'top-left corner',
+    n: 'top edge',
+    ne: 'top-right corner',
+    e: 'right edge',
+    se: 'bottom-right corner',
+    s: 'bottom edge',
+    sw: 'bottom-left corner',
+    w: 'left edge',
+  }[handle];
+}
+
 function pointInside(
   point: PixelPoint,
   rect: { left: number; top: number; width: number; height: number },
@@ -668,6 +1194,10 @@ function pointInside(
 
 function clampRatio(value: number): number {
   return Math.min(1, Math.max(0, value));
+}
+
+function clamp(value: number, minimum: number, maximum: number): number {
+  return Math.min(maximum, Math.max(minimum, value));
 }
 
 function sameViewportProjection(left: ViewportTransform, right: ViewportTransform): boolean {
@@ -758,7 +1288,8 @@ function projectVisibleBoxes(boxes: FrogLabelBoxV2[], viewport: ViewportTransfor
 function paintWaveform(
   canvas: HTMLCanvasElement,
   audio: LoadedAudio,
-  view: ViewWindow,
+  timeStartSeconds: number,
+  timeEndSeconds: number,
   mode: AnalysisChannelMode,
 ): void {
   const density = Math.min(2, Math.max(1, globalThis.devicePixelRatio || 1));
@@ -774,8 +1305,8 @@ function paintWaveform(
     audio.analysis,
     width,
     mode,
-    view.timeStartSeconds,
-    view.timeEndSeconds,
+    timeStartSeconds,
+    timeEndSeconds,
   );
   context.clearRect(0, 0, width, height);
   context.fillStyle = '#122019';

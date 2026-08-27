@@ -2,6 +2,12 @@ import { act, cleanup, fireEvent, render, waitFor } from '@testing-library/react
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { LoadedAudio } from '../../src/audio/AudioResource';
 import { SpectrogramCanvas } from '../../src/components/workspace/SpectrogramCanvas';
+import type { FrogLabelBoxV2 } from '../../src/domain/types';
+
+type BoxGeometry = Pick<
+  FrogLabelBoxV2,
+  'startTimeSeconds' | 'endTimeSeconds' | 'lowFrequencyHz' | 'highFrequencyHz'
+>;
 
 const rendererHarness = vi.hoisted(() => ({
   behaviors: [] as Array<'ready' | 'refining' | 'error'>,
@@ -122,6 +128,262 @@ afterEach(() => {
   Reflect.deleteProperty(HTMLElement.prototype, 'setPointerCapture');
   Reflect.deleteProperty(HTMLElement.prototype, 'hasPointerCapture');
   Reflect.deleteProperty(HTMLElement.prototype, 'releasePointerCapture');
+});
+
+describe('SpectrogramCanvas waveform navigation', () => {
+  it('shows a global overview only for time zoom and projects the visible window exactly', () => {
+    const common = canvasProps();
+    const result = render(<SpectrogramCanvas {...common} />);
+
+    expect(result.container.querySelector('.waveform-stack')).toHaveAttribute(
+      'data-waveform-tier-count',
+      '1',
+    );
+    expect(result.container.querySelector('.waveform-overview')).toBeNull();
+
+    result.rerender(
+      <SpectrogramCanvas
+        {...common}
+        view={{ ...common.view, timeStartSeconds: 2, timeEndSeconds: 6 }}
+      />,
+    );
+
+    expect(result.container.querySelector('.waveform-stack')).toHaveAttribute(
+      'data-waveform-tier-count',
+      '2',
+    );
+    const viewportWindow = result.getByRole('slider', { name: 'Visible time window' });
+    expect(viewportWindow).toHaveStyle({ left: '20%', width: '40%' });
+    expect(viewportWindow).toHaveAttribute('aria-valuetext', '2.000 to 6.000 seconds');
+  });
+
+  it('seeks in visible and global coordinates without repeating an unchanged release seek', () => {
+    const onSeek = vi.fn();
+    const common = canvasProps();
+    const result = render(
+      <SpectrogramCanvas
+        {...common}
+        view={{ ...common.view, timeStartSeconds: 2, timeEndSeconds: 6 }}
+        playheadSeconds={3}
+        onSeek={onSeek}
+      />,
+    );
+    const detail = result.container.querySelector('.waveform-detail') as HTMLDivElement;
+    const overview = result.container.querySelector('.waveform-overview') as HTMLDivElement;
+    mockRect(detail, 10, 400, 58);
+    mockRect(overview, 10, 400, 32);
+
+    const detailSeek = result.getByRole('slider', { name: 'Seek within the visible waveform' });
+    fireEvent.pointerDown(detailSeek, { pointerId: 31, button: 0, clientX: 110 });
+    fireEvent.pointerUp(detailSeek, { pointerId: 31, button: 0, clientX: 210 });
+    expect(onSeek).toHaveBeenNthCalledWith(1, 3);
+    expect(onSeek).toHaveBeenNthCalledWith(2, 4);
+
+    const globalSeek = result.getByRole('slider', { name: 'Seek within the full recording' });
+    fireEvent.pointerDown(globalSeek, { pointerId: 32, button: 0, clientX: 310 });
+    fireEvent.pointerUp(globalSeek, { pointerId: 32, button: 0, clientX: 310 });
+    expect(onSeek).toHaveBeenNthCalledWith(3, 7.5);
+
+    const overviewPlayhead = result.getByTestId('overview-playhead-handle');
+    fireEvent.pointerDown(overviewPlayhead, { pointerId: 33, button: 0, clientX: 136 });
+    fireEvent.pointerUp(overviewPlayhead, { pointerId: 33, button: 0, clientX: 136 });
+    expect(onSeek).toHaveBeenCalledTimes(3);
+    fireEvent.pointerDown(overviewPlayhead, { pointerId: 34, button: 0, clientX: 136 });
+    fireEvent.pointerMove(overviewPlayhead, { pointerId: 34, buttons: 1, clientX: 256 });
+    fireEvent.pointerUp(overviewPlayhead, { pointerId: 34, button: 0, clientX: 256 });
+    expect(onSeek).toHaveBeenNthCalledWith(4, 6);
+
+    fireEvent.pointerDown(detailSeek, { pointerId: 35, button: 0, clientX: 170 });
+    fireEvent.pointerMove(detailSeek, { pointerId: 35, buttons: 1, clientX: 250 });
+    fireEvent.pointerUp(detailSeek, { pointerId: 35, button: 0, clientX: 250 });
+    expect(onSeek).toHaveBeenNthCalledWith(5, 3.6);
+    expect(onSeek).toHaveBeenNthCalledWith(6, 4.4);
+    expect(onSeek).toHaveBeenCalledTimes(6);
+  });
+
+  it('drags the overview window horizontally while preserving its time span', () => {
+    const onTimeWindowStartChange = vi.fn();
+    const common = canvasProps();
+    const result = render(
+      <SpectrogramCanvas
+        {...common}
+        view={{ ...common.view, timeStartSeconds: 2, timeEndSeconds: 6 }}
+        onTimeWindowStartChange={onTimeWindowStartChange}
+      />,
+    );
+    const overview = result.container.querySelector('.waveform-overview') as HTMLDivElement;
+    mockRect(overview, 10, 400, 32);
+    const viewportWindow = result.getByRole('slider', { name: 'Visible time window' });
+
+    fireEvent.pointerDown(viewportWindow, { pointerId: 41, button: 0, clientX: 110 });
+    fireEvent.pointerMove(viewportWindow, { pointerId: 41, buttons: 1, clientX: 190 });
+    fireEvent.pointerUp(viewportWindow, { pointerId: 41, button: 0, clientX: 190 });
+
+    expect(onTimeWindowStartChange).toHaveBeenLastCalledWith(4);
+  });
+
+  it('starts detail keyboard seeking from the announced boundary when playhead is outside view', () => {
+    const onSeek = vi.fn();
+    const common = canvasProps();
+    const result = render(
+      <SpectrogramCanvas
+        {...common}
+        view={{ ...common.view, timeStartSeconds: 2, timeEndSeconds: 6 }}
+        playheadSeconds={9}
+        onSeek={onSeek}
+      />,
+    );
+    const detailSeek = result.getByRole('slider', { name: 'Seek within the visible waveform' });
+    expect(detailSeek).toHaveAttribute(
+      'aria-valuetext',
+      'Playhead is outside the visible window; nearest boundary 6.000 seconds',
+    );
+
+    fireEvent.keyDown(detailSeek, { key: 'ArrowLeft' });
+
+    expect(onSeek).toHaveBeenCalledWith(5.96);
+  });
+
+  it('cancels a captured overview gesture when the workspace cancels gestures', () => {
+    const onTimeWindowStartChange = vi.fn();
+    const common = canvasProps();
+    const zoomedView = { ...common.view, timeStartSeconds: 2, timeEndSeconds: 6 };
+    const result = render(
+      <SpectrogramCanvas
+        {...common}
+        view={zoomedView}
+        onTimeWindowStartChange={onTimeWindowStartChange}
+      />,
+    );
+    const overview = result.container.querySelector('.waveform-overview') as HTMLDivElement;
+    mockRect(overview, 10, 400, 32);
+    const viewportWindow = result.getByRole('slider', { name: 'Visible time window' });
+
+    fireEvent.pointerDown(viewportWindow, { pointerId: 42, button: 0, clientX: 110 });
+    result.rerender(
+      <SpectrogramCanvas
+        {...common}
+        view={zoomedView}
+        cancelVersion={1}
+        onTimeWindowStartChange={onTimeWindowStartChange}
+      />,
+    );
+    fireEvent.pointerMove(viewportWindow, { pointerId: 42, buttons: 1, clientX: 190 });
+    fireEvent.pointerUp(viewportWindow, { pointerId: 42, button: 0, clientX: 190 });
+
+    expect(onTimeWindowStartChange).not.toHaveBeenCalled();
+  });
+});
+
+describe('SpectrogramCanvas box editing', () => {
+  it('renders eight handles and lets a side handle change only one dimension in one commit', async () => {
+    const box = annotationBox();
+    const onResize = vi.fn<(boxId: string, geometry: BoxGeometry) => boolean>(() => true);
+    const common = canvasProps({ boxes: [box] });
+    const result = render(
+      <SpectrogramCanvas {...common} selectedBoxId={box.id} tool="select" onResize={onResize} />,
+    );
+    resizeStage(result.container);
+    await waitFor(() =>
+      expect(result.container.querySelector('.spectrogram-stage')).toHaveAttribute(
+        'data-annotation-gestures-ready',
+        'true',
+      ),
+    );
+    expect(result.container.querySelectorAll('.resize-handle')).toHaveLength(8);
+
+    const east = result.getByRole('button', { name: 'Resize GRE box from its right edge' });
+    const stage = result.container.querySelector('.spectrogram-stage') as HTMLDivElement;
+    fireEvent.pointerDown(east, { pointerId: 51, button: 0, clientX: 160, clientY: 172 });
+    fireEvent.pointerMove(stage, { pointerId: 51, buttons: 1, clientX: 180, clientY: 150 });
+    fireEvent.pointerMove(stage, { pointerId: 51, buttons: 1, clientX: 200, clientY: 130 });
+    fireEvent.pointerUp(stage, { pointerId: 51, button: 0, clientX: 200, clientY: 130 });
+
+    await waitFor(() => expect(onResize).toHaveBeenCalledTimes(1));
+    expect(onResize).toHaveBeenCalledWith(box.id, {
+      startTimeSeconds: 2,
+      endTimeSeconds: 5,
+      lowFrequencyHz: 100,
+      highFrequencyHz: 1_000,
+    });
+  });
+
+  it('moves a box as a unit but treats a body click as selection only', async () => {
+    const box = annotationBox();
+    const onResize = vi.fn<(boxId: string, geometry: BoxGeometry) => boolean>(() => true);
+    const onSelect = vi.fn();
+    const common = canvasProps({ boxes: [box] });
+    const result = render(
+      <SpectrogramCanvas
+        {...common}
+        selectedBoxId={box.id}
+        tool="select"
+        onResize={onResize}
+        onSelect={onSelect}
+      />,
+    );
+    resizeStage(result.container);
+    await waitFor(() =>
+      expect(result.container.querySelector('.spectrogram-stage')).toHaveAttribute(
+        'data-annotation-gestures-ready',
+        'true',
+      ),
+    );
+    const stage = result.container.querySelector('.spectrogram-stage') as HTMLDivElement;
+    const annotation = result.container.querySelector('.annotation-box') as HTMLDivElement;
+
+    fireEvent.pointerDown(annotation, {
+      pointerId: 61,
+      button: 0,
+      clientX: 100,
+      clientY: 170,
+    });
+    fireEvent.pointerUp(stage, { pointerId: 61, button: 0, clientX: 100, clientY: 170 });
+    expect(onResize).not.toHaveBeenCalled();
+    expect(onSelect).toHaveBeenLastCalledWith(box.id);
+
+    const selectionsAfterClick = onSelect.mock.calls.length;
+    fireEvent.pointerDown(annotation, {
+      pointerId: 62,
+      button: 0,
+      clientX: 100,
+      clientY: 170,
+    });
+    fireEvent.pointerMove(stage, {
+      pointerId: 62,
+      buttons: 1,
+      clientX: 140,
+      clientY: 150,
+    });
+    fireEvent.pointerMove(stage, {
+      pointerId: 62,
+      buttons: 1,
+      clientX: 100,
+      clientY: 170,
+    });
+    fireEvent.pointerUp(stage, { pointerId: 62, button: 0, clientX: 100, clientY: 170 });
+    expect(onResize).not.toHaveBeenCalled();
+    expect(onSelect).toHaveBeenCalledTimes(selectionsAfterClick + 1);
+
+    // A browser may coalesce movement and deliver only the distant pointer-up.
+    // That still counts as a drag rather than an overlap-cycling click.
+    fireEvent.pointerDown(annotation, {
+      pointerId: 63,
+      button: 0,
+      clientX: 100,
+      clientY: 170,
+    });
+    fireEvent.pointerUp(stage, { pointerId: 63, button: 0, clientX: 140, clientY: 150 });
+
+    await waitFor(() => expect(onResize).toHaveBeenCalledTimes(1));
+    const moved = onResize.mock.calls[0][1];
+    expect(moved.endTimeSeconds - moved.startTimeSeconds).toBeCloseTo(2);
+    expect(moved.highFrequencyHz - moved.lowFrequencyHz).toBeCloseTo(900);
+    expect(moved.startTimeSeconds).toBeCloseTo(3);
+    expect(moved.endTimeSeconds).toBeCloseTo(5);
+    expect(moved.lowFrequencyHz).toBeCloseTo(500);
+    expect(moved.highFrequencyHz).toBeCloseTo(1_400);
+  });
 });
 
 describe('SpectrogramCanvas camera gestures', () => {
@@ -435,6 +697,20 @@ function resizeStage(container: HTMLElement): void {
   Object.defineProperty(stage, 'clientWidth', { configurable: true, value: 400 });
   Object.defineProperty(stage, 'clientHeight', { configurable: true, value: 200 });
   act(() => resizeCallback([], {} as ResizeObserver));
+}
+
+function mockRect(element: HTMLElement, left: number, width: number, height: number): void {
+  vi.spyOn(element, 'getBoundingClientRect').mockReturnValue({
+    x: left,
+    y: 0,
+    left,
+    top: 0,
+    right: left + width,
+    bottom: height,
+    width,
+    height,
+    toJSON: () => ({}),
+  });
 }
 
 function canvasProps(overrides: { boxes?: ReturnType<typeof annotationBox>[] } = {}) {

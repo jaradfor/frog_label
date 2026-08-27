@@ -1,6 +1,7 @@
 import {
   useCallback,
   useEffect,
+  useEffectEvent,
   useId,
   useLayoutEffect,
   useMemo,
@@ -437,6 +438,7 @@ function WorkspaceCore({
   const [dark, setDark] = useState(true);
   const [playhead, setPlayhead] = useState(0);
   const [isPlaying, setIsPlaying] = useState(false);
+  const [autoFollow, setAutoFollow] = useState(false);
   const [playbackRate, setPlaybackRate] = useState(1);
   const [auditionPaddingHz, setAuditionPaddingHz] = useState('250');
   const [activeBoxAudition, setActiveBoxAudition] = useState<ActiveBoxAudition | null>(null);
@@ -546,6 +548,7 @@ function WorkspaceCore({
     const element = audio.element;
     const update = () => setPlayhead(element.currentTime);
     const play = () => {
+      setPlayhead(element.currentTime);
       setIsPlaying(true);
       onSemanticEvent('audio.played');
     };
@@ -571,6 +574,37 @@ function WorkspaceCore({
       element.removeEventListener('loadedmetadata', restoreRate);
     };
   }, [audio, onSemanticEvent, playbackRate]);
+
+  useEffect(() => {
+    if (!autoFollow || !isPlaying || activePointersRef.current.size > 0) return;
+    setView((current) => {
+      const durationSeconds = current.durationSeconds;
+      const timeSpan = current.timeEndSeconds - current.timeStartSeconds;
+      const tolerance = Math.max(1e-6, durationSeconds * 1e-9);
+      if (timeSpan >= durationSeconds - tolerance) return current;
+
+      const safeStartSeconds = current.timeStartSeconds + timeSpan * 0.2;
+      const safeEndSeconds = current.timeStartSeconds + timeSpan * 0.8;
+      const needsEarlierPage = playhead < safeStartSeconds && current.timeStartSeconds > tolerance;
+      const needsLaterPage =
+        playhead > safeEndSeconds && current.timeEndSeconds < durationSeconds - tolerance;
+      if (!needsEarlierPage && !needsLaterPage) return current;
+
+      // Crossing the safe-zone boundary moves about half a page. A seek far
+      // outside the view still reaches its destination in one update.
+      const timeStartSeconds = clamp(
+        playhead - timeSpan * 0.3,
+        0,
+        Math.max(0, durationSeconds - timeSpan),
+      );
+      if (Math.abs(timeStartSeconds - current.timeStartSeconds) <= tolerance) return current;
+      return {
+        ...current,
+        timeStartSeconds,
+        timeEndSeconds: timeStartSeconds + timeSpan,
+      };
+    });
+  }, [autoFollow, isPlaying, playhead]);
 
   useEffect(() => {
     if (!audio || !catalog) return;
@@ -767,6 +801,28 @@ function WorkspaceCore({
     } else audio.element.pause();
   }, [audio]);
 
+  const toggleAutoFollow = useCallback(() => {
+    const next = !autoFollow;
+    setAutoFollow(next);
+    setAnnouncement(`Playback follow ${next ? 'on' : 'off'}.`);
+  }, [autoFollow]);
+
+  const seekTo = useCallback(
+    (timeSeconds: number) => {
+      if (!audio || !Number.isFinite(timeSeconds)) return;
+      auditionRequestRef.current += 1;
+      setActiveBoxAudition(null);
+      setAudioError('');
+      try {
+        audio.element.seek(clamp(timeSeconds, 0, audio.durationSeconds));
+        setPlayhead(audio.element.currentTime);
+      } catch (error) {
+        setAudioError(readError(error));
+      }
+    },
+    [audio],
+  );
+
   const auditionBox = useCallback(
     (box: FrogLabelBoxV2, mode: BoxAuditionMode, paddingHz: number) => {
       if (!audio) return;
@@ -946,6 +1002,24 @@ function WorkspaceCore({
     [settings.frequencyScale, settings.frequencyWarp],
   );
 
+  const setTimeWindowStart = useCallback((requestedStartSeconds: number) => {
+    if (!Number.isFinite(requestedStartSeconds)) return;
+    setView((current) => {
+      const timeSpan = current.timeEndSeconds - current.timeStartSeconds;
+      const timeStartSeconds = clamp(
+        requestedStartSeconds,
+        0,
+        Math.max(0, current.durationSeconds - timeSpan),
+      );
+      if (timeStartSeconds === current.timeStartSeconds) return current;
+      return {
+        ...current,
+        timeStartSeconds,
+        timeEndSeconds: timeStartSeconds + timeSpan,
+      };
+    });
+  }, []);
+
   const panByViewFraction = useCallback(
     (timeFraction: number, frequencyFraction: number) => {
       setView((current) => {
@@ -1081,6 +1155,9 @@ function WorkspaceCore({
         case 'audio.playPause':
           if (audio) togglePlay();
           break;
+        case 'audio.toggleFollow':
+          if (audio) toggleAutoFollow();
+          break;
         case 'audio.faster':
           stepPlaybackRate(1);
           break;
@@ -1166,6 +1243,7 @@ function WorkspaceCore({
       editable,
       hostEditable,
       toggleNoCalls,
+      toggleAutoFollow,
       onSemanticEvent,
       panels.details,
       panByViewFraction,
@@ -1182,6 +1260,10 @@ function WorkspaceCore({
     speciesCaptureRef.current = next;
     setSpeciesCapture(next);
   }, []);
+
+  const runKeyboardCommand = useEffectEvent((command: WorkspaceCommandId) => {
+    runCommand(command);
+  });
 
   useEffect(() => {
     if (!speciesCaptureRef.current || !catalog) return;
@@ -1272,7 +1354,7 @@ function WorkspaceCore({
       // Escape also dismisses parent-owned overlays such as the compact local
       // file menu after the workspace cancels its own gesture/selection.
       if (command !== 'gesture.cancel') event.stopImmediatePropagation();
-      runCommand(command);
+      runKeyboardCommand(command);
     };
 
     const keyup = (event: KeyboardEvent) => {
@@ -1313,15 +1395,7 @@ function WorkspaceCore({
       window.removeEventListener('blur', cancel);
       document.removeEventListener('visibilitychange', cancel);
     };
-  }, [
-    catalog,
-    hostEditable,
-    onSemanticEvent,
-    publishSpeciesCapture,
-    quickSpeciesIndex,
-    runCommand,
-    suspended,
-  ]);
+  }, [catalog, hostEditable, onSemanticEvent, publishSpeciesCapture, quickSpeciesIndex, suspended]);
 
   useEffect(() => {
     const activePointers = activePointersRef.current;
@@ -1441,6 +1515,7 @@ function WorkspaceCore({
       data-render-status={spectrogramRenderStatus}
       data-domain-revision={domain.revision}
       data-species-capture={speciesCapture ? 'active' : 'idle'}
+      data-auto-follow={autoFollow ? 'on' : 'off'}
       data-species-panel={panels.species ? 'open' : 'closed'}
       data-inspector-panel={panels.details ? 'details' : panels.display ? 'display' : 'closed'}
       data-dataset-panel={panels.dataset ? 'open' : 'closed'}
@@ -1509,6 +1584,16 @@ function WorkspaceCore({
           aria-label="Play or pause audio (V)"
         >
           <span className="toolbar-label">Play</span> <kbd>V</kbd>
+        </button>
+        <button
+          type="button"
+          className={autoFollow ? 'active' : ''}
+          onClick={() => runCommand('audio.toggleFollow')}
+          disabled={!audio}
+          aria-pressed={autoFollow}
+          aria-label="Follow playhead during playback (Shift+V)"
+        >
+          <span className="toolbar-label">Follow</span> <kbd>⇧V</kbd>
         </button>
         <button
           type="button"
@@ -1775,6 +1860,8 @@ function WorkspaceCore({
                   settings={settings}
                   playheadSeconds={playhead}
                   cancelVersion={gestureCancelVersion}
+                  onSeek={seekTo}
+                  onTimeWindowStartChange={setTimeWindowStart}
                   onSelect={selectBox}
                   onCreate={(geometry) =>
                     currentSpecies

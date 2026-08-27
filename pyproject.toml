@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "froglabel-cli"
-version = "0.1.0"
+version = "0.1.1"
 description = "FrogLabel human-labeling project administration and integration tools"
 readme = "README.md"
 requires-python = ">=3.11"

@@ -35,6 +35,7 @@ export interface AudioPlayback extends EventTarget {
   readonly paused: boolean;
   currentTime: number;
   playbackRate: number;
+  seek(timeSeconds: number): void;
   playRange(range: AudioPlaybackRange): Promise<void>;
   play(): Promise<void>;
   pause(): void;
@@ -349,6 +350,16 @@ class DecodedAudioPlayback extends EventTarget implements AudioPlayback {
         throw error;
       }
     }
+  }
+
+  seek(timeSeconds: number): void {
+    const wasPlaying = this.playing;
+    if (!wasPlaying) this.operationGeneration += 1;
+    this.cancelRange();
+    this.currentTime = timeSeconds;
+    // Seeking inside an active source restarts it immediately. Seeking to its
+    // endpoint already emits the complete timeupdate/pause/ended sequence.
+    if (!wasPlaying || this.playing) this.dispatchEvent(new Event('timeupdate'));
   }
 
   get playbackRate(): number {

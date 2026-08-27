@@ -150,6 +150,75 @@ describe('audio playback ranges', () => {
   });
 });
 
+describe('audio playback seeking', () => {
+  it('clamps paused seeks and emits one time update without starting playback', async () => {
+    const loaded = await loadTestAudio();
+    const events: string[] = [];
+    loaded.element.addEventListener('timeupdate', () => events.push('timeupdate'));
+
+    loaded.element.seek(0.625);
+    expect(loaded.element.paused).toBe(true);
+    expect(loaded.element.currentTime).toBe(0.625);
+    expect(FakeAudioContext.instances).toHaveLength(0);
+    expect(events).toEqual(['timeupdate']);
+
+    loaded.element.seek(99);
+    expect(loaded.element.currentTime).toBe(2);
+    expect(events).toEqual(['timeupdate', 'timeupdate']);
+    loaded.dispose();
+  });
+
+  it('restarts active playback at the seek target and leaves a box audition range', async () => {
+    const loaded = await loadTestAudio();
+    const events: string[] = [];
+    for (const name of ['timeupdate', 'pause', 'ended']) {
+      loaded.element.addEventListener(name, () => events.push(name));
+    }
+    await loaded.element.playRange({
+      startTimeSeconds: 0.25,
+      endTimeSeconds: 0.75,
+      frequencyFilter: {
+        mode: 'band-pass',
+        lowFrequencyHz: 1_000,
+        highFrequencyHz: 2_000,
+      },
+    });
+
+    const context = latestContext();
+    loaded.element.seek(1.25);
+
+    expect(loaded.element.paused).toBe(false);
+    expect(loaded.element.currentTime).toBe(1.25);
+    expect(context.sources).toHaveLength(2);
+    expect(context.sources[0].stops).toEqual([[10.004]]);
+    expect(context.sources[1].starts).toEqual([[10, 1.25, 0.75]]);
+    expect(context.filters).toHaveLength(4);
+    expect(events).toEqual(['timeupdate']);
+
+    loaded.element.seek(2);
+    expect(loaded.element.paused).toBe(true);
+    expect(loaded.element.currentTime).toBe(2);
+    expect(events).toEqual(['timeupdate', 'timeupdate', 'pause', 'ended']);
+    loaded.dispose();
+  });
+
+  it('supersedes a playback request that is still waiting to start', async () => {
+    const gate = deferred<void>();
+    FakeAudioContext.resumeGate = gate.promise;
+    const loaded = await loadTestAudio();
+    const pending = loaded.element.playRange({ startTimeSeconds: 0.25, endTimeSeconds: 0.75 });
+
+    loaded.element.seek(1.25);
+    gate.resolve();
+
+    await expect(pending).rejects.toMatchObject({ name: 'AbortError' });
+    expect(loaded.element.paused).toBe(true);
+    expect(loaded.element.currentTime).toBe(1.25);
+    expect(latestContext().sources).toHaveLength(0);
+    loaded.dispose();
+  });
+});
+
 describe('audio range validation', () => {
   it('validates runtime filter modes and clamps one decoded sample of end tolerance', () => {
     expect(() =>

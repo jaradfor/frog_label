@@ -1,9 +1,10 @@
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { FrogLabelWorkspace } from '../../src/components/workspace/FrogLabelWorkspace';
 import { MemoryAnnotationDocumentPort } from '../../src/adapters/memory/MemoryAnnotationDocumentPort';
 import { MemoryAudioSourcePort } from '../../src/adapters/memory/MemoryAudioSourcePort';
 import { MemorySpeciesCatalogPort } from '../../src/adapters/memory/MemorySpeciesCatalogPort';
+import type { LoadedAudio } from '../../src/audio/AudioResource';
 import { catalog } from '../fixtures';
 
 vi.mock('../../src/components/workspace/SpectrogramCanvas', async () => {
@@ -11,18 +12,43 @@ vi.mock('../../src/components/workspace/SpectrogramCanvas', async () => {
   return {
     SpectrogramCanvas({
       view,
+      playheadSeconds,
+      onSeek,
+      onTimeWindowStartChange,
     }: {
       view: {
+        durationSeconds: number;
         timeStartSeconds: number;
         timeEndSeconds: number;
+        lowFrequencyHz: number;
+        highFrequencyHz: number;
       };
+      playheadSeconds: number;
+      onSeek(timeSeconds: number): void;
+      onTimeWindowStartChange(timeStartSeconds: number): void;
     }) {
-      return React.createElement('div', {
-        className: 'spectrogram-shell',
-        'data-testid': 'short-audio-spectrogram',
-        'data-view-time-start-seconds': view.timeStartSeconds,
-        'data-view-time-end-seconds': view.timeEndSeconds,
-      });
+      return React.createElement(
+        'div',
+        {
+          className: 'spectrogram-shell',
+          'data-testid': 'short-audio-spectrogram',
+          'data-view-time-start-seconds': view.timeStartSeconds,
+          'data-view-time-end-seconds': view.timeEndSeconds,
+          'data-view-low-frequency-hz': view.lowFrequencyHz,
+          'data-view-high-frequency-hz': view.highFrequencyHz,
+          'data-playhead-seconds': playheadSeconds,
+        },
+        React.createElement(
+          'button',
+          { type: 'button', onClick: () => onSeek(view.durationSeconds * 0.75) },
+          'Test waveform seek',
+        ),
+        React.createElement(
+          'button',
+          { type: 'button', onClick: () => onTimeWindowStartChange(view.durationSeconds * 0.4) },
+          'Test overview pan',
+        ),
+      );
     },
   };
 });
@@ -59,6 +85,112 @@ describe('short-audio viewport bounds', () => {
       expect(end).toBeLessThanOrEqual(durationSeconds);
       expect(end).toBeGreaterThan(start);
     });
+
+    annotation.destroy();
+    species.destroy();
+    audio.destroy();
+  });
+
+  it('routes waveform navigation and toggles playback follow with Shift+V', async () => {
+    const durationSeconds = 1;
+    const annotation = new MemoryAnnotationDocumentPort(null);
+    const species = new MemorySpeciesCatalogPort(catalog);
+    const audio = new MemoryAudioSourcePort({
+      url: pcmWavDataUrl(8_000, durationSeconds),
+      filename: 'one-second.wav',
+      mimeType: 'audio/wav',
+    });
+
+    render(
+      <FrogLabelWorkspace
+        annotationPort={annotation}
+        catalogPort={species}
+        audioSourcePort={audio}
+        mode="demo"
+      />,
+    );
+
+    const shell = await screen.findByTestId('short-audio-spectrogram');
+    const follow = screen.getByRole('button', {
+      name: 'Follow playhead during playback (Shift+V)',
+    });
+    expect(follow).toHaveAttribute('aria-pressed', 'false');
+    expect(document.querySelector('.froglabel-app')).toHaveAttribute('data-auto-follow', 'off');
+    fireEvent.keyDown(window, { code: 'KeyV', key: 'V', shiftKey: true });
+    await waitFor(() => {
+      expect(follow).toHaveAttribute('aria-pressed', 'true');
+      expect(document.querySelector('.froglabel-app')).toHaveAttribute('data-auto-follow', 'on');
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Test waveform seek' }));
+    await waitFor(() =>
+      expect(Number(shell.getAttribute('data-playhead-seconds'))).toBeCloseTo(0.75),
+    );
+
+    fireEvent.keyDown(window, { code: 'KeyE', key: 'e' });
+    fireEvent.click(screen.getByRole('button', { name: 'Test overview pan' }));
+    await waitFor(() => {
+      expect(Number(shell.getAttribute('data-view-time-start-seconds'))).toBeCloseTo(0.2);
+      expect(Number(shell.getAttribute('data-view-time-end-seconds'))).toBeCloseTo(1);
+    });
+
+    annotation.destroy();
+    species.destroy();
+    audio.destroy();
+  });
+
+  it('pages follow at the safe-zone edge and defers while a pointer gesture is held', async () => {
+    const durationSeconds = 2;
+    const annotation = new MemoryAnnotationDocumentPort(null);
+    const species = new MemorySpeciesCatalogPort(catalog);
+    const audio = new MemoryAudioSourcePort({
+      url: pcmWavDataUrl(8_000, durationSeconds),
+      filename: 'two-seconds.wav',
+      mimeType: 'audio/wav',
+    });
+    const capturedAudio: { current: LoadedAudio | null } = { current: null };
+
+    render(
+      <FrogLabelWorkspace
+        annotationPort={annotation}
+        catalogPort={species}
+        audioSourcePort={audio}
+        mode="demo"
+        onAudioLoaded={(loaded) => {
+          capturedAudio.current = loaded;
+        }}
+      />,
+    );
+
+    const shell = await screen.findByTestId('short-audio-spectrogram');
+    await waitFor(() => expect(capturedAudio.current).not.toBeNull());
+    fireEvent.keyDown(window, { code: 'KeyD', key: 'D', shiftKey: true });
+    await waitFor(() => {
+      expect(Number(shell.getAttribute('data-view-time-start-seconds'))).toBeCloseTo(0.2);
+      expect(Number(shell.getAttribute('data-view-time-end-seconds'))).toBeCloseTo(1.8);
+    });
+    const initialLow = shell.getAttribute('data-view-low-frequency-hz');
+    const initialHigh = shell.getAttribute('data-view-high-frequency-hz');
+
+    fireEvent.keyDown(window, { code: 'KeyV', key: 'V', shiftKey: true });
+    fireEvent.pointerDown(window, { pointerId: 71, buttons: 1 });
+    const playback = capturedAudio.current?.element;
+    if (!playback) throw new Error('Audio playback was not captured');
+    act(() => {
+      playback.seek(1.75);
+      playback.dispatchEvent(new Event('play'));
+    });
+    expect(Number(shell.getAttribute('data-view-time-start-seconds'))).toBeCloseTo(0.2);
+    expect(Number(shell.getAttribute('data-view-time-end-seconds'))).toBeCloseTo(1.8);
+
+    fireEvent.pointerUp(window, { pointerId: 71, buttons: 0 });
+    act(() => playback.seek(1.76));
+    await waitFor(() => {
+      expect(Number(shell.getAttribute('data-view-time-start-seconds'))).toBeCloseTo(0.4);
+      expect(Number(shell.getAttribute('data-view-time-end-seconds'))).toBeCloseTo(2);
+    });
+    expect(shell.getAttribute('data-view-low-frequency-hz')).toBe(initialLow);
+    expect(shell.getAttribute('data-view-high-frequency-hz')).toBe(initialHigh);
 
     annotation.destroy();
     species.destroy();

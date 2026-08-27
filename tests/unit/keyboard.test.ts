@@ -43,6 +43,7 @@ describe('expert workspace keyboard routing', () => {
     ['KeyS', true, 'viewport.zoomFrequencyOut'],
     ['KeyX', false, 'viewport.fit'],
     ['KeyV', false, 'audio.playPause'],
+    ['KeyV', true, 'audio.toggleFollow'],
     ['KeyF', false, 'audio.faster'],
     ['KeyR', false, 'audio.slower'],
     ['KeyT', false, 'tool.draw'],
@@ -80,9 +81,11 @@ describe('expert workspace keyboard routing', () => {
     expect(route({ code: 'KeyW', shiftKey: true, repeat: true })).toBe('viewport.zoomFrequencyIn');
     expect(route({ code: 'KeyX', repeat: true })).toBeNull();
     expect(route({ code: 'KeyV', repeat: true })).toBeNull();
+    expect(route({ code: 'KeyV', shiftKey: true, repeat: true })).toBeNull();
     expect(isRepeatableCommand('viewport.panRight')).toBe(true);
     expect(isRepeatableCommand('viewport.zoomFrequencyOut')).toBe(true);
     expect(isRepeatableCommand('audio.playPause')).toBe(false);
+    expect(isRepeatableCommand('audio.toggleFollow')).toBe(false);
   });
 
   it('suppresses fields but not focused buttons or form containers', () => {
