@@ -139,6 +139,58 @@ describe('short-audio viewport bounds', () => {
     audio.destroy();
   });
 
+  it('starts paused playback at the visible left edge only when time is zoomed', async () => {
+    const durationSeconds = 2;
+    const annotation = new MemoryAnnotationDocumentPort(null);
+    const species = new MemorySpeciesCatalogPort(catalog);
+    const audio = new MemoryAudioSourcePort({
+      url: pcmWavDataUrl(8_000, durationSeconds),
+      filename: 'two-seconds.wav',
+      mimeType: 'audio/wav',
+    });
+    const capturedAudio: { current: LoadedAudio | null } = { current: null };
+
+    render(
+      <FrogLabelWorkspace
+        annotationPort={annotation}
+        catalogPort={species}
+        audioSourcePort={audio}
+        mode="demo"
+        onAudioLoaded={(loaded) => {
+          capturedAudio.current = loaded;
+        }}
+      />,
+    );
+
+    const shell = await screen.findByTestId('short-audio-spectrogram');
+    await waitFor(() => expect(capturedAudio.current).not.toBeNull());
+    const playback = capturedAudio.current?.element;
+    if (!playback) throw new Error('Audio playback was not captured');
+    const play = vi.spyOn(playback, 'play').mockResolvedValue();
+    const playButton = screen.getByRole('button', { name: 'Play or pause audio (V)' });
+
+    act(() => playback.seek(1.25));
+    fireEvent.click(playButton);
+    expect(playback.currentTime).toBeCloseTo(1.25);
+    expect(play).toHaveBeenCalledTimes(1);
+
+    fireEvent.keyDown(window, { code: 'KeyD', key: 'D', shiftKey: true });
+    await waitFor(() => {
+      expect(Number(shell.getAttribute('data-view-time-start-seconds'))).toBeCloseTo(0.2);
+      expect(Number(shell.getAttribute('data-view-time-end-seconds'))).toBeCloseTo(1.8);
+    });
+    act(() => playback.seek(1.25));
+    fireEvent.click(playButton);
+    expect(playback.currentTime).toBeCloseTo(0.2);
+    expect(Number(shell.getAttribute('data-playhead-seconds'))).toBeCloseTo(0.2);
+    expect(play).toHaveBeenCalledTimes(2);
+    expect(document.querySelector('.expert-status-meta')?.textContent).not.toMatch(/ready.*ready/u);
+
+    annotation.destroy();
+    species.destroy();
+    audio.destroy();
+  });
+
   it('pages follow at the safe-zone edge and defers while a pointer gesture is held', async () => {
     const durationSeconds = 2;
     const annotation = new MemoryAnnotationDocumentPort(null);
@@ -173,12 +225,18 @@ describe('short-audio viewport bounds', () => {
     const initialHigh = shell.getAttribute('data-view-high-frequency-hz');
 
     fireEvent.keyDown(window, { code: 'KeyV', key: 'V', shiftKey: true });
-    fireEvent.pointerDown(window, { pointerId: 71, buttons: 1 });
     const playback = capturedAudio.current?.element;
     if (!playback) throw new Error('Audio playback was not captured');
     act(() => {
-      playback.seek(1.75);
+      playback.seek(0.2);
       playback.dispatchEvent(new Event('play'));
+    });
+    expect(Number(shell.getAttribute('data-view-time-start-seconds'))).toBeCloseTo(0.2);
+    expect(Number(shell.getAttribute('data-view-time-end-seconds'))).toBeCloseTo(1.8);
+
+    fireEvent.pointerDown(window, { pointerId: 71, buttons: 1 });
+    act(() => {
+      playback.seek(1.75);
     });
     expect(Number(shell.getAttribute('data-view-time-start-seconds'))).toBeCloseTo(0.2);
     expect(Number(shell.getAttribute('data-view-time-end-seconds'))).toBeCloseTo(1.8);

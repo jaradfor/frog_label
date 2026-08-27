@@ -53,7 +53,7 @@ The [private local workflow](https://jaradfor.github.io/frog_label/?mode=local) 
 
 Number shortcuts work after using buttons or the spectrogram. They are intentionally ignored only while typing in a field or holding a mouse button.
 
-The detailed waveform seeks anywhere within the visible window. When time is zoomed, the global overview appears above it: drag the yellow playhead marker to scrub globally, click or drag outside the highlighted viewport to seek elsewhere, or drag the viewport itself left and right to pan without changing its duration or frequency range. Playback follow is off by default; turn on **Follow** or press `Shift+V` to page the time window as playback approaches its edge.
+The detailed waveform seeks anywhere within the visible window. When time is zoomed, the global overview appears above it: drag the yellow playhead marker to scrub globally, click or drag outside the highlighted viewport to seek elsewhere, or drag the viewport itself left and right to pan without changing its duration or frequency range. Pressing **Play** in a time-zoomed view starts at the visible left edge. Playback follow is off by default; turn on **Follow** or press `Shift+V` to page the time window as playback approaches its edge.
 
 ## Designed for ecological research
 

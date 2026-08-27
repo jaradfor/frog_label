@@ -583,9 +583,8 @@ function WorkspaceCore({
       const tolerance = Math.max(1e-6, durationSeconds * 1e-9);
       if (timeSpan >= durationSeconds - tolerance) return current;
 
-      const safeStartSeconds = current.timeStartSeconds + timeSpan * 0.2;
       const safeEndSeconds = current.timeStartSeconds + timeSpan * 0.8;
-      const needsEarlierPage = playhead < safeStartSeconds && current.timeStartSeconds > tolerance;
+      const needsEarlierPage = playhead < current.timeStartSeconds - tolerance;
       const needsLaterPage =
         playhead > safeEndSeconds && current.timeEndSeconds < durationSeconds - tolerance;
       if (!needsEarlierPage && !needsLaterPage) return current;
@@ -795,11 +794,25 @@ function WorkspaceCore({
     auditionRequestRef.current += 1;
     if (audio.element.paused) {
       setActiveBoxAudition(null);
+      setAudioError('');
+      const timeSpan = view.timeEndSeconds - view.timeStartSeconds;
+      const timeZoomed =
+        timeSpan <
+        audio.durationSeconds - Math.max(0.000001, audio.durationSeconds * Number.EPSILON * 16);
+      if (timeZoomed) {
+        try {
+          audio.element.seek(clamp(view.timeStartSeconds, 0, audio.durationSeconds));
+          setPlayhead(audio.element.currentTime);
+        } catch (error) {
+          setAudioError(readError(error));
+          return;
+        }
+      }
       void audio.element.play().catch((error) => {
         if (!isAbortError(error)) setAudioError(readError(error));
       });
     } else audio.element.pause();
-  }, [audio]);
+  }, [audio, view.timeEndSeconds, view.timeStartSeconds]);
 
   const toggleAutoFollow = useCallback(() => {
     const next = !autoFollow;
@@ -1505,7 +1518,7 @@ function WorkspaceCore({
   const statusMain = speciesCapture
     ? `SPECIES ${speciesCapture.selection.query || ''}_ → ${captureResolution ? `${captureResolution.winner.code} — ${captureResolution.winner.speciesName}` : 'no match'}${captureAmbiguity}${captureAlternatives ? ` · also ${captureAlternatives}` : ''}${speciesCapture.rejected ? ` · rejected ${speciesCapture.rejected}` : ''} · release Space`
     : `${tool.toUpperCase()} · ${currentSpecies ? `${currentSpecies.code} — ${currentSpecies.speciesName}` : 'NO SPECIES'} · ${isPlaying ? 'PLAYING' : 'PAUSED'} ${playbackRate}×${visualDomain.document?.reviewStatus === 'no_calls' ? ' · NO CALLS' : ''}`;
-  const statusMeta = `${view.timeStartSeconds.toFixed(2)}–${view.timeEndSeconds.toFixed(2)}s · ${Math.round(view.lowFrequencyHz)}–${Math.round(view.highFrequencyHz)}Hz · render ${spectrogramRenderStatus} · ${hostStatus.phase}`;
+  const statusMeta = `${view.timeStartSeconds.toFixed(2)}–${view.timeEndSeconds.toFixed(2)}s · ${Math.round(view.lowFrequencyHz)}–${Math.round(view.highFrequencyHz)}Hz · render ${spectrogramRenderStatus}${hostStatus.phase === 'ready' ? '' : ` · host ${hostStatus.phase}`}`;
 
   return (
     <main

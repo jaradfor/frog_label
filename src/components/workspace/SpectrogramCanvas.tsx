@@ -164,6 +164,8 @@ export function SpectrogramCanvas({
   const [waveformGestureKind, setWaveformGestureKind] = useState<WaveformGesture['kind'] | null>(
     null,
   );
+  const [draftSeekSeconds, setDraftSeekSeconds] = useState<number | null>(null);
+  const [draftViewportStartSeconds, setDraftViewportStartSeconds] = useState<number | null>(null);
   const [size, setSize] = useState({ width: 0, height: 0 });
   const [overlapStack, setOverlapStack] = useState<string[]>([]);
   const [renderPhase, setRenderPhase] = useState<SpectrogramRenderPhase>('analyzing');
@@ -213,6 +215,8 @@ export function SpectrogramCanvas({
     viewTimeSpan <
     view.durationSeconds -
       Math.max(TIME_ZOOM_EPSILON_SECONDS, view.durationSeconds * Number.EPSILON * 16);
+  const presentedPlayheadSeconds = draftSeekSeconds ?? playheadSeconds;
+  const presentedViewportStartSeconds = draftViewportStartSeconds ?? view.timeStartSeconds;
 
   const reportPhase = useCallback(
     (phase: SpectrogramRenderPhase) => {
@@ -380,6 +384,8 @@ export function SpectrogramCanvas({
         globalThis.cancelAnimationFrame?.(waveformSeekFrameRef.current);
         waveformSeekFrameRef.current = null;
       }
+      setDraftSeekSeconds(null);
+      setDraftViewportStartSeconds(null);
       if (activeWaveform.captureTarget.hasPointerCapture(activeWaveform.pointerId)) {
         activeWaveform.captureTarget.releasePointerCapture(activeWaveform.pointerId);
       }
@@ -420,14 +426,14 @@ export function SpectrogramCanvas({
     if (typeof globalThis.requestAnimationFrame !== 'function') {
       const pending = pendingViewportStartRef.current;
       pendingViewportStartRef.current = null;
-      if (pending !== null) onTimeWindowStartChange?.(pending);
+      if (pending !== null) setDraftViewportStartSeconds(pending);
       return;
     }
     viewportPanFrameRef.current = globalThis.requestAnimationFrame(() => {
       viewportPanFrameRef.current = null;
       const pending = pendingViewportStartRef.current;
       pendingViewportStartRef.current = null;
-      if (pending !== null) onTimeWindowStartChange?.(pending);
+      if (pending !== null) setDraftViewportStartSeconds(pending);
     });
   };
 
@@ -439,6 +445,7 @@ export function SpectrogramCanvas({
     pendingViewportStartRef.current = null;
     const maximumStart = Math.max(0, view.durationSeconds - viewTimeSpan);
     onTimeWindowStartChange?.(clamp(timeStartSeconds, 0, maximumStart));
+    setDraftViewportStartSeconds(null);
   };
 
   const timeForWaveformClientX = (
@@ -494,14 +501,14 @@ export function SpectrogramCanvas({
     if (typeof globalThis.requestAnimationFrame !== 'function') {
       const pending = pendingWaveformSeekRef.current;
       pendingWaveformSeekRef.current = null;
-      if (pending !== null) dispatchWaveformSeek(pending);
+      if (pending !== null) setDraftSeekSeconds(pending);
       return;
     }
     waveformSeekFrameRef.current = globalThis.requestAnimationFrame(() => {
       waveformSeekFrameRef.current = null;
       const pending = pendingWaveformSeekRef.current;
       pendingWaveformSeekRef.current = null;
-      if (pending !== null) dispatchWaveformSeek(pending);
+      if (pending !== null) setDraftSeekSeconds(pending);
     });
   };
 
@@ -512,6 +519,7 @@ export function SpectrogramCanvas({
     }
     pendingWaveformSeekRef.current = null;
     dispatchWaveformSeek(timeSeconds);
+    setDraftSeekSeconds(null);
   };
 
   const beginWaveformSeek = (
@@ -536,6 +544,7 @@ export function SpectrogramCanvas({
     };
     waveformGestureRef.current = next;
     setWaveformGestureKind(kind);
+    setDraftSeekSeconds(initialSeekSeconds);
     if (kind !== 'playhead-seek') onSeek(initialSeekSeconds);
     event.currentTarget.setPointerCapture(event.pointerId);
   };
@@ -553,6 +562,7 @@ export function SpectrogramCanvas({
     };
     waveformGestureRef.current = next;
     setWaveformGestureKind(next.kind);
+    setDraftViewportStartSeconds(view.timeStartSeconds);
     event.currentTarget.setPointerCapture(event.pointerId);
   };
 
@@ -588,6 +598,8 @@ export function SpectrogramCanvas({
     if (waveformGestureRef.current?.pointerId !== event.pointerId) return;
     waveformGestureRef.current = null;
     setWaveformGestureKind(null);
+    setDraftSeekSeconds(null);
+    setDraftViewportStartSeconds(null);
     pendingViewportStartRef.current = null;
     pendingWaveformSeekRef.current = null;
     if (viewportPanFrameRef.current !== null) {
@@ -901,8 +913,8 @@ export function SpectrogramCanvas({
               aria-label="Seek within the full recording"
               aria-valuemin={0}
               aria-valuemax={view.durationSeconds}
-              aria-valuenow={clamp(playheadSeconds, 0, view.durationSeconds)}
-              aria-valuetext={`${clamp(playheadSeconds, 0, view.durationSeconds).toFixed(3)} seconds`}
+              aria-valuenow={clamp(presentedPlayheadSeconds, 0, view.durationSeconds)}
+              aria-valuetext={`${clamp(presentedPlayheadSeconds, 0, view.durationSeconds).toFixed(3)} seconds`}
               onPointerDown={(event) => beginWaveformSeek(event, 'overview-seek')}
               onPointerMove={moveWaveformGesture}
               onPointerUp={finishWaveformGesture}
@@ -917,10 +929,10 @@ export function SpectrogramCanvas({
               aria-label="Visible time window"
               aria-valuemin={0}
               aria-valuemax={Math.max(0, view.durationSeconds - viewTimeSpan)}
-              aria-valuenow={view.timeStartSeconds}
-              aria-valuetext={`${view.timeStartSeconds.toFixed(3)} to ${view.timeEndSeconds.toFixed(3)} seconds`}
+              aria-valuenow={presentedViewportStartSeconds}
+              aria-valuetext={`${presentedViewportStartSeconds.toFixed(3)} to ${(presentedViewportStartSeconds + viewTimeSpan).toFixed(3)} seconds`}
               style={{
-                left: `${(view.timeStartSeconds / view.durationSeconds) * 100}%`,
+                left: `${(presentedViewportStartSeconds / view.durationSeconds) * 100}%`,
                 width: `${(viewTimeSpan / view.durationSeconds) * 100}%`,
               }}
               onPointerDown={beginViewportPan}
@@ -929,11 +941,13 @@ export function SpectrogramCanvas({
               onPointerCancel={cancelWaveformGesture}
               onLostPointerCapture={cancelWaveformGesture}
               onKeyDown={handleViewportKeyDown}
-            />
+            >
+              <span className="waveform-viewport-visual" aria-hidden="true" />
+            </div>
             <span
               className="playhead-line waveform-playhead overview-playhead"
               style={{
-                left: `${(clamp(playheadSeconds, 0, view.durationSeconds) / view.durationSeconds) * 100}%`,
+                left: `${(clamp(presentedPlayheadSeconds, 0, view.durationSeconds) / view.durationSeconds) * 100}%`,
               }}
               aria-hidden="true"
             />
@@ -943,7 +957,7 @@ export function SpectrogramCanvas({
               title="Drag playhead"
               aria-hidden="true"
               style={{
-                left: `${(clamp(playheadSeconds, 0, view.durationSeconds) / view.durationSeconds) * 100}%`,
+                left: `${(clamp(presentedPlayheadSeconds, 0, view.durationSeconds) / view.durationSeconds) * 100}%`,
               }}
               onPointerDown={(event) => beginWaveformSeek(event, 'playhead-seek')}
               onPointerMove={moveWaveformGesture}
@@ -967,11 +981,16 @@ export function SpectrogramCanvas({
             aria-label="Seek within the visible waveform"
             aria-valuemin={view.timeStartSeconds}
             aria-valuemax={view.timeEndSeconds}
-            aria-valuenow={clamp(playheadSeconds, view.timeStartSeconds, view.timeEndSeconds)}
+            aria-valuenow={clamp(
+              presentedPlayheadSeconds,
+              view.timeStartSeconds,
+              view.timeEndSeconds,
+            )}
             aria-valuetext={
-              playheadSeconds < view.timeStartSeconds || playheadSeconds > view.timeEndSeconds
-                ? `Playhead is outside the visible window; nearest boundary ${clamp(playheadSeconds, view.timeStartSeconds, view.timeEndSeconds).toFixed(3)} seconds`
-                : `${playheadSeconds.toFixed(3)} seconds`
+              presentedPlayheadSeconds < view.timeStartSeconds ||
+              presentedPlayheadSeconds > view.timeEndSeconds
+                ? `Playhead is outside the visible window; nearest boundary ${clamp(presentedPlayheadSeconds, view.timeStartSeconds, view.timeEndSeconds).toFixed(3)} seconds`
+                : `${presentedPlayheadSeconds.toFixed(3)} seconds`
             }
             onPointerDown={(event) => beginWaveformSeek(event, 'detail-seek')}
             onPointerMove={moveWaveformGesture}
@@ -982,14 +1001,15 @@ export function SpectrogramCanvas({
               handleSeekKeyDown(event, view.timeStartSeconds, view.timeEndSeconds)
             }
           />
-          {playheadSeconds >= view.timeStartSeconds && playheadSeconds <= view.timeEndSeconds && (
-            <span
-              className="playhead-line waveform-playhead"
-              style={{
-                left: `${((playheadSeconds - view.timeStartSeconds) / viewTimeSpan) * 100}%`,
-              }}
-            />
-          )}
+          {presentedPlayheadSeconds >= view.timeStartSeconds &&
+            presentedPlayheadSeconds <= view.timeEndSeconds && (
+              <span
+                className="playhead-line waveform-playhead"
+                style={{
+                  left: `${((presentedPlayheadSeconds - view.timeStartSeconds) / viewTimeSpan) * 100}%`,
+                }}
+              />
+            )}
         </div>
       </div>
       <div className="frequency-axis" aria-hidden="true">
@@ -1054,14 +1074,15 @@ export function SpectrogramCanvas({
             aria-hidden="true"
           />
         )}
-        {playheadSeconds >= view.timeStartSeconds && playheadSeconds <= view.timeEndSeconds && (
-          <span
-            className="playhead-line"
-            style={{
-              left: `${((playheadSeconds - view.timeStartSeconds) / (view.timeEndSeconds - view.timeStartSeconds)) * 100}%`,
-            }}
-          />
-        )}
+        {presentedPlayheadSeconds >= view.timeStartSeconds &&
+          presentedPlayheadSeconds <= view.timeEndSeconds && (
+            <span
+              className="playhead-line"
+              style={{
+                left: `${((presentedPlayheadSeconds - view.timeStartSeconds) / (view.timeEndSeconds - view.timeStartSeconds)) * 100}%`,
+              }}
+            />
+          )}
         {visibleBoxes
           .filter(({ box }) => !denseAnnotations || box.id === selectedBoxId)
           .map(({ box, rect }) => {

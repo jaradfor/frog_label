@@ -157,7 +157,7 @@ describe('SpectrogramCanvas waveform navigation', () => {
     expect(viewportWindow).toHaveAttribute('aria-valuetext', '2.000 to 6.000 seconds');
   });
 
-  it('seeks in visible and global coordinates without repeating an unchanged release seek', () => {
+  it('previews seek drags locally and commits only the final coordinate', async () => {
     const onSeek = vi.fn();
     const common = canvasProps();
     const result = render(
@@ -190,6 +190,8 @@ describe('SpectrogramCanvas waveform navigation', () => {
     expect(onSeek).toHaveBeenCalledTimes(3);
     fireEvent.pointerDown(overviewPlayhead, { pointerId: 34, button: 0, clientX: 136 });
     fireEvent.pointerMove(overviewPlayhead, { pointerId: 34, buttons: 1, clientX: 256 });
+    await waitFor(() => expect(overviewPlayhead).toHaveStyle({ left: '60%' }));
+    expect(onSeek).toHaveBeenCalledTimes(3);
     fireEvent.pointerUp(overviewPlayhead, { pointerId: 34, button: 0, clientX: 256 });
     expect(onSeek).toHaveBeenNthCalledWith(4, 6);
 
@@ -201,7 +203,7 @@ describe('SpectrogramCanvas waveform navigation', () => {
     expect(onSeek).toHaveBeenCalledTimes(6);
   });
 
-  it('drags the overview window horizontally while preserving its time span', () => {
+  it('previews an overview drag locally and commits its final position once', async () => {
     const onTimeWindowStartChange = vi.fn();
     const common = canvasProps();
     const result = render(
@@ -214,11 +216,20 @@ describe('SpectrogramCanvas waveform navigation', () => {
     const overview = result.container.querySelector('.waveform-overview') as HTMLDivElement;
     mockRect(overview, 10, 400, 32);
     const viewportWindow = result.getByRole('slider', { name: 'Visible time window' });
+    expect(viewportWindow.querySelector('.waveform-viewport-visual')).toHaveAttribute(
+      'aria-hidden',
+      'true',
+    );
 
     fireEvent.pointerDown(viewportWindow, { pointerId: 41, button: 0, clientX: 110 });
-    fireEvent.pointerMove(viewportWindow, { pointerId: 41, buttons: 1, clientX: 190 });
+    for (let clientX = 114; clientX <= 190; clientX += 4) {
+      fireEvent.pointerMove(viewportWindow, { pointerId: 41, buttons: 1, clientX });
+    }
+    await waitFor(() => expect(viewportWindow).toHaveStyle({ left: '40%' }));
+    expect(onTimeWindowStartChange).not.toHaveBeenCalled();
     fireEvent.pointerUp(viewportWindow, { pointerId: 41, button: 0, clientX: 190 });
 
+    expect(onTimeWindowStartChange).toHaveBeenCalledTimes(1);
     expect(onTimeWindowStartChange).toHaveBeenLastCalledWith(4);
   });
 

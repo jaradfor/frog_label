@@ -9,6 +9,6 @@
 
 Frequency-axis tuning lives in panel `3`. **Linear** devotes more space to high frequencies, **Logarithmic** strongly expands low frequencies, and **Adjustable** provides a 0–100% low-frequency-emphasis slider between those working styles. This is a view preference only: existing and new boxes remain stored in exact hertz.
 
-When time is zoomed, a global overview appears above the detailed waveform. Drag its yellow playhead marker to scrub globally, or click or drag outside the highlighted viewport to seek elsewhere in the recording. Drag the viewport itself left or right to pan in time while preserving its duration and both frequency bounds; use the detailed waveform to seek within that visible window.
+When time is zoomed, a global overview appears above the detailed waveform. Drag its yellow playhead marker to scrub globally, or click or drag outside the highlighted viewport to seek elsewhere in the recording. Drag the viewport itself left or right to pan in time while preserving its duration and both frequency bounds; use the detailed waveform to seek within that visible window. Pressing **Play** while time is zoomed starts at the visible left edge.
 
 Rows marked **historical** are shown for reference but cannot be selected. Ask a project administrator to update them.

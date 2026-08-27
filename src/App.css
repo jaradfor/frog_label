@@ -523,9 +523,12 @@
     outline: none;
   }
   .waveform-seek-surface:focus-visible,
-  .waveform-viewport-window:focus-visible {
+  .waveform-viewport-window:focus-visible .waveform-viewport-visual {
     outline: 2px solid #fff68a;
     outline-offset: -2px;
+  }
+  .waveform-viewport-window:focus-visible {
+    outline: none;
   }
   .waveform-viewport-window {
     position: absolute;
@@ -533,14 +536,22 @@
     top: 9px;
     bottom: 2px;
     min-width: 2px;
+    cursor: grab;
+    outline: none;
+  }
+  .waveform-viewport-visual {
+    position: absolute;
+    top: -7px;
+    right: 0;
+    bottom: 0;
+    left: 0;
     border: 2px solid #b8f0c5;
     border-radius: 3px;
     background: rgb(112 230 161 / 0.13);
     box-shadow:
       0 0 0 1px rgb(4 10 6 / 0.8),
       inset 0 0 8px rgb(112 230 161 / 0.18);
-    cursor: grab;
-    outline: none;
+    pointer-events: none;
   }
   .waveform-viewport-window::before {
     position: absolute;
